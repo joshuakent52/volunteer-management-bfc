@@ -2,6 +2,8 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 
+export const dynamic = 'force-dynamic'
+
 export default function AdminPage() {
   const [profile, setProfile] = useState(null)
   const [volunteers, setVolunteers] = useState([])
