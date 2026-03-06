@@ -30,8 +30,10 @@ export default function LoginPage() {
 
     if (profile?.role === 'admin') {
       window.location.href = '/admin'
-    } else {
+    } else if (profile?.role === 'volunteer') {
       window.location.href = '/volunteer'
+    } else {
+      alert('No profile found. Contact your administrator.')
     }
   }
 
