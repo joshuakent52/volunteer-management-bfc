@@ -71,8 +71,8 @@ export default function LoginPage() {
             marginBottom: '1rem',
             fontSize: '1.5rem',
           }}>🤝</div>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.02em' }}>
-            VolunteerHub
+          <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--text)', letterSpacing: '-0.02em' }}>
+            Bingham Family Clinic Volunteers
           </h1>
           <p style={{ color: 'var(--muted)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
             Sign in to your account
