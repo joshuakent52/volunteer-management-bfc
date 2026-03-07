@@ -32,8 +32,6 @@ export default function LoginPage() {
       window.location.href = '/admin'
     } else {
       window.location.href = '/volunteer'
-    } else {
-      alert('No profile found. Contact your administrator.')
     }
   }
 
