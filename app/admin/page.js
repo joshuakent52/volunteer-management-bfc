@@ -297,7 +297,7 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-          {[['dashboard','📊 Live'],['schedule','📅 Schedule'],['volunteers','👥 Volunteers'],['callouts','📋 Call-Outs'],['create','➕ Add Volunteer']].map(([key, label]) => (
+          {[['dashboard','Live'],['schedule','Schedule'],['volunteers','Volunteers'],['callouts','Call-Outs'],['create','➕ Add Volunteer']].map(([key, label]) => (
             <button key={key} onClick={() => { setTab(key); setSelectedVolunteer(null); setAddingRole(null) }} style={{
               padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
               background: tab === key ? 'var(--accent)' : 'var(--surface)',
@@ -317,7 +317,7 @@ export default function AdminPage() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: missing.length > 0 ? '1rem' : 0 }}>
                   <h2 style={{ fontWeight: 600, fontSize: '1rem' }}>
                     {missing.length > 0
-                      ? `⚠️ ${missing.length} volunteer${missing.length > 1 ? 's' : ''} missing — ${currentDay} ${currentShift}`
+                      ? `⚠️ ${missing.length} Volunteer${missing.length > 1 ? 's' : ''} missing — ${currentDay} ${currentShift}`
                       : `✅ All volunteers present — ${currentDay} ${currentShift}`
                     }
                   </h2>
@@ -506,7 +506,7 @@ export default function AdminPage() {
                 color: editing ? 'var(--muted)' : '#0a0f0a',
                 border: editing ? '1px solid var(--border)' : 'none',
               }}>
-                {editing ? 'Cancel' : '✏️ Edit'}
+                {editing ? 'Cancel' : 'Edit'}
               </button>
             </div>
 

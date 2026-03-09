@@ -138,7 +138,7 @@ export default function VolunteerPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
           <div>
             <h1 style={{ fontSize: '1.4rem', fontWeight: 600, letterSpacing: '-0.02em' }}>
-              👋 Hey, {profile?.full_name?.split(' ')[0]}
+              Hey, {profile?.full_name?.split(' ')[0]}
             </h1>
             <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
               {new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}
@@ -169,7 +169,7 @@ export default function VolunteerPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-          {[['clock','⏱ Clock'],['schedule','📅 Schedule'],['callout','📋 Call-Out'],['history','🕐 History']].map(([key, label]) => (
+          {[['clock','⏱ Clock'],['schedule','Schedule'],['callout','Call-Out'],['history','History']].map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)} style={{
               padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500,
               cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
@@ -190,7 +190,7 @@ export default function VolunteerPage() {
                 border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 600,
                 cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
               }}>
-                {clockLoading ? 'Processing...' : '🔴 Clock Out'}
+                {clockLoading ? 'Processing...' : 'Clock Out'}
               </button>
             ) : (
               <button onClick={handleClockIn} disabled={clockLoading} style={{
@@ -198,7 +198,7 @@ export default function VolunteerPage() {
                 border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 600,
                 cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
               }}>
-                {clockLoading ? 'Processing...' : '🟢 Clock In'}
+                {clockLoading ? 'Processing...' : 'Clock In'}
               </button>
             )}
           </div>
