@@ -22,6 +22,13 @@ export default function VolunteerPage() {
   const [clockLoading, setClockLoading] = useState(false)
   const [tab, setTab] = useState('clock')
 
+  // Messaging state
+  const [messages, setMessages] = useState([])
+  const [msgBody, setMsgBody] = useState('')
+  const [msgRecipientType, setMsgRecipientType] = useState('admin')
+  const [sendingMsg, setSendingMsg] = useState(false)
+  const [msgView, setMsgView] = useState('inbox')
+
   useEffect(() => { init() }, [])
 
   async function init() {
@@ -52,6 +59,13 @@ export default function VolunteerPage() {
       .eq('volunteer_id', user.id)
       .order('day_of_week')
     setSchedule(sched || [])
+
+    const { data: msgs } = await supabase
+      .from('messages')
+      .select('*, profiles(full_name)')
+      .order('created_at', { ascending: false })
+      .limit(50)
+    setMessages(msgs || [])
 
     setLoading(false)
   }
@@ -94,6 +108,39 @@ export default function VolunteerPage() {
     }
   }
 
+  async function handleSendMessage(e) {
+    e.preventDefault()
+    if (!msgBody.trim()) return
+    setSendingMsg(true)
+
+    const myShifts = [...new Set(schedule.map(s => s.shift_time))]
+    const myRoles = [...new Set(schedule.map(s => s.role))]
+
+    const payload = {
+      sender_id: user.id,
+      recipient_type: msgRecipientType,
+      body: msgBody.trim(),
+      recipient_shift: msgRecipientType === 'shift' ? (myShifts[0] || null) : null,
+      recipient_role: msgRecipientType === 'role' ? (myRoles[0] || null) : null,
+    }
+
+    const { error } = await supabase.from('messages').insert(payload)
+    if (error) showMessage(error.message, 'error')
+    else {
+      showMessage('Message sent!', 'success')
+      setMsgBody('')
+      setMsgRecipientType('admin')
+      setMsgView('inbox')
+      const { data: msgs } = await supabase
+        .from('messages')
+        .select('*, profiles(full_name)')
+        .order('created_at', { ascending: false })
+        .limit(50)
+      setMessages(msgs || [])
+    }
+    setSendingMsg(false)
+  }
+
   function showMessage(text, type) {
     setMessage({ text, type })
     setTimeout(() => setMessage(null), 3500)
@@ -101,18 +148,30 @@ export default function VolunteerPage() {
 
   function formatTime(ts) {
     if (!ts) return '—'
-    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    return new Date(ts).toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit' })
   }
 
   function formatDate(ts) {
     if (!ts) return '—'
-    return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' })
+    return new Date(ts).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric' })
+  }
+
+  function formatDateTime(ts) {
+    if (!ts) return '—'
+    return new Date(ts).toLocaleString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   }
 
   function calcHours(clock_in, clock_out) {
     if (!clock_out) return 'Active'
-    const diff = (new Date(clock_out) - new Date(clock_in)) / 1000 / 60 / 60
-    return diff.toFixed(1) + 'h'
+    return ((new Date(clock_out) - new Date(clock_in)) / 3600000).toFixed(1) + 'h'
+  }
+
+  function recipientLabel(msg) {
+    if (msg.recipient_type === 'everyone') return '📢 Everyone'
+    if (msg.recipient_type === 'admin') return '🛠 Admin'
+    if (msg.recipient_type === 'shift') return `⏱ Shift ${msg.recipient_shift}`
+    if (msg.recipient_type === 'role') return `👤 ${msg.recipient_role}`
+    return msg.recipient_type
   }
 
   async function handleSignOut() {
@@ -130,6 +189,11 @@ export default function VolunteerPage() {
   const inputStyle = { width: '100%', padding: '0.75rem 1rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '0.95rem', outline: 'none', fontFamily: 'DM Sans, sans-serif' }
   const labelStyle = { display: 'block', fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
 
+  const inboxMessages = messages.filter(m => m.sender_id !== user?.id)
+  const sentMessages = messages.filter(m => m.sender_id === user?.id)
+  const myShifts = [...new Set(schedule.map(s => s.shift_time))]
+  const myRoles = [...new Set(schedule.map(s => s.role))]
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
@@ -141,7 +205,7 @@ export default function VolunteerPage() {
               Hey, {profile?.full_name?.split(' ')[0]}
             </h1>
             <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
-              {new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}
+              {new Date().toLocaleDateString('en-US', { timeZone: 'America/Denver', weekday: 'long', month: 'long', day: 'numeric' })}
             </p>
           </div>
           <button onClick={handleSignOut} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>
@@ -150,17 +214,9 @@ export default function VolunteerPage() {
         </div>
 
         {/* Status banner */}
-        <div style={{
-          ...card, marginBottom: '1.5rem',
-          borderColor: activeShift ? 'var(--accent)' : 'var(--border)',
-          background: activeShift ? 'rgba(74,222,128,0.05)' : 'var(--surface)',
-        }}>
+        <div style={{ ...card, marginBottom: '1.5rem', borderColor: activeShift ? 'var(--accent)' : 'var(--border)', background: activeShift ? 'rgba(74,222,128,0.05)' : 'var(--surface)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{
-              width: '10px', height: '10px', borderRadius: '50%',
-              background: activeShift ? 'var(--accent)' : 'var(--muted)',
-              boxShadow: activeShift ? '0 0 8px var(--accent)' : 'none',
-            }} />
+            <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: activeShift ? 'var(--accent)' : 'var(--muted)', boxShadow: activeShift ? '0 0 8px var(--accent)' : 'none' }} />
             <span style={{ fontWeight: 500 }}>
               {activeShift ? `Clocked in since ${formatTime(activeShift.clock_in)}` : 'Not clocked in'}
             </span>
@@ -169,7 +225,7 @@ export default function VolunteerPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-          {[['clock','⏱ Clock'],['schedule','Schedule'],['callout','Call-Out'],['history','History']].map(([key, label]) => (
+          {[['clock','⏱ Clock'],['schedule','📅 Schedule'],['callout','📋 Call-Out'],['history','🕐 History'],['messages','💬 Messages']].map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)} style={{
               padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500,
               cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
@@ -185,19 +241,11 @@ export default function VolunteerPage() {
           <div style={card}>
             <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Clock In / Out</h2>
             {activeShift ? (
-              <button onClick={handleClockOut} disabled={clockLoading} style={{
-                width: '100%', padding: '1rem', background: 'var(--danger)', color: '#fff',
-                border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 600,
-                cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-              }}>
+              <button onClick={handleClockOut} disabled={clockLoading} style={{ width: '100%', padding: '1rem', background: 'var(--danger)', color: '#fff', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                 {clockLoading ? 'Processing...' : 'Clock Out'}
               </button>
             ) : (
-              <button onClick={handleClockIn} disabled={clockLoading} style={{
-                width: '100%', padding: '1rem', background: 'var(--accent)', color: '#0a0f0a',
-                border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 600,
-                cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-              }}>
+              <button onClick={handleClockIn} disabled={clockLoading} style={{ width: '100%', padding: '1rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                 {clockLoading ? 'Processing...' : 'Clock In'}
               </button>
             )}
@@ -224,12 +272,8 @@ export default function VolunteerPage() {
                           if (shiftEntries.length === 0) return null
                           return shiftEntries.map(entry => (
                             <div key={entry.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <span style={{ fontSize: '0.9rem', color: 'var(--text)' }}>{entry.role}</span>
-                              <span style={{
-                                fontFamily: 'DM Mono, monospace', fontSize: '0.8rem',
-                                color: 'var(--muted)', background: 'var(--surface)',
-                                padding: '0.2rem 0.6rem', borderRadius: '6px',
-                              }}>{shift}</span>
+                              <span style={{ fontSize: '0.9rem' }}>{entry.role}</span>
+                              <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', background: 'var(--surface)', padding: '0.2rem 0.6rem', borderRadius: '6px' }}>{shift}</span>
                             </div>
                           ))
                         })}
@@ -249,22 +293,14 @@ export default function VolunteerPage() {
             <form onSubmit={handleCallout} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div>
                 <label style={labelStyle}>Date you can't make it</label>
-                <input
-                  type="date" value={calloutDate}
-                  onChange={e => setCalloutDate(e.target.value)}
-                  required style={inputStyle}
-                />
+                <input type="date" value={calloutDate} onChange={e => setCalloutDate(e.target.value)} required style={inputStyle} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div>
                   <label style={labelStyle}>Day of week</label>
                   <select value={calloutDay} onChange={e => setCalloutDay(e.target.value)} style={inputStyle}>
                     <option value="">— Select —</option>
-                    {DAYS.map(d => (
-                      <option key={d} value={d}>
-                        {d.charAt(0).toUpperCase() + d.slice(1)}
-                      </option>
-                    ))}
+                    {DAYS.map(d => <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>)}
                   </select>
                 </div>
                 <div>
@@ -277,17 +313,9 @@ export default function VolunteerPage() {
               </div>
               <div>
                 <label style={labelStyle}>Reason (optional)</label>
-                <textarea
-                  value={calloutReason} onChange={e => setCalloutReason(e.target.value)}
-                  rows={3} placeholder="Let the team know why..."
-                  style={{ ...inputStyle, resize: 'vertical' }}
-                />
+                <textarea value={calloutReason} onChange={e => setCalloutReason(e.target.value)} rows={3} placeholder="Let the team know why..." style={{ ...inputStyle, resize: 'vertical' }} />
               </div>
-              <button type="submit" style={{
-                padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a',
-                border: 'none', borderRadius: '8px', fontWeight: 600,
-                cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-              }}>
+              <button type="submit" style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                 Submit Call-Out
               </button>
             </form>
@@ -303,21 +331,12 @@ export default function VolunteerPage() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {shifts.map(s => (
-                  <div key={s.id} style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: '0.75rem 1rem', background: 'var(--bg)',
-                    borderRadius: '8px', border: '1px solid var(--border)',
-                  }}>
+                  <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                     <div>
                       <p style={{ fontWeight: 500, fontSize: '0.9rem' }}>{formatDate(s.clock_in)}</p>
-                      <p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>
-                        {formatTime(s.clock_in)} → {formatTime(s.clock_out)}
-                      </p>
+                      <p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{formatTime(s.clock_in)} → {formatTime(s.clock_out)}</p>
                     </div>
-                    <span style={{
-                      fontFamily: 'DM Mono, monospace', fontSize: '0.9rem',
-                      color: s.clock_out ? 'var(--accent)' : 'var(--warn)',
-                    }}>
+                    <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', color: s.clock_out ? 'var(--accent)' : 'var(--warn)' }}>
                       {calcHours(s.clock_in, s.clock_out)}
                     </span>
                   </div>
@@ -327,15 +346,118 @@ export default function VolunteerPage() {
           </div>
         )}
 
+        {/* MESSAGES TAB */}
+        {tab === 'messages' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+            {/* Sub-nav */}
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              {[['inbox','📥 Inbox'],['sent','📤 Sent'],['compose','✏️ Compose']].map(([key, label]) => (
+                <button key={key} onClick={() => setMsgView(key)} style={{
+                  padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
+                  cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                  background: msgView === key ? 'var(--accent)' : 'var(--surface)',
+                  color: msgView === key ? '#0a0f0a' : 'var(--muted)',
+                  border: msgView === key ? 'none' : '1px solid var(--border)',
+                }}>{label}</button>
+              ))}
+            </div>
+
+            {/* Inbox */}
+            {msgView === 'inbox' && (
+              <div style={card}>
+                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Inbox</h2>
+                {inboxMessages.length === 0 ? (
+                  <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No messages yet.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {inboxMessages.map(m => (
+                      <div key={m.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                          <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{m.profiles?.full_name}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                              {recipientLabel(m)}
+                            </span>
+                            <span style={{ color: 'var(--muted)', fontSize: '0.78rem', fontFamily: 'DM Mono, monospace' }}>{formatDateTime(m.created_at)}</span>
+                          </div>
+                        </div>
+                        <p style={{ fontSize: '0.9rem', lineHeight: 1.5 }}>{m.body}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Sent */}
+            {msgView === 'sent' && (
+              <div style={card}>
+                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Sent Messages</h2>
+                {sentMessages.length === 0 ? (
+                  <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No sent messages yet.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {sentMessages.map(m => (
+                      <div key={m.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                          <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--muted)' }}>To: {recipientLabel(m)}</span>
+                          <span style={{ color: 'var(--muted)', fontSize: '0.78rem', fontFamily: 'DM Mono, monospace' }}>{formatDateTime(m.created_at)}</span>
+                        </div>
+                        <p style={{ fontSize: '0.9rem', lineHeight: 1.5 }}>{m.body}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Compose */}
+            {msgView === 'compose' && (
+              <div style={card}>
+                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>New Message</h2>
+                <form onSubmit={handleSendMessage} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div>
+                    <label style={labelStyle}>Send to</label>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      {[
+                        { value: 'admin', label: '🛠 Admin' },
+                        ...(myShifts.length > 0 ? [{ value: 'shift', label: '⏱ My Shift' }] : []),
+                        ...(myRoles.length > 0 ? [{ value: 'role', label: '👤 My Role' }] : []),
+                      ].map(opt => (
+                        <button key={opt.value} type="button" onClick={() => setMsgRecipientType(opt.value)} style={{
+                          padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
+                          cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                          background: msgRecipientType === opt.value ? 'var(--accent)' : 'var(--surface)',
+                          color: msgRecipientType === opt.value ? '#0a0f0a' : 'var(--muted)',
+                          border: msgRecipientType === opt.value ? 'none' : '1px solid var(--border)',
+                        }}>{opt.label}</button>
+                      ))}
+                    </div>
+                    {msgRecipientType === 'shift' && myShifts.length > 0 && (
+                      <p style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--muted)' }}>Sends to everyone in your shift{myShifts.length > 1 ? 's' : ''}: {myShifts.join(', ')}</p>
+                    )}
+                    {msgRecipientType === 'role' && myRoles.length > 0 && (
+                      <p style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--muted)' }}>Sends to everyone in your role{myRoles.length > 1 ? 's' : ''}: {myRoles.join(', ')}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Message</label>
+                    <textarea value={msgBody} onChange={e => setMsgBody(e.target.value)} required rows={4} placeholder="Write your message..." style={{ ...inputStyle, resize: 'vertical' }} />
+                  </div>
+                  <button type="submit" disabled={sendingMsg || !msgBody.trim()} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: sendingMsg ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                    {sendingMsg ? 'Sending...' : 'Send Message'}
+                  </button>
+                </form>
+              </div>
+            )}
+
+          </div>
+        )}
+
         {/* Toast */}
         {message && (
-          <div style={{
-            position: 'fixed', bottom: '1.5rem', left: '50%', transform: 'translateX(-50%)',
-            background: message.type === 'success' ? 'var(--accent)' : 'var(--danger)',
-            color: message.type === 'success' ? '#0a0f0a' : '#fff',
-            padding: '0.75rem 1.5rem', borderRadius: '100px', fontWeight: 500, fontSize: '0.9rem',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-          }}>
+          <div style={{ position: 'fixed', bottom: '1.5rem', left: '50%', transform: 'translateX(-50%)', background: message.type === 'success' ? 'var(--accent)' : 'var(--danger)', color: message.type === 'success' ? '#0a0f0a' : '#fff', padding: '0.75rem 1.5rem', borderRadius: '100px', fontWeight: 500, fontSize: '0.9rem', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
             {message.text}
           </div>
         )}

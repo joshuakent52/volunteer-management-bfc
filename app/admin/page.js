@@ -67,6 +67,15 @@ export default function AdminPage() {
   const [currentTime, setCurrentTime] = useState(getMountainNow())
   const [showReadCallouts, setShowReadCallouts] = useState(false)
 
+  // Messaging state
+  const [adminMessages, setAdminMessages] = useState([])
+  const [msgBody, setMsgBody] = useState('')
+  const [msgRecipientType, setMsgRecipientType] = useState('everyone')
+  const [msgRecipientShift, setMsgRecipientShift] = useState('10-2')
+  const [msgRecipientRole, setMsgRecipientRole] = useState('Clinical Staff')
+  const [sendingMsg, setSendingMsg] = useState(false)
+  const [msgView, setMsgView] = useState('inbox')
+
   // Schedule UI
   const [scheduleDay, setScheduleDay] = useState('monday')
   const [scheduleShift, setScheduleShift] = useState('10-2')
@@ -106,7 +115,7 @@ export default function AdminPage() {
     const { data: p } = await supabase.from('profiles').select('*').eq('id', user.id).single()
     if (p?.role !== 'admin') { window.location.href = '/volunteer'; return }
     setProfile(p)
-    await Promise.all([loadVolunteers(), loadActiveShifts(), loadCallouts(), loadSchedule()])
+    await Promise.all([loadVolunteers(), loadActiveShifts(), loadCallouts(), loadSchedule(), loadAdminMessages()])
     setLoading(false)
   }
 
@@ -128,6 +137,37 @@ export default function AdminPage() {
   async function loadSchedule() {
     const { data } = await supabase.from('schedule').select('*, profiles(id, full_name)').order('role')
     setSchedule(data || [])
+  }
+
+  async function loadAdminMessages() {
+    const { data } = await supabase
+      .from('messages')
+      .select('*, profiles(full_name)')
+      .order('created_at', { ascending: false })
+      .limit(100)
+    setAdminMessages(data || [])
+  }
+
+  async function handleAdminSendMessage(e) {
+    e.preventDefault()
+    if (!msgBody.trim()) return
+    setSendingMsg(true)
+    const payload = {
+      sender_id: profile.id,
+      recipient_type: msgRecipientType,
+      body: msgBody.trim(),
+      recipient_shift: msgRecipientType === 'shift' ? msgRecipientShift : null,
+      recipient_role: msgRecipientType === 'role' ? msgRecipientRole : null,
+    }
+    const { error } = await supabase.from('messages').insert(payload)
+    if (error) showMessage(error.message, 'error')
+    else {
+      showMessage('Message sent!', 'success')
+      setMsgBody('')
+      setMsgView('inbox')
+      await loadAdminMessages()
+    }
+    setSendingMsg(false)
   }
 
   async function markCalloutRead(id, isRead) {
@@ -312,7 +352,7 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-          {[['dashboard','📊 Live'],['schedule','📅 Schedule'],['volunteers','👥 Volunteers'],['callouts','📋 Call-Outs'],['create','➕ Add Volunteer']].map(([key, label]) => (
+          {[['dashboard','📊 Live'],['schedule','📅 Schedule'],['volunteers','👥 Volunteers'],['callouts','📋 Call-Outs'],['messages','💬 Messages'],['create','➕ Add Volunteer']].map(([key, label]) => (
             <button key={key} onClick={() => { setTab(key); setSelectedVolunteer(null); setAddingRole(null) }} style={{
               padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
               background: tab === key ? 'var(--accent)' : 'var(--surface)',
@@ -652,6 +692,141 @@ export default function AdminPage() {
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* MESSAGES TAB */}
+        {tab === 'messages' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+            {/* Sub-nav */}
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              {[['inbox','📥 Inbox'],['sent','📤 Sent'],['compose','✏️ Compose']].map(([key, label]) => (
+                <button key={key} onClick={() => setMsgView(key)} style={{
+                  padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
+                  cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                  background: msgView === key ? 'var(--accent)' : 'var(--surface)',
+                  color: msgView === key ? '#0a0f0a' : 'var(--muted)',
+                  border: msgView === key ? 'none' : '1px solid var(--border)',
+                }}>{label}</button>
+              ))}
+            </div>
+
+            {/* Inbox */}
+            {msgView === 'inbox' && (
+              <div style={card}>
+                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>All Messages</h2>
+                {adminMessages.filter(m => m.sender_id !== profile?.id).length === 0 ? (
+                  <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No messages yet.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {adminMessages.filter(m => m.sender_id !== profile?.id).map(m => (
+                      <div key={m.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                          <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{m.profiles?.full_name}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                              {m.recipient_type === 'everyone' ? '📢 Everyone' : m.recipient_type === 'admin' ? '🛠 Admin' : m.recipient_type === 'shift' ? `⏱ Shift ${m.recipient_shift}` : `👤 ${m.recipient_role}`}
+                            </span>
+                            <span style={{ color: 'var(--muted)', fontSize: '0.78rem', fontFamily: 'DM Mono, monospace' }}>
+                              {new Date(m.created_at).toLocaleString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                        </div>
+                        <p style={{ fontSize: '0.9rem', lineHeight: 1.5 }}>{m.body}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Sent */}
+            {msgView === 'sent' && (
+              <div style={card}>
+                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Sent Messages</h2>
+                {adminMessages.filter(m => m.sender_id === profile?.id).length === 0 ? (
+                  <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No sent messages yet.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {adminMessages.filter(m => m.sender_id === profile?.id).map(m => (
+                      <div key={m.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                          <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--muted)' }}>
+                            To: {m.recipient_type === 'everyone' ? '📢 Everyone' : m.recipient_type === 'admin' ? '🛠 Admin' : m.recipient_type === 'shift' ? `⏱ Shift ${m.recipient_shift}` : `👤 ${m.recipient_role}`}
+                          </span>
+                          <span style={{ color: 'var(--muted)', fontSize: '0.78rem', fontFamily: 'DM Mono, monospace' }}>
+                            {new Date(m.created_at).toLocaleString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <p style={{ fontSize: '0.9rem', lineHeight: 1.5 }}>{m.body}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Compose */}
+            {msgView === 'compose' && (
+              <div style={card}>
+                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>New Message</h2>
+                <form onSubmit={handleAdminSendMessage} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div>
+                    <label style={labelStyle}>Send to</label>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      {[
+                        { value: 'everyone', label: '📢 Everyone' },
+                        { value: 'admin', label: '🛠 Admins' },
+                        { value: 'shift', label: '⏱ Shift' },
+                        { value: 'role', label: '👤 Role' },
+                      ].map(opt => (
+                        <button key={opt.value} type="button" onClick={() => setMsgRecipientType(opt.value)} style={{
+                          padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
+                          cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                          background: msgRecipientType === opt.value ? 'var(--accent)' : 'var(--surface)',
+                          color: msgRecipientType === opt.value ? '#0a0f0a' : 'var(--muted)',
+                          border: msgRecipientType === opt.value ? 'none' : '1px solid var(--border)',
+                        }}>{opt.label}</button>
+                      ))}
+                    </div>
+                    {msgRecipientType === 'shift' && (
+                      <div style={{ marginTop: '0.75rem' }}>
+                        <label style={labelStyle}>Which shift</label>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          {['10-2','2-6'].map(s => (
+                            <button key={s} type="button" onClick={() => setMsgRecipientShift(s)} style={{
+                              padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
+                              cursor: 'pointer', fontFamily: 'DM Mono, monospace',
+                              background: msgRecipientShift === s ? '#1e40af' : 'var(--surface)',
+                              color: msgRecipientShift === s ? '#bfdbfe' : 'var(--muted)',
+                              border: msgRecipientShift === s ? 'none' : '1px solid var(--border)',
+                            }}>{s}</button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {msgRecipientType === 'role' && (
+                      <div style={{ marginTop: '0.75rem' }}>
+                        <label style={labelStyle}>Which role</label>
+                        <select value={msgRecipientRole} onChange={e => setMsgRecipientRole(e.target.value)} style={inputStyle}>
+                          {['Clinical Staff','Scribe','Receptionist','Lab','Pharmacy','Clinical Supervisor','Patient Nav.','Mental Health','Support Center','Young Support','Float','OSSM','Information Systems','Credentialing','Media','Provider'].map(r => (
+                            <option key={r} value={r}>{r}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Message</label>
+                    <textarea value={msgBody} onChange={e => setMsgBody(e.target.value)} required rows={4} placeholder="Write your message..." style={{ ...inputStyle, resize: 'vertical' }} />
+                  </div>
+                  <button type="submit" disabled={sendingMsg || !msgBody.trim()} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: sendingMsg ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                    {sendingMsg ? 'Sending...' : 'Send Message'}
+                  </button>
+                </form>
               </div>
             )}
           </div>
