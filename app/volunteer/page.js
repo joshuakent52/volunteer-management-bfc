@@ -62,7 +62,7 @@ export default function VolunteerPage() {
 
     const { data: msgs } = await supabase
       .from('messages')
-      .select('*, profiles(full_name)')
+      .select('*, sender:profiles!messages_sender_id_fkey(full_name)')
       .order('created_at', { ascending: false })
       .limit(50)
     setMessages(msgs || [])
@@ -135,7 +135,7 @@ export default function VolunteerPage() {
       setMsgView('inbox')
       const { data: msgs } = await supabase
         .from('messages')
-        .select('*, profiles(full_name)')
+        .select('*, sender:profiles!messages_sender_id_fkey(full_name)')
         .order('created_at', { ascending: false })
         .limit(50)
       setMessages(msgs || [])
@@ -374,7 +374,7 @@ export default function VolunteerPage() {
                     {inboxMessages.map(m => (
                       <div key={m.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
-                          <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{m.profiles?.full_name}</span>
+                          <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{m.sender?.full_name || 'Unknown'}</span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
                               {recipientLabel(m)}

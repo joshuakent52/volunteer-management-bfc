@@ -140,12 +140,11 @@ export default function AdminPage() {
   }
 
   async function loadAdminMessages() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('messages')
-      .select('*')
+      .select('*, sender:profiles!messages_sender_id_fkey(full_name)')
       .order('created_at', { ascending: false })
       .limit(100)
-    if (error) showMessage('Messages error: ' + error.message, 'error')
     setAdminMessages(data || [])
   }
 
@@ -712,7 +711,7 @@ export default function AdminPage() {
                     {adminMessages.filter(m => m.sender_id !== profile?.id).map(m => (
                       <div key={m.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
-                          <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{m.profiles?.full_name}</span>
+                          <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{m.sender?.full_name || 'Unknown'}</span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
                               {recipientLabel(m)}
