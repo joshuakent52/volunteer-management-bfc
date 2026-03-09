@@ -140,11 +140,12 @@ export default function AdminPage() {
   }
 
   async function loadAdminMessages() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('messages')
-      .select('*, profiles(full_name)')
+      .select('*')
       .order('created_at', { ascending: false })
       .limit(100)
+    if (error) showMessage('Messages error: ' + error.message, 'error')
     setAdminMessages(data || [])
   }
 
