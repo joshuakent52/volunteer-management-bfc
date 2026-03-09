@@ -14,34 +14,27 @@ const ROLES = [
 ]
 
 function getMountainNow() {
-  // Parse Mountain Time string directly — avoids all timezone offset math
   const str = new Date().toLocaleString('en-US', { timeZone: 'America/Denver' })
   return new Date(str)
 }
 
 function getMountainLabel() {
   const now = new Date()
-  const utcOffset = now.getTimezoneOffset()
   const mtnStr = now.toLocaleString('en-US', { timeZone: 'America/Denver' })
   const mtnDate = new Date(mtnStr)
   const mtnOffset = (now - mtnDate) / 60000
-  return mtnOffset <= 360 ? 'MDT' : 'MST'
+  return (mtnOffset <= 360) ? 'MDT' : 'MST'
 }
 
 function getCurrentDayAndShift() {
   const now = getMountainNow()
   const dayIndex = now.getDay()
   if (dayIndex === 0 || dayIndex === 6) return { day: null, shift: null, isShiftTime: false }
-
   const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
-  const hour = now.getHours()
-  const minute = now.getMinutes()
-  const timeDecimal = hour + minute / 60
-
+  const timeDecimal = now.getHours() + now.getMinutes() / 60
   let shift = null
   if (timeDecimal >= 10 && timeDecimal < 14) shift = '10-2'
   else if (timeDecimal >= 14 && timeDecimal < 18) shift = '2-6'
-
   return { day: dayName, shift, isShiftTime: !!shift }
 }
 
@@ -55,6 +48,11 @@ function formatDateMountain(ts) {
   return new Date(ts).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric' })
 }
 
+function formatDateTime(ts) {
+  if (!ts) return '—'
+  return new Date(ts).toLocaleString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
 export default function AdminPage() {
   const [profile, setProfile] = useState(null)
   const [volunteers, setVolunteers] = useState([])
@@ -63,18 +61,9 @@ export default function AdminPage() {
   const [schedule, setSchedule] = useState([])
   const [tab, setTab] = useState('dashboard')
   const [loading, setLoading] = useState(true)
-  const [message, setMessage] = useState(null)
+  const [toast, setToast] = useState(null)
   const [currentTime, setCurrentTime] = useState(getMountainNow())
   const [showReadCallouts, setShowReadCallouts] = useState(false)
-
-  // Messaging state
-  const [adminMessages, setAdminMessages] = useState([])
-  const [msgBody, setMsgBody] = useState('')
-  const [msgRecipientType, setMsgRecipientType] = useState('everyone')
-  const [msgRecipientShift, setMsgRecipientShift] = useState('10-2')
-  const [msgRecipientRole, setMsgRecipientRole] = useState('Clinical Staff')
-  const [sendingMsg, setSendingMsg] = useState(false)
-  const [msgView, setMsgView] = useState('inbox')
 
   // Schedule UI
   const [scheduleDay, setScheduleDay] = useState('monday')
@@ -102,6 +91,17 @@ export default function AdminPage() {
   const [newSmaContact, setNewSmaContact] = useState('')
   const [newSchool, setNewSchool] = useState('')
   const [creating, setCreating] = useState(false)
+
+  // Messaging
+  const [adminMessages, setAdminMessages] = useState([])
+  const [msgBody, setMsgBody] = useState('')
+  const [msgRecipientType, setMsgRecipientType] = useState('everyone')
+  const [msgRecipientShift, setMsgRecipientShift] = useState('10-2')
+  const [msgRecipientDay, setMsgRecipientDay] = useState('monday')
+  const [msgRecipientRole, setMsgRecipientRole] = useState('Clinical Staff')
+  const [msgRecipientVolId, setMsgRecipientVolId] = useState('')
+  const [sendingMsg, setSendingMsg] = useState(false)
+  const [msgView, setMsgView] = useState('inbox')
 
   useEffect(() => {
     init()
@@ -157,7 +157,9 @@ export default function AdminPage() {
       recipient_type: msgRecipientType,
       body: msgBody.trim(),
       recipient_shift: msgRecipientType === 'shift' ? msgRecipientShift : null,
+      recipient_day: msgRecipientType === 'shift' ? msgRecipientDay : null,
       recipient_role: msgRecipientType === 'role' ? msgRecipientRole : null,
+      recipient_volunteer_id: msgRecipientType === 'volunteer' ? msgRecipientVolId : null,
     }
     const { error } = await supabase.from('messages').insert(payload)
     if (error) showMessage(error.message, 'error')
@@ -179,14 +181,12 @@ export default function AdminPage() {
   function getMissingVolunteers() {
     const { day, shift, isShiftTime } = getCurrentDayAndShift()
     if (!isShiftTime) return { missing: [], day, shift, isShiftTime: false }
-
     const calledOutIds = new Set(
       callouts.filter(c => c.day_of_week === day && c.shift_time === shift).map(c => c.volunteer_id)
     )
     const scheduledEntries = schedule.filter(s => s.day_of_week === day && s.shift_time === shift)
     const scheduledIds = [...new Set(scheduledEntries.map(s => s.volunteer_id))]
     const clockedInIds = new Set(activeShifts.map(s => s.profiles?.id).filter(Boolean))
-
     const missing = scheduledIds
       .filter(id => !calledOutIds.has(id) && !clockedInIds.has(id))
       .map(id => {
@@ -194,7 +194,6 @@ export default function AdminPage() {
         return { id, name: entry?.profiles?.full_name, role: entry?.role }
       })
       .filter(v => v.name)
-
     return { missing, day, shift, isShiftTime: true }
   }
 
@@ -252,10 +251,7 @@ export default function AdminPage() {
     }).eq('id', selectedVolunteer.id)
     if (error) { showMessage(error.message, 'error'); setSaving(false); return }
     const { data: fresh } = await supabase
-      .from('profiles')
-      .select('*, shifts(*)')
-      .eq('id', selectedVolunteer.id)
-      .single()
+      .from('profiles').select('*, shifts(*)').eq('id', selectedVolunteer.id).single()
     showMessage('Profile updated!', 'success')
     setEditing(false)
     setSelectedVolunteer(fresh)
@@ -280,7 +276,8 @@ export default function AdminPage() {
     else {
       showMessage(`Account created for ${newName}!`, 'success')
       setNewName(''); setNewEmail(''); setNewPassword(''); setNewRole('volunteer')
-      setNewAffiliation(''); setNewParking(''); setNewPhone(''); setNewLanguages(''); setNewSmaName(''); setNewSmaContact(''); setNewSchool('')
+      setNewAffiliation(''); setNewParking(''); setNewPhone(''); setNewLanguages('')
+      setNewSmaName(''); setNewSmaContact(''); setNewSchool('')
       loadVolunteers()
     }
     setCreating(false)
@@ -289,13 +286,28 @@ export default function AdminPage() {
   function totalHours(shifts) {
     return shifts?.reduce((acc, s) => {
       if (!s.clock_out) return acc
-      return acc + (new Date(s.clock_out) - new Date(s.clock_in)) / 1000 / 60 / 60
+      return acc + (new Date(s.clock_out) - new Date(s.clock_in)) / 3600000
     }, 0).toFixed(1) || '0.0'
   }
 
   function showMessage(text, type) {
-    setMessage({ text, type })
-    setTimeout(() => setMessage(null), 3500)
+    setToast({ text, type })
+    setTimeout(() => setToast(null), 3500)
+  }
+
+  function recipientLabel(msg) {
+    if (msg.recipient_type === 'everyone') return '📢 Everyone'
+    if (msg.recipient_type === 'admin') return '🛠 Admins'
+    if (msg.recipient_type === 'volunteer') {
+      const v = volunteers.find(v => v.id === msg.recipient_volunteer_id)
+      return `👤 ${v?.full_name || 'Volunteer'}`
+    }
+    if (msg.recipient_type === 'shift') {
+      const day = msg.recipient_day ? msg.recipient_day.charAt(0).toUpperCase() + msg.recipient_day.slice(1, 3) : ''
+      return `⏱ ${day} ${msg.recipient_shift}`
+    }
+    if (msg.recipient_type === 'role') return `👥 ${msg.recipient_role}`
+    return msg.recipient_type
   }
 
   if (loading) return (
@@ -309,11 +321,22 @@ export default function AdminPage() {
   const labelStyle = { display: 'block', fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
   const affiliationColor = { missionary: '#a78bfa', student: '#60a5fa', volunteer: '#4ade80', provider: '#fbbf24' }
   const badgeStyle = (color) => ({ display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: '100px', fontSize: '0.75rem', fontWeight: 500, background: color + '22', color: color, border: `1px solid ${color}55` })
+  const pillBtn = (active, mono) => ({
+    padding: '0.45rem 0.85rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer',
+    fontFamily: mono ? 'DM Mono, monospace' : 'DM Sans, sans-serif',
+    background: active ? (mono ? '#1e40af' : 'var(--accent)') : 'var(--surface)',
+    color: active ? (mono ? '#bfdbfe' : '#0a0f0a') : 'var(--muted)',
+    border: active ? 'none' : '1px solid var(--border)',
+  })
 
   const { missing, day: currentDay, shift: currentShift, isShiftTime } = getMissingVolunteers()
   const unreadCallouts = callouts.filter(c => !c.is_read)
   const readCallouts = callouts.filter(c => c.is_read)
   const tzLabel = getMountainLabel()
+  const volunteerList = volunteers.filter(v => v.role === 'volunteer')
+
+  // Day+shift combos for admin messaging
+  const dayShiftCombos = DAYS.flatMap(d => SHIFTS.map(s => ({ day: d, shift: s, label: `${d.charAt(0).toUpperCase() + d.slice(1,3)} ${s}` })))
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
@@ -339,7 +362,7 @@ export default function AdminPage() {
         {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
           {[
-            { label: 'Total Volunteers', value: volunteers.filter(v => v.role === 'volunteer').length },
+            { label: 'Total Volunteers', value: volunteerList.length },
             { label: 'Clocked In Now', value: activeShifts.length, accent: true },
             { label: 'Unread Call-Outs', value: unreadCallouts.length, warn: unreadCallouts.length > 0 },
           ].map(s => (
@@ -365,15 +388,12 @@ export default function AdminPage() {
         {/* LIVE TAB */}
         {tab === 'dashboard' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-
-            {/* Missing volunteers */}
             {isShiftTime && (
               <div style={{ ...card, borderColor: missing.length > 0 ? 'var(--danger)' : 'var(--accent)', background: missing.length > 0 ? 'rgba(248,113,113,0.05)' : 'rgba(74,222,128,0.05)' }}>
                 <h2 style={{ fontWeight: 600, fontSize: '1rem', marginBottom: missing.length > 0 ? '1rem' : 0 }}>
                   {missing.length > 0
                     ? `⚠️ ${missing.length} volunteer${missing.length > 1 ? 's' : ''} not yet clocked in — ${currentDay} ${currentShift}`
-                    : `✅ All volunteers present — ${currentDay} ${currentShift}`
-                  }
+                    : `✅ All volunteers present — ${currentDay} ${currentShift}`}
                 </h2>
                 {missing.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -387,16 +407,13 @@ export default function AdminPage() {
                 )}
               </div>
             )}
-
             {!isShiftTime && (
-              <div style={{ ...card }}>
+              <div style={card}>
                 <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>
                   ℹ️ No active shift window right now. Missing volunteer alerts appear during shift hours (Mon–Fri, 10:00–14:00 and 14:00–18:00 {tzLabel}).
                 </p>
               </div>
             )}
-
-            {/* Clocked in */}
             <div style={card}>
               <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Currently Clocked In</h2>
               {activeShifts.length === 0 ? (
@@ -424,26 +441,15 @@ export default function AdminPage() {
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 {DAYS.map(d => (
-                  <button key={d} onClick={() => { setScheduleDay(d); setAddingRole(null) }} style={{
-                    padding: '0.45rem 0.85rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', textTransform: 'capitalize',
-                    background: scheduleDay === d ? 'var(--accent)' : 'var(--surface)',
-                    color: scheduleDay === d ? '#0a0f0a' : 'var(--muted)',
-                    border: scheduleDay === d ? 'none' : '1px solid var(--border)',
-                  }}>{d.slice(0,3)}</button>
+                  <button key={d} onClick={() => { setScheduleDay(d); setAddingRole(null) }} style={{ ...pillBtn(scheduleDay === d, false), textTransform: 'capitalize' }}>{d.slice(0,3)}</button>
                 ))}
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 {SHIFTS.map(sh => (
-                  <button key={sh} onClick={() => { setScheduleShift(sh); setAddingRole(null) }} style={{
-                    padding: '0.45rem 0.85rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Mono, monospace',
-                    background: scheduleShift === sh ? '#1e40af' : 'var(--surface)',
-                    color: scheduleShift === sh ? '#bfdbfe' : 'var(--muted)',
-                    border: scheduleShift === sh ? 'none' : '1px solid var(--border)',
-                  }}>{sh}</button>
+                  <button key={sh} onClick={() => { setScheduleShift(sh); setAddingRole(null) }} style={pillBtn(scheduleShift === sh, true)}>{sh}</button>
                 ))}
               </div>
             </div>
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {ROLES.map(role => {
                 const entries = getEntries(scheduleDay, scheduleShift, role)
@@ -483,15 +489,11 @@ export default function AdminPage() {
                       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                         <select value={addVolId} onChange={e => setAddVolId(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
                           <option value="">— Select volunteer —</option>
-                          {volunteers.filter(v => v.role === 'volunteer').map(v => (
-                            <option key={v.id} value={v.id}>{v.full_name}</option>
-                          ))}
+                          {volunteerList.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}
                         </select>
-                        <button onClick={handleAddEntry} disabled={!addVolId || addingEntry} style={{
-                          padding: '0.75rem 1.25rem', background: 'var(--accent)', color: '#0a0f0a',
-                          border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer',
-                          fontFamily: 'DM Sans, sans-serif', whiteSpace: 'nowrap',
-                        }}>{addingEntry ? '...' : 'Assign'}</button>
+                        <button onClick={handleAddEntry} disabled={!addVolId || addingEntry} style={{ padding: '0.75rem 1.25rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', whiteSpace: 'nowrap' }}>
+                          {addingEntry ? '...' : 'Assign'}
+                        </button>
                       </div>
                     )}
                   </div>
@@ -506,7 +508,7 @@ export default function AdminPage() {
           <div style={card}>
             <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>All Volunteers <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: '0.85rem' }}>— click to view or edit</span></h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {volunteers.filter(v => v.role === 'volunteer').map(v => (
+              {volunteerList.map(v => (
                 <div key={v.id} onClick={() => openVolunteer(v)}
                   style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', cursor: 'pointer' }}
                   onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
@@ -637,16 +639,10 @@ export default function AdminPage() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: c.reason ? '0.25rem' : 0 }}>
                         <div>
                           <span style={{ fontWeight: 500 }}>{c.profiles?.full_name}</span>
-                          {c.shift_time && (
-                            <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'capitalize' }}>
-                              {c.day_of_week} {c.shift_time}
-                            </span>
-                          )}
+                          {c.shift_time && <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'capitalize' }}>{c.day_of_week} {c.shift_time}</span>}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                          <span style={{ color: 'var(--warn)', fontFamily: 'DM Mono, monospace', fontSize: '0.85rem' }}>
-                            {formatDateMountain(c.callout_date)}
-                          </span>
+                          <span style={{ color: 'var(--warn)', fontFamily: 'DM Mono, monospace', fontSize: '0.85rem' }}>{formatDateMountain(c.callout_date)}</span>
                           <button onClick={() => markCalloutRead(c.id, true)} style={{ padding: '0.25rem 0.65rem', background: 'rgba(74,222,128,0.1)', color: 'var(--accent)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', whiteSpace: 'nowrap' }}>
                             ✓ Mark read
                           </button>
@@ -658,7 +654,6 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
-
             {readCallouts.length > 0 && (
               <div style={card}>
                 <button onClick={() => setShowReadCallouts(!showReadCallouts)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.9rem', fontWeight: 500, padding: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -672,16 +667,10 @@ export default function AdminPage() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: c.reason ? '0.25rem' : 0 }}>
                           <div>
                             <span style={{ fontWeight: 500 }}>{c.profiles?.full_name}</span>
-                            {c.shift_time && (
-                              <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'capitalize' }}>
-                                {c.day_of_week} {c.shift_time}
-                              </span>
-                            )}
+                            {c.shift_time && <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'capitalize' }}>{c.day_of_week} {c.shift_time}</span>}
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                            <span style={{ color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: '0.85rem' }}>
-                              {formatDateMountain(c.callout_date)}
-                            </span>
+                            <span style={{ color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: '0.85rem' }}>{formatDateMountain(c.callout_date)}</span>
                             <button onClick={() => markCalloutRead(c.id, false)} style={{ padding: '0.25rem 0.65rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', whiteSpace: 'nowrap' }}>
                               ↩ Unmark
                             </button>
@@ -700,8 +689,6 @@ export default function AdminPage() {
         {/* MESSAGES TAB */}
         {tab === 'messages' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-
-            {/* Sub-nav */}
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               {[['inbox','📥 Inbox'],['sent','📤 Sent'],['compose','✏️ Compose']].map(([key, label]) => (
                 <button key={key} onClick={() => setMsgView(key)} style={{
@@ -714,7 +701,6 @@ export default function AdminPage() {
               ))}
             </div>
 
-            {/* Inbox */}
             {msgView === 'inbox' && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>All Messages</h2>
@@ -728,11 +714,9 @@ export default function AdminPage() {
                           <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{m.profiles?.full_name}</span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
-                              {m.recipient_type === 'everyone' ? '📢 Everyone' : m.recipient_type === 'admin' ? '🛠 Admin' : m.recipient_type === 'shift' ? `⏱ Shift ${m.recipient_shift}` : `👤 ${m.recipient_role}`}
+                              {recipientLabel(m)}
                             </span>
-                            <span style={{ color: 'var(--muted)', fontSize: '0.78rem', fontFamily: 'DM Mono, monospace' }}>
-                              {new Date(m.created_at).toLocaleString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                            </span>
+                            <span style={{ color: 'var(--muted)', fontSize: '0.78rem', fontFamily: 'DM Mono, monospace' }}>{formatDateTime(m.created_at)}</span>
                           </div>
                         </div>
                         <p style={{ fontSize: '0.9rem', lineHeight: 1.5 }}>{m.body}</p>
@@ -743,7 +727,6 @@ export default function AdminPage() {
               </div>
             )}
 
-            {/* Sent */}
             {msgView === 'sent' && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Sent Messages</h2>
@@ -754,12 +737,8 @@ export default function AdminPage() {
                     {adminMessages.filter(m => m.sender_id === profile?.id).map(m => (
                       <div key={m.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
-                          <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--muted)' }}>
-                            To: {m.recipient_type === 'everyone' ? '📢 Everyone' : m.recipient_type === 'admin' ? '🛠 Admin' : m.recipient_type === 'shift' ? `⏱ Shift ${m.recipient_shift}` : `👤 ${m.recipient_role}`}
-                          </span>
-                          <span style={{ color: 'var(--muted)', fontSize: '0.78rem', fontFamily: 'DM Mono, monospace' }}>
-                            {new Date(m.created_at).toLocaleString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                          </span>
+                          <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--muted)' }}>To: {recipientLabel(m)}</span>
+                          <span style={{ color: 'var(--muted)', fontSize: '0.78rem', fontFamily: 'DM Mono, monospace' }}>{formatDateTime(m.created_at)}</span>
                         </div>
                         <p style={{ fontSize: '0.9rem', lineHeight: 1.5 }}>{m.body}</p>
                       </div>
@@ -769,7 +748,6 @@ export default function AdminPage() {
               </div>
             )}
 
-            {/* Compose */}
             {msgView === 'compose' && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>New Message</h2>
@@ -781,7 +759,8 @@ export default function AdminPage() {
                         { value: 'everyone', label: '📢 Everyone' },
                         { value: 'admin', label: '🛠 Admins' },
                         { value: 'shift', label: '⏱ Shift' },
-                        { value: 'role', label: '👤 Role' },
+                        { value: 'role', label: '👥 Role' },
+                        { value: 'volunteer', label: '👤 Individual' },
                       ].map(opt => (
                         <button key={opt.value} type="button" onClick={() => setMsgRecipientType(opt.value)} style={{
                           padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
@@ -792,38 +771,59 @@ export default function AdminPage() {
                         }}>{opt.label}</button>
                       ))}
                     </div>
+
+                    {/* Shift picker — day + shift combo */}
                     {msgRecipientType === 'shift' && (
                       <div style={{ marginTop: '0.75rem' }}>
                         <label style={labelStyle}>Which shift</label>
-                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                          {['10-2','2-6'].map(s => (
-                            <button key={s} type="button" onClick={() => setMsgRecipientShift(s)} style={{
-                              padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
-                              cursor: 'pointer', fontFamily: 'DM Mono, monospace',
-                              background: msgRecipientShift === s ? '#1e40af' : 'var(--surface)',
-                              color: msgRecipientShift === s ? '#bfdbfe' : 'var(--muted)',
-                              border: msgRecipientShift === s ? 'none' : '1px solid var(--border)',
-                            }}>{s}</button>
-                          ))}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          {dayShiftCombos.map(({ day, shift, label }) => {
+                            const active = msgRecipientDay === day && msgRecipientShift === shift
+                            return (
+                              <button key={label} type="button"
+                                onClick={() => { setMsgRecipientDay(day); setMsgRecipientShift(shift) }}
+                                style={{
+                                  padding: '0.4rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500,
+                                  cursor: 'pointer', fontFamily: 'DM Mono, monospace',
+                                  background: active ? '#1e40af' : 'var(--surface)',
+                                  color: active ? '#bfdbfe' : 'var(--muted)',
+                                  border: active ? 'none' : '1px solid var(--border)',
+                                }}>{label}</button>
+                            )
+                          })}
                         </div>
                       </div>
                     )}
+
+                    {/* Role picker */}
                     {msgRecipientType === 'role' && (
                       <div style={{ marginTop: '0.75rem' }}>
                         <label style={labelStyle}>Which role</label>
                         <select value={msgRecipientRole} onChange={e => setMsgRecipientRole(e.target.value)} style={inputStyle}>
-                          {['Clinical Staff','Scribe','Receptionist','Lab','Pharmacy','Clinical Supervisor','Patient Nav.','Mental Health','Support Center','Young Support','Float','OSSM','Information Systems','Credentialing','Media','Provider'].map(r => (
-                            <option key={r} value={r}>{r}</option>
-                          ))}
+                          {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Individual volunteer picker */}
+                    {msgRecipientType === 'volunteer' && (
+                      <div style={{ marginTop: '0.75rem' }}>
+                        <label style={labelStyle}>Which volunteer</label>
+                        <select value={msgRecipientVolId} onChange={e => setMsgRecipientVolId(e.target.value)} style={inputStyle}>
+                          <option value="">— Select volunteer —</option>
+                          {volunteers.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}
                         </select>
                       </div>
                     )}
                   </div>
+
                   <div>
                     <label style={labelStyle}>Message</label>
                     <textarea value={msgBody} onChange={e => setMsgBody(e.target.value)} required rows={4} placeholder="Write your message..." style={{ ...inputStyle, resize: 'vertical' }} />
                   </div>
-                  <button type="submit" disabled={sendingMsg || !msgBody.trim()} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: sendingMsg ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                  <button type="submit"
+                    disabled={sendingMsg || !msgBody.trim() || (msgRecipientType === 'volunteer' && !msgRecipientVolId)}
+                    style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: sendingMsg ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                     {sendingMsg ? 'Sending...' : 'Send Message'}
                   </button>
                 </form>
@@ -877,9 +877,9 @@ export default function AdminPage() {
         )}
 
         {/* Toast */}
-        {message && (
-          <div style={{ position: 'fixed', bottom: '1.5rem', left: '50%', transform: 'translateX(-50%)', background: message.type === 'success' ? 'var(--accent)' : 'var(--danger)', color: message.type === 'success' ? '#0a0f0a' : '#fff', padding: '0.75rem 1.5rem', borderRadius: '100px', fontWeight: 500, fontSize: '0.9rem', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
-            {message.text}
+        {toast && (
+          <div style={{ position: 'fixed', bottom: '1.5rem', left: '50%', transform: 'translateX(-50%)', background: toast.type === 'success' ? 'var(--accent)' : 'var(--danger)', color: toast.type === 'success' ? '#0a0f0a' : '#fff', padding: '0.75rem 1.5rem', borderRadius: '100px', fontWeight: 500, fontSize: '0.9rem', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
+            {toast.text}
           </div>
         )}
       </div>

@@ -17,7 +17,7 @@ export default function VolunteerPage() {
   const [calloutDay, setCalloutDay] = useState('')
   const [calloutShift, setCalloutShift] = useState('')
   const [calloutReason, setCalloutReason] = useState('')
-  const [message, setMessage] = useState(null)
+  const [toast, setToast] = useState(null)
   const [loading, setLoading] = useState(true)
   const [clockLoading, setClockLoading] = useState(false)
   const [tab, setTab] = useState('clock')
@@ -76,8 +76,8 @@ export default function VolunteerPage() {
       .from('shifts')
       .insert({ volunteer_id: user.id, clock_in: new Date().toISOString() })
       .select().single()
-    if (error) showMessage(error.message, 'error')
-    else { setActiveShift(data); showMessage('Clocked in successfully!', 'success') }
+    if (error) showToast(error.message, 'error')
+    else { setActiveShift(data); showToast('Clocked in successfully!', 'success') }
     setClockLoading(false)
   }
 
@@ -87,8 +87,8 @@ export default function VolunteerPage() {
       .from('shifts')
       .update({ clock_out: new Date().toISOString() })
       .eq('id', activeShift.id)
-    if (error) showMessage(error.message, 'error')
-    else { setActiveShift(null); showMessage('Clocked out. Great work!', 'success'); init() }
+    if (error) showToast(error.message, 'error')
+    else { setActiveShift(null); showToast('Clocked out. Great work!', 'success'); init() }
     setClockLoading(false)
   }
 
@@ -101,9 +101,9 @@ export default function VolunteerPage() {
       shift_time: calloutShift || null,
       reason: calloutReason,
     })
-    if (error) showMessage(error.message, 'error')
+    if (error) showToast(error.message, 'error')
     else {
-      showMessage('Call-out submitted!', 'success')
+      showToast('Call-out submitted!', 'success')
       setCalloutDate(''); setCalloutDay(''); setCalloutShift(''); setCalloutReason('')
     }
   }
@@ -122,12 +122,14 @@ export default function VolunteerPage() {
       body: msgBody.trim(),
       recipient_shift: msgRecipientType === 'shift' ? (myShifts[0] || null) : null,
       recipient_role: msgRecipientType === 'role' ? (myRoles[0] || null) : null,
+      recipient_day: null,
+      recipient_volunteer_id: null,
     }
 
     const { error } = await supabase.from('messages').insert(payload)
-    if (error) showMessage(error.message, 'error')
+    if (error) showToast(error.message, 'error')
     else {
-      showMessage('Message sent!', 'success')
+      showToast('Message sent!', 'success')
       setMsgBody('')
       setMsgRecipientType('admin')
       setMsgView('inbox')
@@ -141,9 +143,9 @@ export default function VolunteerPage() {
     setSendingMsg(false)
   }
 
-  function showMessage(text, type) {
-    setMessage({ text, type })
-    setTimeout(() => setMessage(null), 3500)
+  function showToast(text, type) {
+    setToast({ text, type })
+    setTimeout(() => setToast(null), 3500)
   }
 
   function formatTime(ts) {
@@ -169,8 +171,9 @@ export default function VolunteerPage() {
   function recipientLabel(msg) {
     if (msg.recipient_type === 'everyone') return '📢 Everyone'
     if (msg.recipient_type === 'admin') return '🛠 Admin'
-    if (msg.recipient_type === 'shift') return `⏱ Shift ${msg.recipient_shift}`
-    if (msg.recipient_type === 'role') return `👤 ${msg.recipient_role}`
+    if (msg.recipient_type === 'volunteer') return '👤 You'
+    if (msg.recipient_type === 'shift') return `⏱ ${msg.recipient_day ? msg.recipient_day.slice(0,3) + ' ' : ''}${msg.recipient_shift}`
+    if (msg.recipient_type === 'role') return `👥 ${msg.recipient_role}`
     return msg.recipient_type
   }
 
@@ -349,8 +352,6 @@ export default function VolunteerPage() {
         {/* MESSAGES TAB */}
         {tab === 'messages' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-
-            {/* Sub-nav */}
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               {[['inbox','📥 Inbox'],['sent','📤 Sent'],['compose','✏️ Compose']].map(([key, label]) => (
                 <button key={key} onClick={() => setMsgView(key)} style={{
@@ -363,7 +364,6 @@ export default function VolunteerPage() {
               ))}
             </div>
 
-            {/* Inbox */}
             {msgView === 'inbox' && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Inbox</h2>
@@ -390,7 +390,6 @@ export default function VolunteerPage() {
               </div>
             )}
 
-            {/* Sent */}
             {msgView === 'sent' && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Sent Messages</h2>
@@ -412,7 +411,6 @@ export default function VolunteerPage() {
               </div>
             )}
 
-            {/* Compose */}
             {msgView === 'compose' && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>New Message</h2>
@@ -422,8 +420,9 @@ export default function VolunteerPage() {
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                       {[
                         { value: 'admin', label: '🛠 Admin' },
+                        { value: 'everyone', label: '📢 Everyone' },
                         ...(myShifts.length > 0 ? [{ value: 'shift', label: '⏱ My Shift' }] : []),
-                        ...(myRoles.length > 0 ? [{ value: 'role', label: '👤 My Role' }] : []),
+                        ...(myRoles.length > 0 ? [{ value: 'role', label: '👥 My Role' }] : []),
                       ].map(opt => (
                         <button key={opt.value} type="button" onClick={() => setMsgRecipientType(opt.value)} style={{
                           padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
@@ -435,10 +434,14 @@ export default function VolunteerPage() {
                       ))}
                     </div>
                     {msgRecipientType === 'shift' && myShifts.length > 0 && (
-                      <p style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--muted)' }}>Sends to everyone in your shift{myShifts.length > 1 ? 's' : ''}: {myShifts.join(', ')}</p>
+                      <p style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--muted)' }}>
+                        Sends to everyone in your shift{myShifts.length > 1 ? 's' : ''}: {myShifts.join(', ')}
+                      </p>
                     )}
                     {msgRecipientType === 'role' && myRoles.length > 0 && (
-                      <p style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--muted)' }}>Sends to everyone in your role{myRoles.length > 1 ? 's' : ''}: {myRoles.join(', ')}</p>
+                      <p style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--muted)' }}>
+                        Sends to everyone in your role{myRoles.length > 1 ? 's' : ''}: {myRoles.join(', ')}
+                      </p>
                     )}
                   </div>
                   <div>
@@ -451,14 +454,13 @@ export default function VolunteerPage() {
                 </form>
               </div>
             )}
-
           </div>
         )}
 
         {/* Toast */}
-        {message && (
-          <div style={{ position: 'fixed', bottom: '1.5rem', left: '50%', transform: 'translateX(-50%)', background: message.type === 'success' ? 'var(--accent)' : 'var(--danger)', color: message.type === 'success' ? '#0a0f0a' : '#fff', padding: '0.75rem 1.5rem', borderRadius: '100px', fontWeight: 500, fontSize: '0.9rem', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
-            {message.text}
+        {toast && (
+          <div style={{ position: 'fixed', bottom: '1.5rem', left: '50%', transform: 'translateX(-50%)', background: toast.type === 'success' ? 'var(--accent)' : 'var(--danger)', color: toast.type === 'success' ? '#0a0f0a' : '#fff', padding: '0.75rem 1.5rem', borderRadius: '100px', fontWeight: 500, fontSize: '0.9rem', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
+            {toast.text}
           </div>
         )}
       </div>
