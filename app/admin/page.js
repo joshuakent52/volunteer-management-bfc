@@ -30,7 +30,7 @@ function getCurrentDayAndShift() {
   const now = getMountainNow()
   const dayIndex = now.getDay()
   if (dayIndex === 0 || dayIndex === 6) return { day: null, shift: null, isShiftTime: false }
-  const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
+  const dayName = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][dayIndex]
   const timeDecimal = now.getHours() + now.getMinutes() / 60
   let shift = null
   if (timeDecimal >= 10 && timeDecimal < 14) shift = '10-2'
