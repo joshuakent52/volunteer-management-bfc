@@ -316,13 +316,6 @@ export default function AdminPage() {
         {tab === 'dashboard' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-            {/* Debug card - remove after fixing */}
-            <div style={{ ...card, borderColor: 'var(--warn)' }}>
-              <p style={{ color: 'var(--warn)', fontSize: '0.85rem', fontFamily: 'DM Mono, monospace' }}>
-                DEBUG: day={currentDay || 'null'} | shift={currentShift || 'null'} | isShiftTime={String(isShiftTime)} | missing={missing.length} | scheduleTotal={schedule.length} | scheduleFiltered={schedule.filter(s => s.day_of_week === currentDay && s.shift_time === currentShift).length} | activeShifts={activeShifts.length}
-              </p>
-            </div>
-
             {/* Missing volunteers */}
             {isShiftTime && (
               <div style={{ ...card, borderColor: missing.length > 0 ? 'var(--danger)' : 'var(--accent)', background: missing.length > 0 ? 'rgba(248,113,113,0.05)' : 'rgba(74,222,128,0.05)' }}>
