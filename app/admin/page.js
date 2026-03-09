@@ -13,6 +13,47 @@ const ROLES = [
   'Credentialing','Media','Provider'
 ]
 
+// Get current time in MDT (UTC-6 in summer, UTC-7 in winter — use Mountain Time)
+function getMDTNow() {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Denver' }))
+}
+
+function getCurrentDayAndShift() {
+  const now = getMDTNow()
+  const dayIndex = now.getDay() // 0=Sun, 1=Mon ... 5=Fri, 6=Sat
+  const hour = now.getHours()
+  const minute = now.getMinutes()
+  const timeDecimal = hour + minute / 60
+
+  if (dayIndex === 0 || dayIndex === 6) return { day: null, shift: null } // weekend
+
+  const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
+
+  let shift = null
+  if (timeDecimal >= 10 && timeDecimal < 14) shift = '10-2'
+  else if (timeDecimal >= 14 && timeDecimal < 18) shift = '2-6'
+
+  return { day: dayName, shift }
+}
+
+function formatMDT(ts) {
+  if (!ts) return '—'
+  return new Date(ts).toLocaleTimeString('en-US', {
+    timeZone: 'America/Denver',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function formatDateMDT(ts) {
+  if (!ts) return '—'
+  return new Date(ts).toLocaleDateString('en-US', {
+    timeZone: 'America/Denver',
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
 export default function AdminPage() {
   const [profile, setProfile] = useState(null)
   const [volunteers, setVolunteers] = useState([])
@@ -22,11 +63,12 @@ export default function AdminPage() {
   const [tab, setTab] = useState('dashboard')
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState(null)
+  const [currentTime, setCurrentTime] = useState(getMDTNow())
 
-  // Schedule UI state
+  // Schedule UI
   const [scheduleDay, setScheduleDay] = useState('monday')
   const [scheduleShift, setScheduleShift] = useState('10-2')
-  const [addingRole, setAddingRole] = useState(null) // role string when panel open
+  const [addingRole, setAddingRole] = useState(null)
   const [addVolId, setAddVolId] = useState('')
   const [addingEntry, setAddingEntry] = useState(false)
 
@@ -47,7 +89,12 @@ export default function AdminPage() {
   const [newLanguages, setNewLanguages] = useState('')
   const [creating, setCreating] = useState(false)
 
-  useEffect(() => { init() }, [])
+  useEffect(() => {
+    init()
+    // Update clock every minute
+    const interval = setInterval(() => setCurrentTime(getMDTNow()), 60000)
+    return () => clearInterval(interval)
+  }, [])
 
   async function init() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -65,7 +112,7 @@ export default function AdminPage() {
   }
 
   async function loadActiveShifts() {
-    const { data } = await supabase.from('shifts').select('*, profiles(full_name)').is('clock_out', null)
+    const { data } = await supabase.from('shifts').select('*, profiles(id, full_name)').is('clock_out', null)
     setActiveShifts(data || [])
   }
 
@@ -79,26 +126,45 @@ export default function AdminPage() {
     setSchedule(data || [])
   }
 
-  // Get schedule entries for a specific day+shift+role
+  // Figure out who should be clocked in but isn't
+  function getMissingVolunteers() {
+    const { day, shift } = getCurrentDayAndShift()
+    if (!day || !shift) return { missing: [], day, shift, isShiftTime: false }
+
+    // Get today's callouts
+    const todayCallouts = callouts.filter(c => c.day_of_week === day && c.shift_time === shift)
+    const calledOutIds = new Set(todayCallouts.map(c => c.volunteer_id))
+
+    // Get scheduled volunteers for current shift
+    const scheduledEntries = schedule.filter(s => s.day_of_week === day && s.shift_time === shift)
+    const scheduledIds = [...new Set(scheduledEntries.map(s => s.volunteer_id))]
+
+    // Get clocked in IDs
+    const clockedInIds = new Set(activeShifts.map(s => s.profiles?.id).filter(Boolean))
+
+    // Missing = scheduled AND not called out AND not clocked in
+    const missing = scheduledIds
+      .filter(id => !calledOutIds.has(id) && !clockedInIds.has(id))
+      .map(id => {
+        const entry = scheduledEntries.find(s => s.volunteer_id === id)
+        return { id, name: entry?.profiles?.full_name, role: entry?.role }
+      })
+      .filter(v => v.name)
+
+    return { missing, day, shift, isShiftTime: true }
+  }
+
   function getEntries(day, shift, role) {
     return schedule.filter(s => s.day_of_week === day && s.shift_time === shift && s.role === role)
   }
 
-  // Check if a volunteer has a callout for this day+shift
   function hasCallout(volunteerId, day, shift) {
-    const today = new Date()
-    const dayIndex = { monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5 }
-    return callouts.some(c =>
-      c.volunteer_id === volunteerId &&
-      c.day_of_week === day &&
-      c.shift_time === shift
-    )
+    return callouts.some(c => c.volunteer_id === volunteerId && c.day_of_week === day && c.shift_time === shift)
   }
 
   async function handleAddEntry() {
     if (!addVolId) return
     setAddingEntry(true)
-    // Check not already assigned
     const exists = schedule.find(s =>
       s.volunteer_id === addVolId &&
       s.day_of_week === scheduleDay &&
@@ -106,12 +172,8 @@ export default function AdminPage() {
       s.role === addingRole
     )
     if (exists) { showMessage('Volunteer already assigned to this slot', 'error'); setAddingEntry(false); return }
-
     const { error } = await supabase.from('schedule').insert({
-      volunteer_id: addVolId,
-      day_of_week: scheduleDay,
-      shift_time: scheduleShift,
-      role: addingRole,
+      volunteer_id: addVolId, day_of_week: scheduleDay, shift_time: scheduleShift, role: addingRole,
     })
     if (error) showMessage(error.message, 'error')
     else { showMessage('Volunteer assigned!', 'success'); setAddingRole(null); setAddVolId(''); await loadSchedule() }
@@ -126,7 +188,11 @@ export default function AdminPage() {
 
   function openVolunteer(v) {
     setSelectedVolunteer(v)
-    setEditForm({ full_name: v.full_name||'', email: v.email||'', phone: v.phone||'', affiliation: v.affiliation||'', parking_pass: v.parking_pass||'', languages: v.languages||'', role: v.role||'volunteer' })
+    setEditForm({
+      full_name: v.full_name||'', email: v.email||'', phone: v.phone||'',
+      affiliation: v.affiliation||'', parking_pass: v.parking_pass||'',
+      languages: v.languages||'', role: v.role||'volunteer',
+    })
     setEditing(false)
   }
 
@@ -139,7 +205,12 @@ export default function AdminPage() {
       languages: editForm.languages, role: editForm.role,
     }).eq('id', selectedVolunteer.id)
     if (error) showMessage(error.message, 'error')
-    else { showMessage('Profile updated!', 'success'); setEditing(false); await loadVolunteers(); setSelectedVolunteer({ ...selectedVolunteer, ...editForm }) }
+    else {
+      showMessage('Profile updated!', 'success')
+      setEditing(false)
+      await loadVolunteers()
+      setSelectedVolunteer({ ...selectedVolunteer, ...editForm })
+    }
     setSaving(false)
   }
 
@@ -150,7 +221,7 @@ export default function AdminPage() {
     if (error) { showMessage(error.message, 'error'); setCreating(false); return }
     const { error: pe } = await supabase.from('profiles').insert({
       id: data.user.id, full_name: newName, email: newEmail, role: newRole,
-      affiliation: newAffiliation||null, parking_pass: newParking?parseInt(newParking):null,
+      affiliation: newAffiliation||null, parking_pass: newParking ? parseInt(newParking) : null,
       phone: newPhone||null, languages: newLanguages||null,
     })
     if (pe) showMessage(pe.message, 'error')
@@ -175,21 +246,6 @@ export default function AdminPage() {
     setTimeout(() => setMessage(null), 3500)
   }
 
-  function formatTime(ts) {
-    if (!ts) return '—'
-    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  }
-
-  function formatDate(ts) {
-    if (!ts) return '—'
-    return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' })
-  }
-
-  async function handleSignOut() {
-    await supabase.auth.signOut()
-    window.location.href = '/'
-  }
-
   if (loading) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
       <p style={{ color: 'var(--muted)' }}>Loading...</p>
@@ -202,6 +258,8 @@ export default function AdminPage() {
   const affiliationColor = { missionary: '#a78bfa', student: '#60a5fa', volunteer: '#4ade80', provider: '#fbbf24' }
   const badgeStyle = (color) => ({ display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: '100px', fontSize: '0.75rem', fontWeight: 500, background: color + '22', color: color, border: `1px solid ${color}55` })
 
+  const { missing, day: currentDay, shift: currentShift, isShiftTime } = getMissingVolunteers()
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
       <div style={{ maxWidth: '960px', margin: '0 auto' }}>
@@ -210,9 +268,17 @@ export default function AdminPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
           <div>
             <h1 style={{ fontSize: '1.4rem', fontWeight: 600, letterSpacing: '-0.02em' }}>🛠 Admin Dashboard</h1>
-            <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Bingham Family Clinic</p>
+            <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
+              Bingham Family Clinic &nbsp;·&nbsp;
+              <span style={{ fontFamily: 'DM Mono, monospace' }}>
+                {currentTime.toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit' })} MDT
+              </span>
+            </p>
           </div>
-          <button onClick={handleSignOut} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>Sign out</button>
+          <button onClick={async () => { await supabase.auth.signOut(); window.location.href = '/' }}
+            style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>
+            Sign out
+          </button>
         </div>
 
         {/* Stats */}
@@ -243,28 +309,66 @@ export default function AdminPage() {
 
         {/* LIVE TAB */}
         {tab === 'dashboard' && (
-          <div style={card}>
-            <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Currently Clocked In</h2>
-            {activeShifts.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No one is currently clocked in.</p> : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {activeShifts.map(s => (
-                  <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(74,222,128,0.05)', borderRadius: '8px', border: '1px solid var(--accent)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 6px var(--accent)' }} />
-                      <span style={{ fontWeight: 500 }}>{s.profiles?.full_name}</span>
-                    </div>
-                    <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Since {formatTime(s.clock_in)}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+            {/* Missing volunteers — only show during shift hours */}
+            {isShiftTime && (
+              <div style={{ ...card, borderColor: missing.length > 0 ? 'var(--danger)' : 'var(--accent)', background: missing.length > 0 ? 'rgba(248,113,113,0.05)' : 'rgba(74,222,128,0.05)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: missing.length > 0 ? '1rem' : 0 }}>
+                  <h2 style={{ fontWeight: 600, fontSize: '1rem' }}>
+                    {missing.length > 0
+                      ? `⚠️ ${missing.length} volunteer${missing.length > 1 ? 's' : ''} missing — ${currentDay} ${currentShift}`
+                      : `✅ All volunteers present — ${currentDay} ${currentShift}`
+                    }
+                  </h2>
+                </div>
+                {missing.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {missing.map(v => (
+                      <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: 'rgba(248,113,113,0.08)', borderRadius: '8px', border: '1px solid rgba(248,113,113,0.3)' }}>
+                        <span style={{ fontWeight: 500 }}>{v.name}</span>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>{v.role}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             )}
+
+            {/* Outside shift hours message */}
+            {!isShiftTime && (
+              <div style={{ ...card, borderColor: 'var(--border)' }}>
+                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>
+                  ℹ️ No active shift window right now. Shifts run Mon–Fri, 10:00–14:00 and 14:00–18:00 MDT.
+                </p>
+              </div>
+            )}
+
+            {/* Clocked in */}
+            <div style={card}>
+              <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Currently Clocked In</h2>
+              {activeShifts.length === 0 ? (
+                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No one is currently clocked in.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {activeShifts.map(s => (
+                    <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(74,222,128,0.05)', borderRadius: '8px', border: '1px solid var(--accent)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 6px var(--accent)' }} />
+                        <span style={{ fontWeight: 500 }}>{s.profiles?.full_name}</span>
+                      </div>
+                      <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Since {formatMDT(s.clock_in)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
         {/* SCHEDULE TAB */}
         {tab === 'schedule' && (
           <div>
-            {/* Day + Shift selector */}
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 {DAYS.map(d => (
@@ -288,7 +392,6 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Role grid */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {ROLES.map(role => {
                 const entries = getEntries(scheduleDay, scheduleShift, role)
@@ -305,7 +408,6 @@ export default function AdminPage() {
                       }}>{isOpen ? 'Cancel' : '+ Assign'}</button>
                     </div>
 
-                    {/* Assigned volunteers */}
                     {entries.length > 0 && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: isOpen ? '0.75rem' : 0 }}>
                         {entries.map(entry => {
@@ -313,22 +415,20 @@ export default function AdminPage() {
                           return (
                             <div key={entry.id} style={{
                               display: 'flex', alignItems: 'center', gap: '0.5rem',
-                              padding: '0.3rem 0.6rem 0.3rem 0.75rem',
-                              borderRadius: '100px', fontSize: '0.85rem',
+                              padding: '0.3rem 0.6rem 0.3rem 0.75rem', borderRadius: '100px', fontSize: '0.85rem',
                               background: calledOut ? 'rgba(251,191,36,0.1)' : 'rgba(74,222,128,0.08)',
                               border: `1px solid ${calledOut ? 'var(--warn)' : 'var(--accent)'}55`,
                               color: calledOut ? 'var(--warn)' : 'var(--text)',
                             }}>
-                              {calledOut && <span title="Called out">⚠️</span>}
+                              {calledOut && <span>⚠️</span>}
                               <span>{entry.profiles?.full_name}</span>
-                              <button onClick={() => handleRemoveEntry(entry.id)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 2px', lineHeight: 1 }}>✕</button>
+                              <button onClick={() => handleRemoveEntry(entry.id)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 2px' }}>✕</button>
                             </div>
                           )
                         })}
                       </div>
                     )}
 
-                    {/* Add volunteer panel */}
                     {isOpen && (
                       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                         <select value={addVolId} onChange={e => setAddVolId(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
@@ -338,7 +438,9 @@ export default function AdminPage() {
                           ))}
                         </select>
                         <button onClick={handleAddEntry} disabled={!addVolId || addingEntry} style={{
-                          padding: '0.75rem 1.25rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', whiteSpace: 'nowrap'
+                          padding: '0.75rem 1.25rem', background: 'var(--accent)', color: '#0a0f0a',
+                          border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer',
+                          fontFamily: 'DM Sans, sans-serif', whiteSpace: 'nowrap',
                         }}>
                           {addingEntry ? '...' : 'Assign'}
                         </button>
@@ -363,7 +465,9 @@ export default function AdminPage() {
                   onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: 'var(--accent)' }}>{v.full_name?.charAt(0)}</div>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: 'var(--accent)' }}>
+                      {v.full_name?.charAt(0)}
+                    </div>
                     <div>
                       <p style={{ fontWeight: 500 }}>{v.full_name}</p>
                       <p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{v.email}</p>
@@ -383,22 +487,39 @@ export default function AdminPage() {
         {/* VOLUNTEER DETAIL */}
         {tab === 'volunteers' && selectedVolunteer && (
           <div style={card}>
-            <button onClick={() => setSelectedVolunteer(null)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.875rem', marginBottom: '1.25rem', padding: 0, fontFamily: 'DM Sans, sans-serif' }}>← Back</button>
+            <button onClick={() => setSelectedVolunteer(null)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.875rem', marginBottom: '1.25rem', padding: 0, fontFamily: 'DM Sans, sans-serif' }}>
+              ← Back
+            </button>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '1.3rem', color: 'var(--accent)', border: '2px solid var(--accent)' }}>{selectedVolunteer.full_name?.charAt(0)}</div>
+                <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '1.3rem', color: 'var(--accent)', border: '2px solid var(--accent)' }}>
+                  {selectedVolunteer.full_name?.charAt(0)}
+                </div>
                 <div>
                   <h2 style={{ fontWeight: 600, fontSize: '1.2rem' }}>{selectedVolunteer.full_name}</h2>
                   <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{selectedVolunteer.email}</p>
                 </div>
               </div>
-              <button onClick={() => setEditing(!editing)} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: editing ? 'var(--surface)' : 'var(--accent)', color: editing ? 'var(--muted)' : '#0a0f0a', border: editing ? '1px solid var(--border)' : 'none' }}>
+              <button onClick={() => setEditing(!editing)} style={{
+                padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                background: editing ? 'var(--surface)' : 'var(--accent)',
+                color: editing ? 'var(--muted)' : '#0a0f0a',
+                border: editing ? '1px solid var(--border)' : 'none',
+              }}>
                 {editing ? 'Cancel' : '✏️ Edit'}
               </button>
             </div>
+
             {!editing ? (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                {[{ label: 'Phone', value: selectedVolunteer.phone },{ label: 'Affiliation', value: selectedVolunteer.affiliation },{ label: 'Parking Pass', value: selectedVolunteer.parking_pass },{ label: 'Languages', value: selectedVolunteer.languages },{ label: 'Total Hours', value: totalHours(selectedVolunteer.shifts) + 'h' },{ label: 'Role', value: selectedVolunteer.role }].map(({ label, value }) => (
+                {[
+                  { label: 'Phone', value: selectedVolunteer.phone },
+                  { label: 'Affiliation', value: selectedVolunteer.affiliation },
+                  { label: 'Parking Pass', value: selectedVolunteer.parking_pass },
+                  { label: 'Languages', value: selectedVolunteer.languages },
+                  { label: 'Total Hours', value: totalHours(selectedVolunteer.shifts) + 'h' },
+                  { label: 'Role', value: selectedVolunteer.role },
+                ].map(({ label, value }) => (
                   <div key={label} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                     <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>{label}</p>
                     <p style={{ fontWeight: 500, color: value ? 'var(--text)' : 'var(--muted)', fontStyle: value ? 'normal' : 'italic' }}>{value || 'Not set'}</p>
@@ -442,15 +563,17 @@ export default function AdminPage() {
         {tab === 'callouts' && (
           <div style={card}>
             <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Recent Call-Outs</h2>
-            {callouts.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No call-outs submitted.</p> : (
+            {callouts.length === 0 ? (
+              <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No call-outs submitted.</p>
+            ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {callouts.map(c => (
                   <div key={c.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
                       <span style={{ fontWeight: 500 }}>{c.profiles?.full_name}</span>
                       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                        {c.shift_time && <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)' }}>{c.day_of_week} {c.shift_time}</span>}
-                        <span style={{ color: 'var(--warn)', fontFamily: 'DM Mono, monospace', fontSize: '0.85rem' }}>{formatDate(c.callout_date)}</span>
+                        {c.shift_time && <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'capitalize' }}>{c.day_of_week} {c.shift_time}</span>}
+                        <span style={{ color: 'var(--warn)', fontFamily: 'DM Mono, monospace', fontSize: '0.85rem' }}>{formatDateMDT(c.callout_date)}</span>
                       </div>
                     </div>
                     {c.reason && <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{c.reason}</p>}
