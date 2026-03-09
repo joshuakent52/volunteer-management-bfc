@@ -28,6 +28,8 @@ export default function LoginPage() {
       .eq('id', data.user.id)
       .single()
 
+    console.log('Profile role:', profile?.role)
+
     if (profile?.role === 'admin') {
       window.location.href = '/admin'
     } else {
