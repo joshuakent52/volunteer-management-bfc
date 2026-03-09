@@ -89,6 +89,8 @@ export default function AdminPage() {
   const [newParking, setNewParking] = useState('')
   const [newPhone, setNewPhone] = useState('')
   const [newLanguages, setNewLanguages] = useState('')
+  const [newSmaName, setNewSmaName] = useState('')
+  const [newSmaContact, setNewSmaContact] = useState('')
   const [creating, setCreating] = useState(false)
 
   useEffect(() => {
@@ -191,6 +193,7 @@ export default function AdminPage() {
       full_name: v.full_name||'', email: v.email||'', phone: v.phone||'',
       affiliation: v.affiliation||'', parking_pass: v.parking_pass||'',
       languages: v.languages||'', role: v.role||'volunteer',
+      sma_name: v.sma_name||'', sma_contact: v.sma_contact||'',
     })
     setEditing(false)
   }
@@ -202,6 +205,8 @@ export default function AdminPage() {
       affiliation: editForm.affiliation || null,
       parking_pass: editForm.parking_pass ? parseInt(editForm.parking_pass) : null,
       languages: editForm.languages, role: editForm.role,
+      sma_name: editForm.affiliation === 'missionary' ? (editForm.sma_name||null) : null,
+      sma_contact: editForm.affiliation === 'missionary' ? (editForm.sma_contact||null) : null,
     }).eq('id', selectedVolunteer.id)
     if (error) { showMessage(error.message, 'error'); setSaving(false); return }
     const { data: fresh } = await supabase
@@ -225,12 +230,14 @@ export default function AdminPage() {
       id: data.user.id, full_name: newName, email: newEmail, role: newRole,
       affiliation: newAffiliation||null, parking_pass: newParking ? parseInt(newParking) : null,
       phone: newPhone||null, languages: newLanguages||null,
+      sma_name: newAffiliation === 'missionary' ? (newSmaName||null) : null,
+      sma_contact: newAffiliation === 'missionary' ? (newSmaContact||null) : null,
     })
     if (pe) showMessage(pe.message, 'error')
     else {
       showMessage(`Account created for ${newName}!`, 'success')
       setNewName(''); setNewEmail(''); setNewPassword(''); setNewRole('volunteer')
-      setNewAffiliation(''); setNewParking(''); setNewPhone(''); setNewLanguages('')
+      setNewAffiliation(''); setNewParking(''); setNewPhone(''); setNewLanguages(''); setNewSmaName(''); setNewSmaContact('')
       loadVolunteers()
     }
     setCreating(false)
@@ -315,6 +322,13 @@ export default function AdminPage() {
         {/* LIVE TAB */}
         {tab === 'dashboard' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+            {/* Debug card - remove after fixing */}
+            <div style={{ ...card, borderColor: 'var(--warn)' }}>
+              <p style={{ color: 'var(--warn)', fontSize: '0.85rem', fontFamily: 'DM Mono, monospace' }}>
+                DEBUG: day={currentDay || 'null'} | shift={currentShift || 'null'} | isShiftTime={String(isShiftTime)} | missing={missing.length} | scheduleTotal={schedule.length} | scheduleFiltered={schedule.filter(s => s.day_of_week === currentDay && s.shift_time === currentShift).length} | activeShifts={activeShifts.length}
+              </p>
+            </div>
 
             {/* Missing volunteers */}
             {isShiftTime && (
@@ -512,6 +526,10 @@ export default function AdminPage() {
                   { label: 'Languages', value: selectedVolunteer.languages },
                   { label: 'Total Hours', value: totalHours(selectedVolunteer.shifts) + 'h' },
                   { label: 'Role', value: selectedVolunteer.role },
+                  ...(selectedVolunteer.affiliation === 'missionary' ? [
+                    { label: 'SMA Name', value: selectedVolunteer.sma_name },
+                    { label: 'SMA Contact', value: selectedVolunteer.sma_contact },
+                  ] : []),
                 ].map(({ label, value }) => (
                   <div key={label} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                     <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>{label}</p>
@@ -543,6 +561,10 @@ export default function AdminPage() {
                       <option value="admin">Admin</option>
                     </select>
                   </div>
+                  {editForm.affiliation === 'missionary' && <>
+                    <div><label style={labelStyle}>SMA Name</label><input value={editForm.sma_name} onChange={e => setEditForm({...editForm, sma_name: e.target.value})} placeholder="SMA full name" style={inputStyle} /></div>
+                    <div><label style={labelStyle}>SMA Contact</label><input value={editForm.sma_contact} onChange={e => setEditForm({...editForm, sma_contact: e.target.value})} placeholder="Phone or email" style={inputStyle} /></div>
+                  </>}
                 </div>
                 <button onClick={handleSaveEdit} disabled={saving} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                   {saving ? 'Saving...' : 'Save Changes'}
@@ -662,6 +684,10 @@ export default function AdminPage() {
                     <option value="admin">Admin</option>
                   </select>
                 </div>
+                {newAffiliation === 'missionary' && <>
+                  <div><label style={labelStyle}>SMA Name</label><input value={newSmaName} onChange={e => setNewSmaName(e.target.value)} placeholder="SMA full name" style={inputStyle} /></div>
+                  <div><label style={labelStyle}>SMA Contact</label><input value={newSmaContact} onChange={e => setNewSmaContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div>
+                </>}
               </div>
               <button type="submit" disabled={creating} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: creating ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                 {creating ? 'Creating...' : 'Create Account'}
