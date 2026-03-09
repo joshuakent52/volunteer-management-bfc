@@ -13,45 +13,58 @@ const ROLES = [
   'Credentialing','Media','Provider'
 ]
 
-// Get current time in MDT (UTC-6 in summer, UTC-7 in winter — use Mountain Time)
-function getMDTNow() {
-  return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Denver' }))
+function getMountainOffset(date) {
+  const year = date.getUTCFullYear()
+  const march = new Date(Date.UTC(year, 2, 1))
+  const marchDay = march.getUTCDay()
+  const dstStart = new Date(Date.UTC(year, 2, (marchDay === 0 ? 8 : 8 + (7 - marchDay))))
+  const nov = new Date(Date.UTC(year, 10, 1))
+  const novDay = nov.getUTCDay()
+  const dstEnd = new Date(Date.UTC(year, 10, (novDay === 0 ? 1 : 1 + (7 - novDay))))
+  return (date >= dstStart && date < dstEnd) ? -6 : -7
+}
+
+function getMountainNow() {
+  const now = new Date()
+  const offsetHours = getMountainOffset(now)
+  return new Date(now.getTime() + (now.getTimezoneOffset() + offsetHours * 60) * 60000)
+}
+
+function getMountainLabel() {
+  return getMountainOffset(new Date()) === -6 ? 'MDT' : 'MST'
 }
 
 function getCurrentDayAndShift() {
-  const now = getMDTNow()
-  const dayIndex = now.getDay() // 0=Sun, 1=Mon ... 5=Fri, 6=Sat
+  const now = getMountainNow()
+  const dayIndex = now.getDay()
+  if (dayIndex === 0 || dayIndex === 6) return { day: null, shift: null, isShiftTime: false }
+
+  const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
   const hour = now.getHours()
   const minute = now.getMinutes()
   const timeDecimal = hour + minute / 60
-
-  if (dayIndex === 0 || dayIndex === 6) return { day: null, shift: null } // weekend
-
-  const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
 
   let shift = null
   if (timeDecimal >= 10 && timeDecimal < 14) shift = '10-2'
   else if (timeDecimal >= 14 && timeDecimal < 18) shift = '2-6'
 
-  return { day: dayName, shift }
+  return { day: dayName, shift, isShiftTime: !!shift }
 }
 
-function formatMDT(ts) {
+function formatMountain(ts) {
   if (!ts) return '—'
-  return new Date(ts).toLocaleTimeString('en-US', {
-    timeZone: 'America/Denver',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  const date = new Date(ts)
+  const offsetHours = getMountainOffset(date)
+  const adjusted = new Date(date.getTime() + (date.getTimezoneOffset() + offsetHours * 60) * 60000)
+  return adjusted.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
 }
 
-function formatDateMDT(ts) {
+function formatDateMountain(ts) {
   if (!ts) return '—'
-  return new Date(ts).toLocaleDateString('en-US', {
-    timeZone: 'America/Denver',
-    month: 'short',
-    day: 'numeric',
-  })
+  const date = new Date(ts)
+  const offsetHours = getMountainOffset(date)
+  const adjusted = new Date(date.getTime() + (date.getTimezoneOffset() + offsetHours * 60) * 60000)
+  return adjusted.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 export default function AdminPage() {
@@ -63,7 +76,8 @@ export default function AdminPage() {
   const [tab, setTab] = useState('dashboard')
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState(null)
-  const [currentTime, setCurrentTime] = useState(getMDTNow())
+  const [currentTime, setCurrentTime] = useState(getMountainNow())
+  const [showReadCallouts, setShowReadCallouts] = useState(false)
 
   // Schedule UI
   const [scheduleDay, setScheduleDay] = useState('monday')
@@ -91,8 +105,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     init()
-    // Update clock every minute
-    const interval = setInterval(() => setCurrentTime(getMDTNow()), 60000)
+    const interval = setInterval(() => setCurrentTime(getMountainNow()), 60000)
     return () => clearInterval(interval)
   }, [])
 
@@ -117,7 +130,7 @@ export default function AdminPage() {
   }
 
   async function loadCallouts() {
-    const { data } = await supabase.from('callouts').select('*, profiles(full_name)').order('callout_date', { ascending: false }).limit(20)
+    const { data } = await supabase.from('callouts').select('*, profiles(full_name)').order('submitted_at', { ascending: false }).limit(50)
     setCallouts(data || [])
   }
 
@@ -126,23 +139,23 @@ export default function AdminPage() {
     setSchedule(data || [])
   }
 
-  // Figure out who should be clocked in but isn't
+  async function markCalloutRead(id, isRead) {
+    const { error } = await supabase.from('callouts').update({ is_read: isRead }).eq('id', id)
+    if (error) showMessage(error.message, 'error')
+    else await loadCallouts()
+  }
+
   function getMissingVolunteers() {
-    const { day, shift } = getCurrentDayAndShift()
-    if (!day || !shift) return { missing: [], day, shift, isShiftTime: false }
+    const { day, shift, isShiftTime } = getCurrentDayAndShift()
+    if (!isShiftTime) return { missing: [], day, shift, isShiftTime: false }
 
-    // Get today's callouts
-    const todayCallouts = callouts.filter(c => c.day_of_week === day && c.shift_time === shift)
-    const calledOutIds = new Set(todayCallouts.map(c => c.volunteer_id))
-
-    // Get scheduled volunteers for current shift
+    const calledOutIds = new Set(
+      callouts.filter(c => c.day_of_week === day && c.shift_time === shift).map(c => c.volunteer_id)
+    )
     const scheduledEntries = schedule.filter(s => s.day_of_week === day && s.shift_time === shift)
     const scheduledIds = [...new Set(scheduledEntries.map(s => s.volunteer_id))]
-
-    // Get clocked in IDs
     const clockedInIds = new Set(activeShifts.map(s => s.profiles?.id).filter(Boolean))
 
-    // Missing = scheduled AND not called out AND not clocked in
     const missing = scheduledIds
       .filter(id => !calledOutIds.has(id) && !clockedInIds.has(id))
       .map(id => {
@@ -166,10 +179,8 @@ export default function AdminPage() {
     if (!addVolId) return
     setAddingEntry(true)
     const exists = schedule.find(s =>
-      s.volunteer_id === addVolId &&
-      s.day_of_week === scheduleDay &&
-      s.shift_time === scheduleShift &&
-      s.role === addingRole
+      s.volunteer_id === addVolId && s.day_of_week === scheduleDay &&
+      s.shift_time === scheduleShift && s.role === addingRole
     )
     if (exists) { showMessage('Volunteer already assigned to this slot', 'error'); setAddingEntry(false); return }
     const { error } = await supabase.from('schedule').insert({
@@ -259,6 +270,9 @@ export default function AdminPage() {
   const badgeStyle = (color) => ({ display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: '100px', fontSize: '0.75rem', fontWeight: 500, background: color + '22', color: color, border: `1px solid ${color}55` })
 
   const { missing, day: currentDay, shift: currentShift, isShiftTime } = getMissingVolunteers()
+  const unreadCallouts = callouts.filter(c => !c.is_read)
+  const readCallouts = callouts.filter(c => c.is_read)
+  const tzLabel = getMountainLabel()
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
@@ -271,7 +285,7 @@ export default function AdminPage() {
             <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
               Bingham Family Clinic &nbsp;·&nbsp;
               <span style={{ fontFamily: 'DM Mono, monospace' }}>
-                {currentTime.toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit' })} MDT
+                {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} {tzLabel}
               </span>
             </p>
           </div>
@@ -286,10 +300,10 @@ export default function AdminPage() {
           {[
             { label: 'Total Volunteers', value: volunteers.filter(v => v.role === 'volunteer').length },
             { label: 'Clocked In Now', value: activeShifts.length, accent: true },
-            { label: 'Recent Call-Outs', value: callouts.length },
+            { label: 'Unread Call-Outs', value: unreadCallouts.length, warn: unreadCallouts.length > 0 },
           ].map(s => (
-            <div key={s.label} style={{ ...card, textAlign: 'center', borderColor: s.accent ? 'var(--accent)' : 'var(--border)' }}>
-              <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: s.accent ? 'var(--accent)' : 'var(--text)' }}>{s.value}</p>
+            <div key={s.label} style={{ ...card, textAlign: 'center', borderColor: s.accent ? 'var(--accent)' : s.warn ? 'var(--warn)' : 'var(--border)' }}>
+              <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: s.accent ? 'var(--accent)' : s.warn ? 'var(--warn)' : 'var(--text)' }}>{s.value}</p>
               <p style={{ color: 'var(--muted)', fontSize: '0.8rem', marginTop: '0.25rem' }}>{s.label}</p>
             </div>
           ))}
@@ -297,7 +311,7 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-          {[['dashboard','Live'],['schedule','Schedule'],['volunteers','Volunteers'],['callouts','Call-Outs'],['create','➕ Add Volunteer']].map(([key, label]) => (
+          {[['dashboard','📊 Live'],['schedule','📅 Schedule'],['volunteers','👥 Volunteers'],['callouts','📋 Call-Outs'],['create','➕ Add Volunteer']].map(([key, label]) => (
             <button key={key} onClick={() => { setTab(key); setSelectedVolunteer(null); setAddingRole(null) }} style={{
               padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
               background: tab === key ? 'var(--accent)' : 'var(--surface)',
@@ -311,17 +325,15 @@ export default function AdminPage() {
         {tab === 'dashboard' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-            {/* Missing volunteers — only show during shift hours */}
+            {/* Missing volunteers */}
             {isShiftTime && (
               <div style={{ ...card, borderColor: missing.length > 0 ? 'var(--danger)' : 'var(--accent)', background: missing.length > 0 ? 'rgba(248,113,113,0.05)' : 'rgba(74,222,128,0.05)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: missing.length > 0 ? '1rem' : 0 }}>
-                  <h2 style={{ fontWeight: 600, fontSize: '1rem' }}>
-                    {missing.length > 0
-                      ? `⚠️ ${missing.length} Volunteer${missing.length > 1 ? 's' : ''} missing — ${currentDay} ${currentShift}`
-                      : `✅ All volunteers present — ${currentDay} ${currentShift}`
-                    }
-                  </h2>
-                </div>
+                <h2 style={{ fontWeight: 600, fontSize: '1rem', marginBottom: missing.length > 0 ? '1rem' : 0 }}>
+                  {missing.length > 0
+                    ? `⚠️ ${missing.length} volunteer${missing.length > 1 ? 's' : ''} not yet clocked in — ${currentDay} ${currentShift}`
+                    : `✅ All volunteers present — ${currentDay} ${currentShift}`
+                  }
+                </h2>
                 {missing.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     {missing.map(v => (
@@ -335,11 +347,10 @@ export default function AdminPage() {
               </div>
             )}
 
-            {/* Outside shift hours message */}
             {!isShiftTime && (
-              <div style={{ ...card, borderColor: 'var(--border)' }}>
+              <div style={{ ...card }}>
                 <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>
-                  ℹ️ No active shift window right now. Shifts run Mon–Fri, 10:00–14:00 and 14:00–18:00 MDT.
+                  ℹ️ No active shift window right now. Missing volunteer alerts appear during shift hours (Mon–Fri, 10:00–14:00 and 14:00–18:00 {tzLabel}).
                 </p>
               </div>
             )}
@@ -357,7 +368,7 @@ export default function AdminPage() {
                         <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 6px var(--accent)' }} />
                         <span style={{ fontWeight: 500 }}>{s.profiles?.full_name}</span>
                       </div>
-                      <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Since {formatMDT(s.clock_in)}</span>
+                      <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Since {formatMountain(s.clock_in)}</span>
                     </div>
                   ))}
                 </div>
@@ -407,7 +418,6 @@ export default function AdminPage() {
                         border: `1px solid ${isOpen ? 'var(--border)' : 'var(--accent)'}`,
                       }}>{isOpen ? 'Cancel' : '+ Assign'}</button>
                     </div>
-
                     {entries.length > 0 && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: isOpen ? '0.75rem' : 0 }}>
                         {entries.map(entry => {
@@ -428,7 +438,6 @@ export default function AdminPage() {
                         })}
                       </div>
                     )}
-
                     {isOpen && (
                       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                         <select value={addVolId} onChange={e => setAddVolId(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
@@ -441,9 +450,7 @@ export default function AdminPage() {
                           padding: '0.75rem 1.25rem', background: 'var(--accent)', color: '#0a0f0a',
                           border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer',
                           fontFamily: 'DM Sans, sans-serif', whiteSpace: 'nowrap',
-                        }}>
-                          {addingEntry ? '...' : 'Assign'}
-                        </button>
+                        }}>{addingEntry ? '...' : 'Assign'}</button>
                       </div>
                     )}
                   </div>
@@ -487,9 +494,7 @@ export default function AdminPage() {
         {/* VOLUNTEER DETAIL */}
         {tab === 'volunteers' && selectedVolunteer && (
           <div style={card}>
-            <button onClick={() => setSelectedVolunteer(null)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.875rem', marginBottom: '1.25rem', padding: 0, fontFamily: 'DM Sans, sans-serif' }}>
-              ← Back
-            </button>
+            <button onClick={() => setSelectedVolunteer(null)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.875rem', marginBottom: '1.25rem', padding: 0, fontFamily: 'DM Sans, sans-serif' }}>← Back</button>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                 <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '1.3rem', color: 'var(--accent)', border: '2px solid var(--accent)' }}>
@@ -505,11 +510,8 @@ export default function AdminPage() {
                 background: editing ? 'var(--surface)' : 'var(--accent)',
                 color: editing ? 'var(--muted)' : '#0a0f0a',
                 border: editing ? '1px solid var(--border)' : 'none',
-              }}>
-                {editing ? 'Cancel' : 'Edit'}
-              </button>
+              }}>{editing ? 'Cancel' : '✏️ Edit'}</button>
             </div>
-
             {!editing ? (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 {[
@@ -561,24 +563,80 @@ export default function AdminPage() {
 
         {/* CALLOUTS TAB */}
         {tab === 'callouts' && (
-          <div style={card}>
-            <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Recent Call-Outs</h2>
-            {callouts.length === 0 ? (
-              <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No call-outs submitted.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {callouts.map(c => (
-                  <div key={c.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                      <span style={{ fontWeight: 500 }}>{c.profiles?.full_name}</span>
-                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                        {c.shift_time && <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'capitalize' }}>{c.day_of_week} {c.shift_time}</span>}
-                        <span style={{ color: 'var(--warn)', fontFamily: 'DM Mono, monospace', fontSize: '0.85rem' }}>{formatDateMDT(c.callout_date)}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={card}>
+              <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>
+                Unread Call-Outs
+                {unreadCallouts.length > 0 && (
+                  <span style={{ marginLeft: '0.5rem', padding: '0.15rem 0.55rem', background: 'rgba(251,191,36,0.15)', color: 'var(--warn)', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(251,191,36,0.3)' }}>
+                    {unreadCallouts.length}
+                  </span>
+                )}
+              </h2>
+              {unreadCallouts.length === 0 ? (
+                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No unread call-outs. You're all caught up!</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {unreadCallouts.map(c => (
+                    <div key={c.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: c.reason ? '0.25rem' : 0 }}>
+                        <div>
+                          <span style={{ fontWeight: 500 }}>{c.profiles?.full_name}</span>
+                          {c.shift_time && (
+                            <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'capitalize' }}>
+                              {c.day_of_week} {c.shift_time}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <span style={{ color: 'var(--warn)', fontFamily: 'DM Mono, monospace', fontSize: '0.85rem' }}>
+                            {formatDateMountain(c.callout_date)}
+                          </span>
+                          <button onClick={() => markCalloutRead(c.id, true)} style={{ padding: '0.25rem 0.65rem', background: 'rgba(74,222,128,0.1)', color: 'var(--accent)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', whiteSpace: 'nowrap' }}>
+                            ✓ Mark read
+                          </button>
+                        </div>
                       </div>
+                      {c.reason && <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{c.reason}</p>}
                     </div>
-                    {c.reason && <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{c.reason}</p>}
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {readCallouts.length > 0 && (
+              <div style={card}>
+                <button onClick={() => setShowReadCallouts(!showReadCallouts)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.9rem', fontWeight: 500, padding: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ display: 'inline-block', transform: showReadCallouts ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>›</span>
+                  Read Call-Outs ({readCallouts.length})
+                </button>
+                {showReadCallouts && (
+                  <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {readCallouts.map(c => (
+                      <div key={c.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', opacity: 0.6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: c.reason ? '0.25rem' : 0 }}>
+                          <div>
+                            <span style={{ fontWeight: 500 }}>{c.profiles?.full_name}</span>
+                            {c.shift_time && (
+                              <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'capitalize' }}>
+                                {c.day_of_week} {c.shift_time}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            <span style={{ color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: '0.85rem' }}>
+                              {formatDateMountain(c.callout_date)}
+                            </span>
+                            <button onClick={() => markCalloutRead(c.id, false)} style={{ padding: '0.25rem 0.65rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', whiteSpace: 'nowrap' }}>
+                              ↩ Unmark
+                            </button>
+                          </div>
+                        </div>
+                        {c.reason && <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{c.reason}</p>}
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             )}
           </div>
