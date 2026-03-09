@@ -220,7 +220,7 @@ export default function AdminPage() {
       showMessage('Profile updated!', 'success')
       setEditing(false)
       await loadVolunteers()
-      setSelectedVolunteer({ ...selectedVolunteer, ...editForm })
+      setSelectedVolunteer(prev => ({ ...prev, ...editForm }))
     }
     setSaving(false)
   }
