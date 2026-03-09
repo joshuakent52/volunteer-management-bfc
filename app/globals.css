@@ -4,15 +4,15 @@
 @tailwind utilities;
 
 :root {
-  --bg: #0f1117;
-  --surface: #1a1d27;
-  --border: #2a2d3a;
-  --accent: #4ade80;
-  --accent-dim: #166534;
-  --text: #e8eaf0;
-  --muted: #6b7280;
-  --danger: #f87171;
-  --warn: #fbbf24;
+  --bg: #0b0d12;          
+  --surface: #151922;
+  --border: #2a313c;
+  --accent: #02416B;
+  --accent-dim: #92A6B9;
+  --text: #f4f6f8;
+  --muted: #8a96a3;
+  --danger: #02416B;
+  --warn: #92A6B9;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
