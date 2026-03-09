@@ -39,7 +39,7 @@ function getCurrentDayAndShift() {
   const dayIndex = now.getDay()
   if (dayIndex === 0 || dayIndex === 6) return { day: null, shift: null, isShiftTime: false }
 
-  const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
+  const dayName = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][dayIndex]
   const hour = now.getHours()
   const minute = now.getMinutes()
   const timeDecimal = hour + minute / 60
