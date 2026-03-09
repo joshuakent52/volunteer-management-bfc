@@ -1,7 +1,7 @@
 import './globals.css'
 
 export const metadata = {
-  title: 'VolunteerHub',
+  title: 'BFC Volunteers',
   description: 'Volunteer Management Platform',
 }
 
