@@ -64,22 +64,11 @@ export default function LoginPage() {
         boxShadow: '0 0 60px rgba(74,222,128,0.05)',
       }}>
         {/* Logo */}
-        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: '52px', height: '52px',
-            background: 'var(--accent-dim)',
-            borderRadius: '14px',
-            marginBottom: '1rem',
-            fontSize: '1.5rem',
-          }}>🤝</div>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--text)', letterSpacing: '-0.02em' }}>
-            Bingham Family Clinic Volunteers
-          </h1>
-          <p style={{ color: 'var(--muted)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
-            Sign in to your account
-          </p>
-        </div>
+        <img 
+          src="/logo.jpg" 
+          alt="Logo"
+          style={{ width: '120px', height: 'auto', marginBottom: '1rem', borderRadius: '12px' }}
+        />
 
         <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div>
