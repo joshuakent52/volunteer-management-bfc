@@ -375,7 +375,7 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-          {[['dashboard','📊 Live'],['schedule','📅 Schedule'],['volunteers','👥 Volunteers'],['callouts','📋 Call-Outs'],['messages','💬 Messages'],['create','➕ Add Volunteer']].map(([key, label]) => (
+          {[['dashboard','Live'],['schedule','Schedule'],['volunteers','Volunteers'],['callouts','Call-Outs'],['messages','Messages'],['create','➕ Add Volunteer']].map(([key, label]) => (
             <button key={key} onClick={() => { setTab(key); setSelectedVolunteer(null); setAddingRole(null) }} style={{
               padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
               background: tab === key ? 'var(--accent)' : 'var(--surface)',
@@ -553,7 +553,7 @@ export default function AdminPage() {
                 background: editing ? 'var(--surface)' : 'var(--accent)',
                 color: editing ? 'var(--muted)' : '#0a0f0a',
                 border: editing ? '1px solid var(--border)' : 'none',
-              }}>{editing ? 'Cancel' : '✏️ Edit'}</button>
+              }}>{editing ? 'Cancel' : 'Edit'}</button>
             </div>
             {!editing ? (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -756,11 +756,11 @@ export default function AdminPage() {
                     <label style={labelStyle}>Send to</label>
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                       {[
-                        { value: 'everyone', label: '📢 Everyone' },
-                        { value: 'admin', label: '🛠 Admins' },
-                        { value: 'shift', label: '⏱ Shift' },
-                        { value: 'role', label: '👥 Role' },
-                        { value: 'volunteer', label: '👤 Individual' },
+                        { value: 'everyone', label: 'Everyone' },
+                        { value: 'admin', label: 'Admins' },
+                        { value: 'shift', label: 'Shift' },
+                        { value: 'role', label: 'Role' },
+                        { value: 'volunteer', label: 'Individual' },
                       ].map(opt => (
                         <button key={opt.value} type="button" onClick={() => setMsgRecipientType(opt.value)} style={{
                           padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
