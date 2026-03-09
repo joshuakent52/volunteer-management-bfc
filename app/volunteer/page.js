@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
-const DAYS = ['monday','tuesday','wednesday','thursday','friday']
+const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday']
 const SHIFTS = ['10-2','2-6']
 
 export default function VolunteerPage() {
