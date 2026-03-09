@@ -13,25 +13,19 @@ const ROLES = [
   'Credentialing','Media','Provider'
 ]
 
-function getMountainOffset(date) {
-  const year = date.getUTCFullYear()
-  const march = new Date(Date.UTC(year, 2, 1))
-  const marchDay = march.getUTCDay()
-  const dstStart = new Date(Date.UTC(year, 2, (marchDay === 0 ? 8 : 8 + (7 - marchDay))))
-  const nov = new Date(Date.UTC(year, 10, 1))
-  const novDay = nov.getUTCDay()
-  const dstEnd = new Date(Date.UTC(year, 10, (novDay === 0 ? 1 : 1 + (7 - novDay))))
-  return (date >= dstStart && date < dstEnd) ? -6 : -7
-}
-
 function getMountainNow() {
-  const now = new Date()
-  const offsetHours = getMountainOffset(now)
-  return new Date(now.getTime() + (now.getTimezoneOffset() + offsetHours * 60) * 60000)
+  // Parse Mountain Time string directly — avoids all timezone offset math
+  const str = new Date().toLocaleString('en-US', { timeZone: 'America/Denver' })
+  return new Date(str)
 }
 
 function getMountainLabel() {
-  return getMountainOffset(new Date()) === -6 ? 'MDT' : 'MST'
+  const now = new Date()
+  const utcOffset = now.getTimezoneOffset()
+  const mtnStr = now.toLocaleString('en-US', { timeZone: 'America/Denver' })
+  const mtnDate = new Date(mtnStr)
+  const mtnOffset = (now - mtnDate) / 60000
+  return mtnOffset <= 360 ? 'MDT' : 'MST'
 }
 
 function getCurrentDayAndShift() {
@@ -39,7 +33,7 @@ function getCurrentDayAndShift() {
   const dayIndex = now.getDay()
   if (dayIndex === 0 || dayIndex === 6) return { day: null, shift: null, isShiftTime: false }
 
-  const dayName = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][dayIndex]
+  const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
   const hour = now.getHours()
   const minute = now.getMinutes()
   const timeDecimal = hour + minute / 60
@@ -53,18 +47,12 @@ function getCurrentDayAndShift() {
 
 function formatMountain(ts) {
   if (!ts) return '—'
-  const date = new Date(ts)
-  const offsetHours = getMountainOffset(date)
-  const adjusted = new Date(date.getTime() + (date.getTimezoneOffset() + offsetHours * 60) * 60000)
-  return adjusted.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+  return new Date(ts).toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit' })
 }
 
 function formatDateMountain(ts) {
   if (!ts) return '—'
-  const date = new Date(ts)
-  const offsetHours = getMountainOffset(date)
-  const adjusted = new Date(date.getTime() + (date.getTimezoneOffset() + offsetHours * 60) * 60000)
-  return adjusted.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return new Date(ts).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric' })
 }
 
 export default function AdminPage() {
@@ -215,13 +203,16 @@ export default function AdminPage() {
       parking_pass: editForm.parking_pass ? parseInt(editForm.parking_pass) : null,
       languages: editForm.languages, role: editForm.role,
     }).eq('id', selectedVolunteer.id)
-    if (error) showMessage(error.message, 'error')
-    else {
-      showMessage('Profile updated!', 'success')
-      setEditing(false)
-      await loadVolunteers()
-      setSelectedVolunteer(prev => ({ ...prev, ...editForm }))
-    }
+    if (error) { showMessage(error.message, 'error'); setSaving(false); return }
+    const { data: fresh } = await supabase
+      .from('profiles')
+      .select('*, shifts(*)')
+      .eq('id', selectedVolunteer.id)
+      .single()
+    showMessage('Profile updated!', 'success')
+    setEditing(false)
+    setSelectedVolunteer(fresh)
+    await loadVolunteers()
     setSaving(false)
   }
 
@@ -285,7 +276,7 @@ export default function AdminPage() {
             <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
               Bingham Family Clinic &nbsp;·&nbsp;
               <span style={{ fontFamily: 'DM Mono, monospace' }}>
-                {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} {tzLabel}
+                {currentTime.toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit' })} {tzLabel}
               </span>
             </p>
           </div>
@@ -324,6 +315,13 @@ export default function AdminPage() {
         {/* LIVE TAB */}
         {tab === 'dashboard' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+            {/* Debug card - remove after fixing */}
+            <div style={{ ...card, borderColor: 'var(--warn)' }}>
+              <p style={{ color: 'var(--warn)', fontSize: '0.85rem', fontFamily: 'DM Mono, monospace' }}>
+                DEBUG: day={currentDay || 'null'} | shift={currentShift || 'null'} | isShiftTime={String(isShiftTime)} | missing={missing.length} | scheduleTotal={schedule.length} | scheduleFiltered={schedule.filter(s => s.day_of_week === currentDay && s.shift_time === currentShift).length} | activeShifts={activeShifts.length}
+              </p>
+            </div>
 
             {/* Missing volunteers */}
             {isShiftTime && (
