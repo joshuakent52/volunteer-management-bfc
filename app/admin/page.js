@@ -296,17 +296,17 @@ export default function AdminPage() {
   }
 
   function recipientLabel(msg) {
-    if (msg.recipient_type === 'everyone') return '📢 Everyone'
-    if (msg.recipient_type === 'admin') return '🛠 Admins'
+    if (msg.recipient_type === 'everyone') return 'Everyone'
+    if (msg.recipient_type === 'admin') return 'Admins'
     if (msg.recipient_type === 'volunteer') {
       const v = volunteers.find(v => v.id === msg.recipient_volunteer_id)
-      return `👤 ${v?.full_name || 'Volunteer'}`
+      return `${v?.full_name || 'Volunteer'}`
     }
     if (msg.recipient_type === 'shift') {
       const day = msg.recipient_day ? msg.recipient_day.charAt(0).toUpperCase() + msg.recipient_day.slice(1, 3) : ''
-      return `⏱ ${day} ${msg.recipient_shift}`
+      return `${day} ${msg.recipient_shift}`
     }
-    if (msg.recipient_type === 'role') return `👥 ${msg.recipient_role}`
+    if (msg.recipient_type === 'role') return `${msg.recipient_role}`
     return msg.recipient_type
   }
 
@@ -345,7 +345,7 @@ export default function AdminPage() {
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
           <div>
-            <h1 style={{ fontSize: '1.4rem', fontWeight: 600, letterSpacing: '-0.02em' }}>🛠 Admin Dashboard</h1>
+            <h1 style={{ fontSize: '1.4rem', fontWeight: 600, letterSpacing: '-0.02em' }}>Admin Dashboard</h1>
             <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
               Bingham Family Clinic &nbsp;·&nbsp;
               <span style={{ fontFamily: 'DM Mono, monospace' }}>
