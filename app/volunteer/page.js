@@ -320,7 +320,7 @@ export default function VolunteerPage() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {DAYS.map(day => {
-                  const dayEntries = schedule.filter(s => s.day_of_week === day)
+                  const dayEntries = schedule.filter(s => s.day_of_week === day.toLowerCase())
                   if (dayEntries.length === 0) return null
                   return (
                     <div key={day} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
