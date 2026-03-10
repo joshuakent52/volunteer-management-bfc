@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
-const DAYS = ['monday','tuesday','wednesday','thursday','friday']
+const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday']
 const SHIFTS = ['10-2','2-6']
 
 export default function VolunteerPage() {
@@ -28,6 +28,9 @@ export default function VolunteerPage() {
   const [msgRecipientType, setMsgRecipientType] = useState('admin')
   const [sendingMsg, setSendingMsg] = useState(false)
   const [msgView, setMsgView] = useState('inbox')
+
+  // All shifts for total hours (no limit)
+  const [allShifts, setAllShifts] = useState([])
 
   useEffect(() => { init() }, [])
 
@@ -53,6 +56,13 @@ export default function VolunteerPage() {
       .order('clock_in', { ascending: false })
       .limit(10)
     setShifts(history || [])
+
+    // Load all completed shifts for total hours
+    const { data: all } = await supabase
+      .from('shifts').select('clock_in, clock_out')
+      .eq('volunteer_id', user.id)
+      .not('clock_out', 'is', null)
+    setAllShifts(all || [])
 
     const { data: sched } = await supabase
       .from('schedule').select('*, profiles(full_name)')
@@ -166,6 +176,12 @@ export default function VolunteerPage() {
   function calcHours(clock_in, clock_out) {
     if (!clock_out) return 'Active'
     return ((new Date(clock_out) - new Date(clock_in)) / 3600000).toFixed(1) + 'h'
+  }
+
+  function totalHours() {
+    return allShifts.reduce((acc, s) => {
+      return acc + (new Date(s.clock_out) - new Date(s.clock_in)) / 3600000
+    }, 0).toFixed(1)
   }
 
   function recipientLabel(msg) {
@@ -327,25 +343,48 @@ export default function VolunteerPage() {
 
         {/* HISTORY TAB */}
         {tab === 'history' && (
-          <div style={card}>
-            <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>My Shift History</h2>
-            {shifts.length === 0 ? (
-              <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No shifts recorded yet.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {shifts.map(s => (
-                  <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                    <div>
-                      <p style={{ fontWeight: 500, fontSize: '0.9rem' }}>{formatDate(s.clock_in)}</p>
-                      <p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{formatTime(s.clock_in)} → {formatTime(s.clock_out)}</p>
-                    </div>
-                    <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', color: s.clock_out ? 'var(--accent)' : 'var(--warn)' }}>
-                      {calcHours(s.clock_in, s.clock_out)}
-                    </span>
-                  </div>
-                ))}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+            {/* Total hours summary */}
+            <div style={{ ...card, borderColor: 'var(--accent)', background: 'rgba(74,222,128,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <p style={{ fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>Total Hours</p>
+                <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: 'var(--accent)', lineHeight: 1 }}>
+                  {totalHours()}<span style={{ fontSize: '1rem', fontWeight: 500, marginLeft: '0.25rem', color: 'var(--muted)' }}>hrs</span>
+                </p>
               </div>
-            )}
+              <div style={{ textAlign: 'right' }}>
+                <p style={{ fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>Completed Shifts</p>
+                <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: 'var(--text)', lineHeight: 1 }}>
+                  {allShifts.length}
+                </p>
+              </div>
+            </div>
+
+            {/* Recent shifts list */}
+            <div style={card}>
+              <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>
+                Recent Shifts
+                <span style={{ marginLeft: '0.5rem', color: 'var(--muted)', fontWeight: 400, fontSize: '0.8rem' }}>— last 10</span>
+              </h2>
+              {shifts.length === 0 ? (
+                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No shifts recorded yet.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {shifts.map(s => (
+                    <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <div>
+                        <p style={{ fontWeight: 500, fontSize: '0.9rem' }}>{formatDate(s.clock_in)}</p>
+                        <p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{formatTime(s.clock_in)} → {formatTime(s.clock_out)}</p>
+                      </div>
+                      <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', color: s.clock_out ? 'var(--accent)' : 'var(--warn)' }}>
+                        {calcHours(s.clock_in, s.clock_out)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
