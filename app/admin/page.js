@@ -464,7 +464,7 @@ export default function AdminPage() {
   const tzLabel = getMountainLabel()
   const volunteerList = volunteers.filter(v => v.role === 'volunteer')
   const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-  const messages24h = adminMessages.filter(m => m.created_at >= cutoff24h).length
+  const messages24h = adminMessages.filter(m => m.created_at >= cutoff24h && m.sender_id !== profile?.id).length
 
   const dayShiftCombos = DAYS.flatMap(d => SHIFTS.map(s => ({ day: d, shift: s, label: `${d.charAt(0).toUpperCase() + d.slice(1,3)} ${s}` })))
 
@@ -718,7 +718,7 @@ export default function AdminPage() {
                   { label: 'Parking Pass', value: selectedVolunteer.parking_pass },
                   { label: 'Languages', value: selectedVolunteer.languages },
                   { label: 'Total Hours', value: totalHours(selectedVolunteer.shifts) + 'h' },
-                  { label: 'Access Level', value: selectedVolunteer.role },
+                  { label: 'Role', value: selectedVolunteer.role },
                   { label: 'Default Position', value: selectedVolunteer.default_role },
                   ...(selectedVolunteer.affiliation === 'missionary' ? [
                     { label: 'SMA Name', value: selectedVolunteer.sma_name },
@@ -752,7 +752,7 @@ export default function AdminPage() {
                   <div><label style={labelStyle}>Parking Pass (1–100)</label><input type="number" min="1" max="100" value={editForm.parking_pass} onChange={e => setEditForm({...editForm, parking_pass: e.target.value})} style={inputStyle} /></div>
                   <div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Languages</label><input value={editForm.languages} onChange={e => setEditForm({...editForm, languages: e.target.value})} placeholder="e.g. Spanish, French" style={inputStyle} /></div>
                   <div>
-                    <label style={labelStyle}>Access Level</label>
+                    <label style={labelStyle}>Role</label>
                     <select value={editForm.role} onChange={e => setEditForm({...editForm, role: e.target.value})} style={inputStyle}>
                       <option value="volunteer">Volunteer</option>
                       <option value="admin">Admin</option>
