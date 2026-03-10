@@ -30,6 +30,12 @@ export default function VolunteerPage() {
   const [sendingMsg, setSendingMsg] = useState(false)
   const [msgView, setMsgView] = useState('inbox')
 
+  // Account / password change
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [changingPassword, setChangingPassword] = useState(false)
+
   // All shifts for total hours (no limit)
   const [allShifts, setAllShifts] = useState([])
 
@@ -185,6 +191,20 @@ export default function VolunteerPage() {
     setSendingMsg(false)
   }
 
+  async function handleChangePassword(e) {
+    e.preventDefault()
+    if (newPassword !== confirmPassword) { showToast('Passwords do not match', 'error'); return }
+    if (newPassword.length < 6) { showToast('Password must be at least 6 characters', 'error'); return }
+    setChangingPassword(true)
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    if (error) showToast(error.message, 'error')
+    else {
+      showToast('Password updated!', 'success')
+      setCurrentPassword(''); setNewPassword(''); setConfirmPassword('')
+    }
+    setChangingPassword(false)
+  }
+
   function showToast(text, type) {
     setToast({ text, type })
     setTimeout(() => setToast(null), 3500)
@@ -292,7 +312,7 @@ export default function VolunteerPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-          {[['clock','Clock'],['schedule','Schedule'],['callout','Call-Out'],['history','History'],['messages','Messages']].map(([key, label]) => (
+          {[['clock','Clock'],['schedule','Schedule'],['callout','Call-Out'],['history','History'],['messages','Messages'],['account','Account']].map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)} style={{
               padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500,
               cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
@@ -581,6 +601,47 @@ export default function VolunteerPage() {
                 </form>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ACCOUNT TAB */}
+        {tab === 'account' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={card}>
+              <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Change Password</h2>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Must be at least 6 characters.</p>
+              <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div>
+                  <label style={labelStyle}>New Password</label>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={e => setNewPassword(e.target.value)}
+                    required
+                    placeholder="New password"
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Confirm New Password</label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={e => setConfirmPassword(e.target.value)}
+                    required
+                    placeholder="Repeat new password"
+                    style={inputStyle}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={changingPassword || !newPassword || !confirmPassword}
+                  style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: changingPassword ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}
+                >
+                  {changingPassword ? 'Updating...' : 'Update Password'}
+                </button>
+              </form>
+            </div>
           </div>
         )}
 
