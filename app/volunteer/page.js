@@ -14,7 +14,6 @@ export default function VolunteerPage() {
   const [shifts, setShifts] = useState([])
   const [schedule, setSchedule] = useState([])
   const [calloutDate, setCalloutDate] = useState('')
-  const [calloutDay, setCalloutDay] = useState('')
   const [calloutShift, setCalloutShift] = useState('')
   const [calloutReason, setCalloutReason] = useState('')
   const [toast, setToast] = useState(null)
@@ -135,17 +134,20 @@ export default function VolunteerPage() {
 
   async function handleCallout(e) {
     e.preventDefault()
+    // Derive day_of_week from the selected date
+    const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
+    const derivedDay = calloutDate ? dayNames[new Date(calloutDate + 'T12:00:00').getDay()] : null
     const { error } = await supabase.from('callouts').insert({
       volunteer_id: user.id,
       callout_date: calloutDate,
-      day_of_week: calloutDay || null,
+      day_of_week: derivedDay,
       shift_time: calloutShift || null,
       reason: calloutReason,
     })
     if (error) showToast(error.message, 'error')
     else {
       showToast('Call-out submitted!', 'success')
-      setCalloutDate(''); setCalloutDay(''); setCalloutShift(''); setCalloutReason('')
+      setCalloutDate(''); setCalloutShift(''); setCalloutReason('')
     }
   }
 
@@ -354,21 +356,12 @@ export default function VolunteerPage() {
                 <label style={labelStyle}>Date you can't make it</label>
                 <input type="date" value={calloutDate} onChange={e => setCalloutDate(e.target.value)} required style={inputStyle} />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                <div>
-                  <label style={labelStyle}>Day of week</label>
-                  <select value={calloutDay} onChange={e => setCalloutDay(e.target.value)} style={inputStyle}>
-                    <option value="">— Select —</option>
-                    {DAYS.map(d => <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={labelStyle}>Shift</label>
-                  <select value={calloutShift} onChange={e => setCalloutShift(e.target.value)} style={inputStyle}>
-                    <option value="">— Select —</option>
-                    {SHIFTS.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
+              <div>
+                <label style={labelStyle}>Shift</label>
+                <select value={calloutShift} onChange={e => setCalloutShift(e.target.value)} style={inputStyle}>
+                  <option value="">— Select —</option>
+                  {SHIFTS.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
               </div>
               <div>
                 <label style={labelStyle}>Reason (optional)</label>
