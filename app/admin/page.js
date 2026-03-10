@@ -690,7 +690,7 @@ export default function AdminPage() {
         {tab === 'messages' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              {[['inbox','📥 Inbox'],['sent','📤 Sent'],['compose','✏️ Compose']].map(([key, label]) => (
+              {[['inbox','Inbox'],['sent','Sent'],['compose','Compose']].map(([key, label]) => (
                 <button key={key} onClick={() => setMsgView(key)} style={{
                   padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
                   cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
