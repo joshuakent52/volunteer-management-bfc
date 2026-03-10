@@ -142,7 +142,7 @@ export default function AdminPage() {
   const [shiftEditForm, setShiftEditForm] = useState({})
   const [savingShift, setSavingShift] = useState(false)
   const [showNewShiftForm, setShowNewShiftForm] = useState(false)
-  const [newShiftForm, setNewShiftForm] = useState({ volunteer_id: '', clock_in: '', clock_out: '' })
+  const [newShiftForm, setNewShiftForm] = useState({ volunteer_id: '', clock_in: '', clock_out: '', role: '' })
   const [creatingShift, setCreatingShift] = useState(false)
   const [shiftFilterVolId, setShiftFilterVolId] = useState('')
 
@@ -209,7 +209,7 @@ export default function AdminPage() {
     const clockOut = shiftEditForm.clock_out ? fromMountainInputValue(shiftEditForm.clock_out) : null
     const { error } = await supabase
       .from('shifts')
-      .update({ clock_in: clockIn, clock_out: clockOut })
+      .update({ clock_in: clockIn, clock_out: clockOut, role: shiftEditForm.role || null })
       .eq('id', shiftId)
     if (error) showMessage(error.message, 'error')
     else {
@@ -242,11 +242,12 @@ export default function AdminPage() {
       volunteer_id: newShiftForm.volunteer_id,
       clock_in: clockIn,
       clock_out: clockOut,
+      role: newShiftForm.role || null,
     })
     if (error) showMessage(error.message, 'error')
     else {
       showMessage('Shift entry created!', 'success')
-      setNewShiftForm({ volunteer_id: '', clock_in: '', clock_out: '' })
+      setNewShiftForm({ volunteer_id: '', clock_in: '', clock_out: '', role: '' })
       setShowNewShiftForm(false)
       await loadAllShifts()
       await loadActiveShifts()
@@ -341,6 +342,7 @@ export default function AdminPage() {
       affiliation: v.affiliation||'', parking_pass: v.parking_pass||'',
       languages: v.languages||'', role: v.role||'volunteer',
       sma_name: v.sma_name||'', sma_contact: v.sma_contact||'', school: v.school||'',
+      default_role: v.default_role||'',
     })
     setEditing(false)
   }
@@ -355,6 +357,7 @@ export default function AdminPage() {
       sma_name: editForm.affiliation === 'missionary' ? (editForm.sma_name||null) : null,
       sma_contact: editForm.affiliation === 'missionary' ? (editForm.sma_contact||null) : null,
       school: editForm.affiliation === 'student' ? (editForm.school||null) : null,
+      default_role: editForm.default_role || null,
     }).eq('id', selectedVolunteer.id)
     if (error) { showMessage(error.message, 'error'); setSaving(false); return }
     const { data: fresh } = await supabase
@@ -694,6 +697,7 @@ export default function AdminPage() {
                   { label: 'Languages', value: selectedVolunteer.languages },
                   { label: 'Total Hours', value: totalHours(selectedVolunteer.shifts) + 'h' },
                   { label: 'Role', value: selectedVolunteer.role },
+                  { label: 'Default Position', value: selectedVolunteer.default_role },
                   ...(selectedVolunteer.affiliation === 'missionary' ? [
                     { label: 'SMA Name', value: selectedVolunteer.sma_name },
                     { label: 'SMA Contact', value: selectedVolunteer.sma_contact },
@@ -730,6 +734,13 @@ export default function AdminPage() {
                     <select value={editForm.role} onChange={e => setEditForm({...editForm, role: e.target.value})} style={inputStyle}>
                       <option value="volunteer">Volunteer</option>
                       <option value="admin">Admin</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Default Position</label>
+                    <select value={editForm.default_role} onChange={e => setEditForm({...editForm, default_role: e.target.value})} style={inputStyle}>
+                      <option value="">— None —</option>
+                      {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                     </select>
                   </div>
                   {editForm.affiliation === 'missionary' && <>
@@ -790,11 +801,22 @@ export default function AdminPage() {
                       />
                     </div>
                   </div>
+                  <div>
+                    <label style={labelStyle}>Position</label>
+                    <select
+                      value={newShiftForm.role}
+                      onChange={e => setNewShiftForm({ ...newShiftForm, role: e.target.value })}
+                      style={inputStyle}
+                    >
+                      <option value="">— No role —</option>
+                      {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </div>
                   <div style={{ display: 'flex', gap: '0.75rem' }}>
                     <button type="submit" disabled={creatingShift} style={{ flex: 1, padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: creatingShift ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                       {creatingShift ? 'Creating...' : 'Create Entry'}
                     </button>
-                    <button type="button" onClick={() => { setShowNewShiftForm(false); setNewShiftForm({ volunteer_id: '', clock_in: '', clock_out: '' }) }} style={{ padding: '0.85rem 1.25rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '8px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                    <button type="button" onClick={() => { setShowNewShiftForm(false); setNewShiftForm({ volunteer_id: '', clock_in: '', clock_out: '', role: '' }) }} style={{ padding: '0.85rem 1.25rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '8px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                       Cancel
                     </button>
                   </div>
@@ -861,7 +883,12 @@ export default function AdminPage() {
                                 </p>
                               </div>
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                              {s.role ? (
+                                <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', borderRadius: '100px', background: 'rgba(167,139,250,0.12)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)', fontWeight: 500, whiteSpace: 'nowrap' }}>{s.role}</span>
+                              ) : (
+                                <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', borderRadius: '100px', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', fontStyle: 'italic' }}>no role</span>
+                              )}
                               {hours !== null ? (
                                 <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', color: 'var(--accent)', fontWeight: 600 }}>{hours}h</span>
                               ) : (
@@ -873,6 +900,7 @@ export default function AdminPage() {
                                   setShiftEditForm({
                                     clock_in: toMountainInputValue(s.clock_in),
                                     clock_out: toMountainInputValue(s.clock_out),
+                                    role: s.role || '',
                                   })
                                 }}
                                 style={{ padding: '0.3rem 0.7rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}
@@ -912,6 +940,17 @@ export default function AdminPage() {
                                   style={inputStyle}
                                 />
                               </div>
+                            </div>
+                            <div style={{ marginBottom: '0.75rem' }}>
+                              <label style={labelStyle}>Position</label>
+                              <select
+                                value={shiftEditForm.role}
+                                onChange={e => setShiftEditForm({ ...shiftEditForm, role: e.target.value })}
+                                style={inputStyle}
+                              >
+                                <option value="">— No role —</option>
+                                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                              </select>
                             </div>
                             <div style={{ display: 'flex', gap: '0.5rem' }}>
                               <button

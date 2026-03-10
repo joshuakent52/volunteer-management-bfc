@@ -82,11 +82,40 @@ export default function VolunteerPage() {
     setLoading(false)
   }
 
+  function getCurrentShiftWindow() {
+    const now = new Date()
+    const mtnStr = now.toLocaleString('en-US', { timeZone: 'America/Denver' })
+    const mtn = new Date(mtnStr)
+    const dayIndex = mtn.getDay()
+    if (dayIndex === 0 || dayIndex === 6) return { day: null, shift: null }
+    const day = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
+    const h = mtn.getHours() + mtn.getMinutes() / 60
+    const shift = h >= 10 && h < 14 ? '10-2' : h >= 14 && h < 18 ? '2-6' : null
+    return { day, shift }
+  }
+
   async function handleClockIn() {
     setClockLoading(true)
+
+    // Auto-match role from schedule
+    let resolvedRole = null
+    const { day, shift } = getCurrentShiftWindow()
+    if (day && shift) {
+      const matches = schedule.filter(s => s.day_of_week === day && s.shift_time === shift)
+      if (matches.length === 1) {
+        resolvedRole = matches[0].role
+      } else if (matches.length > 1) {
+        // Prefer the entry matching default_role
+        const preferred = matches.find(s => s.role === profile?.default_role)
+        resolvedRole = preferred ? preferred.role : matches[0].role
+      }
+    }
+    // Fall back to profile default_role if schedule had no match
+    if (!resolvedRole && profile?.default_role) resolvedRole = profile.default_role
+
     const { data, error } = await supabase
       .from('shifts')
-      .insert({ volunteer_id: user.id, clock_in: new Date().toISOString() })
+      .insert({ volunteer_id: user.id, clock_in: new Date().toISOString(), role: resolvedRole })
       .select().single()
     if (error) showToast(error.message, 'error')
     else { setActiveShift(data); showToast('Clocked in successfully!', 'success') }
