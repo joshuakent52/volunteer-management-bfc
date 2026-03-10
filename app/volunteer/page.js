@@ -26,6 +26,8 @@ export default function VolunteerPage() {
   const [messages, setMessages] = useState([])
   const [msgBody, setMsgBody] = useState('')
   const [msgRecipientType, setMsgRecipientType] = useState('admin')
+  const [msgSelectedShift, setMsgSelectedShift] = useState(null)  // { day, shift_time }
+  const [msgSelectedRole, setMsgSelectedRole] = useState(null)
   const [sendingMsg, setSendingMsg] = useState(false)
   const [msgView, setMsgView] = useState('inbox')
 
@@ -123,16 +125,13 @@ export default function VolunteerPage() {
     if (!msgBody.trim()) return
     setSendingMsg(true)
 
-    const myShifts = [...new Set(schedule.map(s => s.shift_time))]
-    const myRoles = [...new Set(schedule.map(s => s.role))]
-
     const payload = {
       sender_id: user.id,
       recipient_type: msgRecipientType,
       body: msgBody.trim(),
-      recipient_shift: msgRecipientType === 'shift' ? (myShifts[0] || null) : null,
-      recipient_role: msgRecipientType === 'role' ? (myRoles[0] || null) : null,
-      recipient_day: null,
+      recipient_shift: msgRecipientType === 'shift' ? (msgSelectedShift?.shift_time || null) : null,
+      recipient_day: msgRecipientType === 'shift' ? (msgSelectedShift?.day || null) : null,
+      recipient_role: msgRecipientType === 'role' ? (msgSelectedRole || null) : null,
       recipient_volunteer_id: null,
     }
 
@@ -142,6 +141,8 @@ export default function VolunteerPage() {
       showToast('Message sent!', 'success')
       setMsgBody('')
       setMsgRecipientType('admin')
+      setMsgSelectedShift(null)
+      setMsgSelectedRole(null)
       setMsgView('inbox')
       const { data: msgs } = await supabase
         .from('messages')
@@ -210,7 +211,17 @@ export default function VolunteerPage() {
 
   const inboxMessages = messages.filter(m => m.sender_id !== user?.id)
   const sentMessages = messages.filter(m => m.sender_id === user?.id)
-  const myShifts = [...new Set(schedule.map(s => s.shift_time))]
+
+  // Unique day+shift combos the volunteer is scheduled for
+  const myShiftCombos = schedule.reduce((acc, s) => {
+    const key = `${s.day_of_week}|${s.shift_time}`
+    if (!acc.find(x => x.key === key)) {
+      acc.push({ key, day: s.day_of_week, shift_time: s.shift_time, label: `${s.day_of_week.charAt(0).toUpperCase() + s.day_of_week.slice(1,3)} ${s.shift_time}` })
+    }
+    return acc
+  }, [])
+
+  // Unique roles the volunteer is scheduled for
   const myRoles = [...new Set(schedule.map(s => s.role))]
 
   return (
@@ -460,10 +471,14 @@ export default function VolunteerPage() {
                       {[
                         { value: 'admin', label: 'Admin' },
                         { value: 'everyone', label: 'Everyone' },
-                        ...(myShifts.length > 0 ? [{ value: 'shift', label: 'My Shift' }] : []),
+                        ...(myShiftCombos.length > 0 ? [{ value: 'shift', label: 'My Shift' }] : []),
                         ...(myRoles.length > 0 ? [{ value: 'role', label: 'My Role' }] : []),
                       ].map(opt => (
-                        <button key={opt.value} type="button" onClick={() => setMsgRecipientType(opt.value)} style={{
+                        <button key={opt.value} type="button" onClick={() => {
+                          setMsgRecipientType(opt.value)
+                          setMsgSelectedShift(null)
+                          setMsgSelectedRole(null)
+                        }} style={{
                           padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
                           cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
                           background: msgRecipientType === opt.value ? 'var(--accent)' : 'var(--surface)',
@@ -472,22 +487,67 @@ export default function VolunteerPage() {
                         }}>{opt.label}</button>
                       ))}
                     </div>
-                    {msgRecipientType === 'shift' && myShifts.length > 0 && (
-                      <p style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--muted)' }}>
-                        Sends to everyone in your shift{myShifts.length > 1 ? 's' : ''}: {myShifts.join(', ')}
-                      </p>
+
+                    {/* Shift picker — only shown when 'shift' selected */}
+                    {msgRecipientType === 'shift' && myShiftCombos.length > 0 && (
+                      <div style={{ marginTop: '0.75rem' }}>
+                        <label style={labelStyle}>Which shift</label>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          {myShiftCombos.map(combo => {
+                            const active = msgSelectedShift?.key === combo.key
+                            return (
+                              <button key={combo.key} type="button" onClick={() => setMsgSelectedShift(combo)} style={{
+                                padding: '0.4rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
+                                cursor: 'pointer', fontFamily: 'DM Mono, monospace',
+                                background: active ? '#1e40af' : 'var(--surface)',
+                                color: active ? '#bfdbfe' : 'var(--muted)',
+                                border: active ? 'none' : '1px solid var(--border)',
+                              }}>{combo.label}</button>
+                            )
+                          })}
+                        </div>
+                        {myShiftCombos.length === 1 && !msgSelectedShift && (
+                          <p style={{ marginTop: '0.4rem', fontSize: '0.78rem', color: 'var(--muted)' }}>Select a shift above to continue.</p>
+                        )}
+                      </div>
                     )}
+
+                    {/* Role picker — only shown when 'role' selected */}
                     {msgRecipientType === 'role' && myRoles.length > 0 && (
-                      <p style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--muted)' }}>
-                        Sends to everyone in your role{myRoles.length > 1 ? 's' : ''}: {myRoles.join(', ')}
-                      </p>
+                      <div style={{ marginTop: '0.75rem' }}>
+                        <label style={labelStyle}>Which role</label>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          {myRoles.map(role => {
+                            const active = msgSelectedRole === role
+                            return (
+                              <button key={role} type="button" onClick={() => setMsgSelectedRole(role)} style={{
+                                padding: '0.4rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
+                                cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                                background: active ? 'var(--accent)' : 'var(--surface)',
+                                color: active ? '#0a0f0a' : 'var(--muted)',
+                                border: active ? 'none' : '1px solid var(--border)',
+                              }}>{role}</button>
+                            )
+                          })}
+                        </div>
+                      </div>
                     )}
                   </div>
+
                   <div>
                     <label style={labelStyle}>Message</label>
                     <textarea value={msgBody} onChange={e => setMsgBody(e.target.value)} required rows={4} placeholder="Write your message..." style={{ ...inputStyle, resize: 'vertical' }} />
                   </div>
-                  <button type="submit" disabled={sendingMsg || !msgBody.trim()} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: sendingMsg ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+
+                  <button
+                    type="submit"
+                    disabled={
+                      sendingMsg ||
+                      !msgBody.trim() ||
+                      (msgRecipientType === 'shift' && !msgSelectedShift) ||
+                      (msgRecipientType === 'role' && !msgSelectedRole)
+                    }
+                    style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: sendingMsg ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                     {sendingMsg ? 'Sending...' : 'Send Message'}
                   </button>
                 </form>
