@@ -444,7 +444,7 @@ export default function AdminPage() {
     border: active ? 'none' : '1px solid var(--border)',
   })
 
-  const { missing, day: currentDay, shift: currentShift, isShiftTime } = getMissingVolunteers()
+  // const { missing, day: currentDay, shift: currentShift, isShiftTime } = getMissingVolunteers()
   const unreadCallouts = callouts.filter(c => !c.is_read)
   const readCallouts = callouts.filter(c => c.is_read)
   const tzLabel = getMountainLabel()
@@ -521,32 +521,7 @@ export default function AdminPage() {
         {/* LIVE TAB */}
         {tab === 'dashboard' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {isShiftTime && (
-              <div style={{ ...card, borderColor: missing.length > 0 ? 'var(--danger)' : 'var(--accent)', background: missing.length > 0 ? 'rgba(248,113,113,0.05)' : 'rgba(74,222,128,0.05)' }}>
-                <h2 style={{ fontWeight: 600, fontSize: '1rem', marginBottom: missing.length > 0 ? '1rem' : 0 }}>
-                  {missing.length > 0
-                    ? `⚠️ ${missing.length} volunteer${missing.length > 1 ? 's' : ''} not yet clocked in — ${currentDay} ${currentShift}`
-                    : `✅ All volunteers present — ${currentDay} ${currentShift}`}
-                </h2>
-                {missing.length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {missing.map(v => (
-                      <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: 'rgba(248,113,113,0.08)', borderRadius: '8px', border: '1px solid rgba(248,113,113,0.3)' }}>
-                        <span style={{ fontWeight: 500 }}>{v.name}</span>
-                        <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>{v.role}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            {!isShiftTime && (
-              <div style={card}>
-                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>
-                  ℹ️ No active shift window right now. Missing volunteer alerts appear during shift hours (Mon–Fri, 10:00–14:00 and 14:00–18:00 {tzLabel}).
-                </p>
-              </div>
-            )}
+{/* Missing volunteer / shift presence block commented out */}
             <div style={card}>
               <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Currently Clocked In</h2>
               {activeShifts.length === 0 ? (
@@ -565,16 +540,19 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
-            {unreadCallouts.length > 0 && (
+            {(() => {
+              const todayMtn = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }) // YYYY-MM-DD
+              const todaysCallouts = unreadCallouts.filter(c => c.callout_date === todayMtn)
+              return todaysCallouts.length > 0 && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <span>📋 Today's Call-Outs</span>
                   <span style={{ padding: '0.15rem 0.55rem', background: 'rgba(251,191,36,0.15)', color: 'var(--warn)', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(251,191,36,0.3)' }}>
-                    {unreadCallouts.length}
+                    {todaysCallouts.length}
                   </span>
                 </h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {unreadCallouts.map(c => (
+                  {todaysCallouts.map(c => (
                     <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: 'rgba(251,191,36,0.05)', borderRadius: '8px', border: '1px solid rgba(251,191,36,0.25)', flexWrap: 'wrap', gap: '0.5rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                         <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{c.profiles?.full_name}</span>
@@ -594,7 +572,7 @@ export default function AdminPage() {
                   ))}
                 </div>
               </div>
-            )}
+            )})()}
           </div>
         )}
 
