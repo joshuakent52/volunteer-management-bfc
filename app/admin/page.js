@@ -752,7 +752,7 @@ export default function AdminPage() {
                   <div><label style={labelStyle}>Parking Pass (1–100)</label><input type="number" min="1" max="100" value={editForm.parking_pass} onChange={e => setEditForm({...editForm, parking_pass: e.target.value})} style={inputStyle} /></div>
                   <div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Languages</label><input value={editForm.languages} onChange={e => setEditForm({...editForm, languages: e.target.value})} placeholder="e.g. Spanish, French" style={inputStyle} /></div>
                   <div>
-                    <label style={labelStyle}>Access Label</label>
+                    <label style={labelStyle}>Access Level</label>
                     <select value={editForm.role} onChange={e => setEditForm({...editForm, role: e.target.value})} style={inputStyle}>
                       <option value="volunteer">Volunteer</option>
                       <option value="admin">Admin</option>
