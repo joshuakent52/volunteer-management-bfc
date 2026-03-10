@@ -38,19 +38,26 @@ function getCurrentDayAndShift() {
   return { day: dayName, shift, isShiftTime: !!shift }
 }
 
+// Ensure Supabase timestamps (which may lack 'Z') are always parsed as UTC
+function asUTC(ts) {
+  if (!ts) return null
+  // If it already has a timezone indicator, use as-is; otherwise append Z
+  return /Z|[+-]\d{2}:\d{2}$/.test(ts) ? new Date(ts) : new Date(ts + 'Z')
+}
+
 function formatMountain(ts) {
   if (!ts) return '—'
-  return new Date(ts).toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit' })
+  return asUTC(ts).toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit' })
 }
 
 function formatDateMountain(ts) {
   if (!ts) return '—'
-  return new Date(ts).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric' })
+  return asUTC(ts).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric' })
 }
 
 function formatDateTime(ts) {
   if (!ts) return '—'
-  return new Date(ts).toLocaleString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return asUTC(ts).toLocaleString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 // Convert a UTC ISO string to local datetime-local input value (Mountain)
@@ -58,7 +65,7 @@ function formatDateTime(ts) {
 function toMountainInputValue(ts) {
   if (!ts) return ''
   // Use Intl.DateTimeFormat parts to reliably extract Mountain time components
-  const d = new Date(ts)
+  const d = asUTC(ts)
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Denver',
     year: 'numeric', month: '2-digit', day: '2-digit',
@@ -403,13 +410,13 @@ export default function AdminPage() {
   function totalHours(shifts) {
     return shifts?.reduce((acc, s) => {
       if (!s.clock_out) return acc
-      return acc + (new Date(s.clock_out) - new Date(s.clock_in)) / 3600000
+      return acc + (asUTC(s.clock_out) - asUTC(s.clock_in)) / 3600000
     }, 0).toFixed(1) || '0.0'
   }
 
   function calcShiftHours(clock_in, clock_out) {
     if (!clock_out) return null
-    return ((new Date(clock_out) - new Date(clock_in)) / 3600000).toFixed(1)
+    return ((asUTC(clock_out) - asUTC(clock_in)) / 3600000).toFixed(1)
   }
 
   function showMessage(text, type) {

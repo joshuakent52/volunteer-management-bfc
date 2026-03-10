@@ -190,29 +190,35 @@ export default function VolunteerPage() {
     setTimeout(() => setToast(null), 3500)
   }
 
+  // Ensure Supabase timestamps (which may lack 'Z') are always parsed as UTC
+  function asUTC(ts) {
+    if (!ts) return null
+    return /Z|[+-]\d{2}:\d{2}$/.test(ts) ? new Date(ts) : new Date(ts + 'Z')
+  }
+
   function formatTime(ts) {
     if (!ts) return '—'
-    return new Date(ts).toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit' })
+    return asUTC(ts).toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit' })
   }
 
   function formatDate(ts) {
     if (!ts) return '—'
-    return new Date(ts).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric' })
+    return asUTC(ts).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric' })
   }
 
   function formatDateTime(ts) {
     if (!ts) return '—'
-    return new Date(ts).toLocaleString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    return asUTC(ts).toLocaleString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   }
 
   function calcHours(clock_in, clock_out) {
     if (!clock_out) return 'Active'
-    return ((new Date(clock_out) - new Date(clock_in)) / 3600000).toFixed(1) + 'h'
+    return ((asUTC(clock_out) - asUTC(clock_in)) / 3600000).toFixed(1) + 'h'
   }
 
   function totalHours() {
     return allShifts.reduce((acc, s) => {
-      return acc + (new Date(s.clock_out) - new Date(s.clock_in)) / 3600000
+      return acc + (asUTC(s.clock_out) - asUTC(s.clock_in)) / 3600000
     }, 0).toFixed(1)
   }
 
