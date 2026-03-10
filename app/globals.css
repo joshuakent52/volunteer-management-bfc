@@ -4,15 +4,15 @@
 @tailwind utilities;
 
 :root {
-  --bg: #0b0d12;          
-  --surface: #151922;
-  --border: #2a313c;
-  --accent: #02416B;
-  --accent-dim: #92A6B9;
-  --text: #f4f6f8;
-  --muted: #8a96a3;
-  --danger: #02416B;
-  --warn: #92A6B9;
+  --bg: #f2f4f7;        /* light gray page background */
+  --surface: #ffffff;   /* card/container background */
+  --border: #d1d5db;    /* light gray borders */
+  --accent: #02416B;    /* dark blue primary color */
+  --accent-dim: #5f7f99;/* softer blue for hover/secondary */
+  --text: #111111;      /* near-black text */
+  --muted: #4b5563;     /* muted gray text */
+  --danger: #02416B;    /* keeping blue theme */
+  --warn: #5f7f99;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
