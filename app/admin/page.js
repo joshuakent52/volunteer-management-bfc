@@ -54,35 +54,42 @@ function formatDateTime(ts) {
 }
 
 // Convert a UTC ISO string to local datetime-local input value (Mountain)
+// Convert a UTC ISO timestamp → "YYYY-MM-DDTHH:MM" in Mountain time for datetime-local inputs
 function toMountainInputValue(ts) {
   if (!ts) return ''
+  // Use Intl.DateTimeFormat parts to reliably extract Mountain time components
   const d = new Date(ts)
-  const mtn = new Date(d.toLocaleString('en-US', { timeZone: 'America/Denver' }))
-  const pad = n => String(n).padStart(2, '0')
-  return `${mtn.getFullYear()}-${pad(mtn.getMonth()+1)}-${pad(mtn.getDate())}T${pad(mtn.getHours())}:${pad(mtn.getMinutes())}`
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Denver',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d)
+  const get = type => parts.find(p => p.type === type).value
+  // hour12:false can return '24' for midnight — clamp to '00'
+  const hour = get('hour') === '24' ? '00' : get('hour')
+  return `${get('year')}-${get('month')}-${get('day')}T${hour}:${get('minute')}`
 }
 
-// Convert a Mountain datetime-local input value back to UTC ISO
+// Convert a "YYYY-MM-DDTHH:MM" Mountain time string back to UTC ISO
 function fromMountainInputValue(val) {
   if (!val) return null
-  // Parse as if local, then adjust for Mountain offset
-  // We use a trick: format a date in Mountain and compare offsets
-  const naive = new Date(val) // parsed as local browser time
-  // Re-interpret val as Mountain time by constructing the UTC equivalent
-  const mtnString = val.replace('T', ' ') // "2024-06-01 10:30"
-  // Use Intl to get the UTC offset for that moment in Mountain time
-  const approxUTC = new Date(val) // close enough for offset lookup
-  const mtnOffset = getMountainOffsetMinutes(approxUTC)
-  const utc = new Date(naive.getTime() + (naive.getTimezoneOffset() + mtnOffset) * 60000)
-  return utc.toISOString()
-}
-
-function getMountainOffsetMinutes(date) {
-  const utcStr = date.toLocaleString('en-US', { timeZone: 'UTC' })
-  const mtnStr = date.toLocaleString('en-US', { timeZone: 'America/Denver' })
-  const utcDate = new Date(utcStr)
-  const mtnDate = new Date(mtnStr)
-  return (utcDate - mtnDate) / 60000
+  // Build an unambiguous Mountain time string and let Intl resolve the UTC offset
+  // by asking what UTC time corresponds to this Mountain wall-clock time.
+  // We do this by formatting a candidate UTC date in Mountain and binary-searching
+  // for the one that matches — but the simple approach below is accurate to ±1min:
+  const [datePart, timePart] = val.split('T')
+  const [year, month, day] = datePart.split('-').map(Number)
+  const [hour, minute] = timePart.split(':').map(Number)
+  // Construct a UTC candidate assuming Mountain is UTC-7 (MDT), then correct
+  const candidate = new Date(Date.UTC(year, month - 1, day, hour + 7, minute))
+  // Check what Mountain wall-clock that candidate actually is
+  const check = toMountainInputValue(candidate.toISOString())
+  if (check === val) return candidate.toISOString()
+  // If off (we're in MST = UTC-7 vs MDT = UTC-6), adjust by the difference
+  const checkDate = new Date(check.replace('T', ' ') + ':00')
+  const inputDate = new Date(val.replace('T', ' ') + ':00')
+  const diffMs = inputDate - checkDate
+  return new Date(candidate.getTime() - diffMs).toISOString()
 }
 
 export default function AdminPage() {
