@@ -446,6 +446,8 @@ export default function AdminPage() {
   const readCallouts = callouts.filter(c => c.is_read)
   const tzLabel = getMountainLabel()
   const volunteerList = volunteers.filter(v => v.role === 'volunteer')
+  const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const messages24h = adminMessages.filter(m => m.created_at >= cutoff24h).length
 
   const dayShiftCombos = DAYS.flatMap(d => SHIFTS.map(s => ({ day: d, shift: s, label: `${d.charAt(0).toUpperCase() + d.slice(1,3)} ${s}` })))
 
@@ -477,12 +479,12 @@ export default function AdminPage() {
         {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
           {[
-            { label: 'Total Volunteers', value: volunteerList.length },
+            { label: 'Messages (24h)', value: messages24h, info: messages24h > 0 },
             { label: 'Clocked In Now', value: activeShifts.length, accent: true },
             { label: 'Unread Call-Outs', value: unreadCallouts.length, warn: unreadCallouts.length > 0 },
           ].map(s => (
-            <div key={s.label} style={{ ...card, textAlign: 'center', borderColor: s.accent ? 'var(--accent)' : s.warn ? 'var(--warn)' : 'var(--border)' }}>
-              <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: s.accent ? 'var(--accent)' : s.warn ? 'var(--warn)' : 'var(--text)' }}>{s.value}</p>
+            <div key={s.label} style={{ ...card, textAlign: 'center', borderColor: s.accent ? 'var(--accent)' : s.warn ? 'var(--warn)' : s.info ? '#60a5fa' : 'var(--border)' }}>
+              <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: s.accent ? 'var(--accent)' : s.warn ? 'var(--warn)' : s.info ? '#60a5fa' : 'var(--text)' }}>{s.value}</p>
               <p style={{ color: 'var(--muted)', fontSize: '0.8rem', marginTop: '0.25rem' }}>{s.label}</p>
             </div>
           ))}
@@ -1009,7 +1011,7 @@ export default function AdminPage() {
         {tab === 'messages' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              {[['inbox','Inbox'],['sent','Sent'],['compose','Compose']].map(([key, label]) => (
+              {[['inbox','📥 Inbox'],['sent','📤 Sent'],['compose','✏️ Compose']].map(([key, label]) => (
                 <button key={key} onClick={() => setMsgView(key)} style={{
                   padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
                   cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
