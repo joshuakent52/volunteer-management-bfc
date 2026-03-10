@@ -718,7 +718,7 @@ export default function AdminPage() {
                   { label: 'Parking Pass', value: selectedVolunteer.parking_pass },
                   { label: 'Languages', value: selectedVolunteer.languages },
                   { label: 'Total Hours', value: totalHours(selectedVolunteer.shifts) + 'h' },
-                  { label: 'Role', value: selectedVolunteer.role },
+                  { label: 'Access Level', value: selectedVolunteer.role },
                   { label: 'Default Position', value: selectedVolunteer.default_role },
                   ...(selectedVolunteer.affiliation === 'missionary' ? [
                     { label: 'SMA Name', value: selectedVolunteer.sma_name },
