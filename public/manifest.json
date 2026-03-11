@@ -1,11 +1,11 @@
 {
-  "name": "Bingham Family Clinic",
-  "short_name": "BFC",
-  "description": "Volunteer management for Bingham Family Clinic",
+  "name": "BFC Volunteer Portal",
+  "short_name": "BFC Portal",
+  "description": "Volunteer Portal for Bingham Family Clinic",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0f0a",
-  "theme_color": "#0a0f0a",
+  "theme_color": "#02416b",
   "orientation": "portrait",
   "icons": [
     {

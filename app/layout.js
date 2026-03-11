@@ -1,13 +1,13 @@
 import './globals.css'
 
 export const metadata = {
-  title: 'Bingham Family Clinic',
-  description: 'Volunteer management for Bingham Family Clinic',
+  title: 'BFC Volunteer Portal',
+  description: 'Volunteer Portal for Bingham Family Clinic',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'BFC',
+    title: 'Portal',
   },
   icons: {
     icon: '/logo.jpg',
@@ -16,7 +16,7 @@ export const metadata = {
 }
 
 export const viewport = {
-  themeColor: '#0a0f0a',
+  themeColor: '#02416b',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,

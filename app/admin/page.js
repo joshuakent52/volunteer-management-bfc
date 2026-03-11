@@ -516,7 +516,7 @@ export default function AdminPage() {
             ['shifts','Shifts'],
             ['callouts','Call-Outs'],
             ['messages','Messages'],
-            ['create','➕ Add Volunteer'],
+            ['create','Add Volunteer'],
           ].map(([key, label]) => (
             <button key={key} onClick={() => {
               setTab(key)
@@ -560,7 +560,7 @@ export default function AdminPage() {
               return todaysCallouts.length > 0 && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span>📋 Today's Call-Outs</span>
+                  <span>Today's Call-Outs</span>
                   <span style={{ padding: '0.15rem 0.55rem', background: 'rgba(251,191,36,0.15)', color: 'var(--warn)', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(251,191,36,0.3)' }}>
                     {todaysCallouts.length}
                   </span>
@@ -1072,7 +1072,7 @@ export default function AdminPage() {
         {tab === 'messages' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              {[['inbox','📥 Inbox'],['sent','📤 Sent'],['compose','✏️ Compose']].map(([key, label]) => (
+              {[['inbox','Inbox'],['sent','Sent'],['compose','Compose']].map(([key, label]) => (
                 <button key={key} onClick={() => setMsgView(key)} style={{
                   padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
                   cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
