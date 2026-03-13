@@ -280,7 +280,7 @@ export default function AdminPage() {
       body: msgBody.trim(),
       recipient_shift: msgRecipientType === 'shift' ? msgRecipientShift : null,
       recipient_day: msgRecipientType === 'shift' ? msgRecipientDay : null,
-      recipient_role: msgRecipientType === 'role' ? msgRecipientRole : null,
+      recipient_role: msgRecipientType === 'role' ? msgRecipientRole : msgRecipientType === 'affiliation_missionary' ? 'missionary' : null,
       recipient_volunteer_id: msgRecipientType === 'volunteer' ? msgRecipientVolId : null,
     }
     const { error } = await supabase.from('messages').insert(payload)
@@ -435,6 +435,7 @@ export default function AdminPage() {
       const day = msg.recipient_day ? msg.recipient_day.charAt(0).toUpperCase() + msg.recipient_day.slice(1, 3) : ''
       return `${day} ${msg.recipient_shift}`
     }
+    if (msg.recipient_type === 'affiliation_missionary') return 'Missionaries'
     if (msg.recipient_type === 'role') return `${msg.recipient_role}`
     return msg.recipient_type
   }
@@ -516,7 +517,7 @@ export default function AdminPage() {
             ['shifts','Shifts'],
             ['callouts','Call-Outs'],
             ['messages','Messages'],
-            ['create','Add Volunteer'],
+            ['create','➕ Add Volunteer'],
           ].map(([key, label]) => (
             <button key={key} onClick={() => {
               setTab(key)
@@ -560,7 +561,7 @@ export default function AdminPage() {
               return todaysCallouts.length > 0 && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span>Today's Call-Outs</span>
+                  <span>📋 Today's Call-Outs</span>
                   <span style={{ padding: '0.15rem 0.55rem', background: 'rgba(251,191,36,0.15)', color: 'var(--warn)', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(251,191,36,0.3)' }}>
                     {todaysCallouts.length}
                   </span>
@@ -1072,7 +1073,7 @@ export default function AdminPage() {
         {tab === 'messages' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              {[['inbox','Inbox'],['sent','Sent'],['compose','Compose']].map(([key, label]) => (
+              {[['inbox','📥 Inbox'],['sent','📤 Sent'],['compose','✏️ Compose']].map(([key, label]) => (
                 <button key={key} onClick={() => setMsgView(key)} style={{
                   padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
                   cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
@@ -1139,6 +1140,7 @@ export default function AdminPage() {
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                       {[
                         { value: 'everyone', label: 'Everyone' },
+                        { value: 'affiliation_missionary', label: 'Missionaries' },
                         { value: 'admin', label: 'Admins' },
                         { value: 'shift', label: 'Shift' },
                         { value: 'role', label: 'Role' },

@@ -248,6 +248,7 @@ export default function VolunteerPage() {
     if (msg.recipient_type === 'admin') return 'Admin'
     if (msg.recipient_type === 'volunteer') return 'You'
     if (msg.recipient_type === 'shift') return `${msg.recipient_day ? msg.recipient_day.slice(0,3) + ' ' : ''}${msg.recipient_shift}`
+    if (msg.recipient_type === 'affiliation_missionary') return 'Missionaries'
     if (msg.recipient_type === 'role') return `${msg.recipient_role}`
     return msg.recipient_type
   }
