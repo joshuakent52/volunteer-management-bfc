@@ -35,6 +35,7 @@ export default function VolunteerPage() {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [changingPassword, setChangingPassword] = useState(false)
+  const [showShiftHistory, setShowShiftHistory] = useState(false)
 
   // All shifts for total hours (no limit)
   const [allShifts, setAllShifts] = useState([])
@@ -312,7 +313,7 @@ export default function VolunteerPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-          {[['clock','Clock'],['schedule','Schedule'],['callout','Call-Out'],['history','History'],['messages','Messages'],['account','Account']].map(([key, label]) => (
+          {[['clock','Clock'],['schedule','Schedule'],['callout','Call-Out'],['messages','Messages'],['account','Account']].map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)} style={{
               padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500,
               cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
@@ -401,52 +402,6 @@ export default function VolunteerPage() {
         )}
 
         {/* HISTORY TAB */}
-        {tab === 'history' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-
-            {/* Total hours summary */}
-            <div style={{ ...card, borderColor: 'var(--accent)', background: 'rgba(74,222,128,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <p style={{ fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>Total Hours</p>
-                <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: 'var(--accent)', lineHeight: 1 }}>
-                  {totalHours()}<span style={{ fontSize: '1rem', fontWeight: 500, marginLeft: '0.25rem', color: 'var(--muted)' }}>hrs</span>
-                </p>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <p style={{ fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>Completed Shifts</p>
-                <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: 'var(--text)', lineHeight: 1 }}>
-                  {allShifts.length}
-                </p>
-              </div>
-            </div>
-
-            {/* Recent shifts list */}
-            <div style={card}>
-              <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>
-                Recent Shifts
-                <span style={{ marginLeft: '0.5rem', color: 'var(--muted)', fontWeight: 400, fontSize: '0.8rem' }}>— last 10</span>
-              </h2>
-              {shifts.length === 0 ? (
-                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No shifts recorded yet.</p>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {shifts.map(s => (
-                    <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                      <div>
-                        <p style={{ fontWeight: 500, fontSize: '0.9rem' }}>{formatDate(s.clock_in)}</p>
-                        <p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{formatTime(s.clock_in)} → {formatTime(s.clock_out)}</p>
-                      </div>
-                      <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', color: s.clock_out ? 'var(--accent)' : 'var(--warn)' }}>
-                        {calcHours(s.clock_in, s.clock_out)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* MESSAGES TAB */}
         {tab === 'messages' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -607,6 +562,54 @@ export default function VolunteerPage() {
         {/* ACCOUNT TAB */}
         {tab === 'account' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+            {/* Total hours + shifts summary banner */}
+            <div style={{ ...card, borderColor: 'var(--accent)', background: 'rgba(2,65,107,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <p style={{ fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>Total Hours</p>
+                <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: 'var(--accent)', lineHeight: 1 }}>
+                  {totalHours()}<span style={{ fontSize: '1rem', fontWeight: 500, marginLeft: '0.25rem', color: 'var(--muted)' }}>hrs</span>
+                </p>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <p style={{ fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>Completed Shifts</p>
+                <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: 'var(--text)', lineHeight: 1 }}>
+                  {allShifts.length}
+                </p>
+              </div>
+            </div>
+
+            {/* Shift History collapsible banner */}
+            <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+              <button
+                onClick={() => setShowShiftHistory(h => !h)}
+                style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.25rem', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}
+              >
+                <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>Shift History</span>
+                <span style={{ color: 'var(--muted)', fontSize: '1.1rem', transform: showShiftHistory ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>▾</span>
+              </button>
+              {showShiftHistory && (
+                <div style={{ padding: '0 1.25rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {allShifts.length === 0 ? (
+                    <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No shifts recorded yet.</p>
+                  ) : (
+                    allShifts.map(s => (
+                      <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <div>
+                          <p style={{ fontWeight: 500, fontSize: '0.9rem' }}>{formatDate(s.clock_in)}</p>
+                          <p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{formatTime(s.clock_in)} → {formatTime(s.clock_out)}</p>
+                        </div>
+                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', color: s.clock_out ? 'var(--accent)' : 'var(--warn)' }}>
+                          {calcHours(s.clock_in, s.clock_out)}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Change Password */}
             <div style={card}>
               <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Change Password</h2>
               <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Must be at least 6 characters.</p>
@@ -636,12 +639,13 @@ export default function VolunteerPage() {
                 <button
                   type="submit"
                   disabled={changingPassword || !newPassword || !confirmPassword}
-                  style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: changingPassword ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}
+                  style={{ padding: '0.85rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: changingPassword ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}
                 >
                   {changingPassword ? 'Updating...' : 'Update Password'}
                 </button>
               </form>
             </div>
+
           </div>
         )}
 
