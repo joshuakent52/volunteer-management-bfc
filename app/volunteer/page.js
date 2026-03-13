@@ -268,7 +268,11 @@ export default function VolunteerPage() {
   const inputStyle = { width: '100%', padding: '0.75rem 1rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '0.95rem', outline: 'none', fontFamily: 'DM Sans, sans-serif' }
   const labelStyle = { display: 'block', fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
 
-  const inboxMessages = messages.filter(m => m.sender_id !== user?.id)
+  const inboxMessages = messages.filter(m => {
+    if (m.sender_id === user?.id) return false
+    if (m.recipient_type === 'affiliation_missionary' && profile?.affiliation !== 'missionary') return false
+    return true
+  })
   const sentMessages = messages.filter(m => m.sender_id === user?.id)
 
   // Unique day+shift combos the volunteer is scheduled for
