@@ -10,8 +10,8 @@ export const metadata = {
     title: 'Portal',
   },
   icons: {
-    icon: '/logo.jpg',
-    apple: '/logo.jpg',
+    icon: '/logo2.jpg',
+    apple: '/logo2.jpg',
   },
 }
 
