@@ -646,7 +646,7 @@ export default function AdminPage() {
   const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }
   const inputStyle = { width: '100%', padding: '0.75rem 1rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '0.95rem', outline: 'none', fontFamily: 'DM Sans, sans-serif' }
   const labelStyle = { display: 'block', fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
-  const affiliationColor = { missionary: '#a78bfa', student: '#60a5fa', volunteer: '#4ade80', provider: '#fbbf24' }
+  const affiliationColor = { missionary: '#818cf8', student: '#38bdf8', volunteer: '#02416B', provider: '#7dd3fc' }
   const badgeStyle = (color) => ({ display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: '100px', fontSize: '0.75rem', fontWeight: 500, background: color + '22', color: color, border: `1px solid ${color}55` })
   const pillBtn = (active, mono) => ({
     padding: '0.45rem 0.85rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer',
@@ -719,8 +719,8 @@ export default function AdminPage() {
             ['shifts','Shifts'],
             ['callouts','Call-Outs'],
             ['messages','Messages'],
-            ['hours','⏱ Hours'],
-            ['create','➕ Add Volunteer'],
+            ['hours','Hours'],
+            ['create','Add Volunteer'],
           ].map(([key, label]) => (
             <button key={key} onClick={() => {
               setTab(key)
@@ -784,11 +784,11 @@ export default function AdminPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {/* Expected but not clocked in */}
             {isWeekday && currentShift && (
-              <div style={{ ...card, borderColor: expectedVolunteers.length > 0 ? 'var(--danger)' : 'rgba(74,222,128,0.4)', background: expectedVolunteers.length > 0 ? 'rgba(239,68,68,0.03)' : 'rgba(74,222,128,0.03)' }}>
+              <div style={{ ...card, borderColor: expectedVolunteers.length > 0 ? 'var(--danger)' : 'rgba(2,65,107,0.4)', background: expectedVolunteers.length > 0 ? 'rgba(239,68,68,0.03)' : 'rgba(2,65,107,0.03)' }}>
                 <h2 style={{ fontWeight: 600, marginBottom: expectedVolunteers.length > 0 ? '1rem' : 0, fontSize: '1rem' }}>
                   {expectedVolunteers.length > 0
-                    ? `⚠️ ${expectedVolunteers.length} volunteer${expectedVolunteers.length !== 1 ? 's' : ''} not yet clocked in — ${currentDay} ${currentShift}`
-                    : `✅ All expected volunteers clocked in — ${currentDay} ${currentShift}`}
+                    ? `${expectedVolunteers.length} volunteer${expectedVolunteers.length !== 1 ? 's' : ''} not yet clocked in — ${currentDay} ${currentShift}`
+                    : `All expected volunteers clocked in — ${currentDay} ${currentShift}`}
                 </h2>
                 {expectedVolunteers.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -809,7 +809,7 @@ export default function AdminPage() {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {activeShifts.map(s => (
-                    <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(74,222,128,0.05)', borderRadius: '8px', border: '1px solid var(--accent)' }}>
+                    <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(2,65,107,0.05)', borderRadius: '8px', border: '1px solid var(--accent)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                         <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 6px var(--accent)' }} />
                         <span style={{ fontWeight: 500 }}>{s.profiles?.full_name}</span>
@@ -826,25 +826,25 @@ export default function AdminPage() {
               return todaysCallouts.length > 0 && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span>📋 Today's Call-Outs</span>
-                  <span style={{ padding: '0.15rem 0.55rem', background: 'rgba(251,191,36,0.15)', color: 'var(--warn)', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(251,191,36,0.3)' }}>
+                  <span>Today's Call-Outs</span>
+                  <span style={{ padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>
                     {todaysCallouts.length}
                   </span>
                 </h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                   {todaysCallouts.map(c => (
-                    <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: 'rgba(251,191,36,0.05)', borderRadius: '8px', border: '1px solid rgba(251,191,36,0.25)', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: 'rgba(96,165,250,0.05)', borderRadius: '8px', border: '1px solid rgba(96,165,250,0.3)', flexWrap: 'wrap', gap: '0.5rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                         <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{c.profiles?.full_name}</span>
                         {c.shift_time && (
-                          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', background: 'rgba(251,191,36,0.15)', color: 'var(--warn)', padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(251,191,36,0.3)' }}>
+                          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(96,165,250,0.3)' }}>
                             {c.day_of_week ? c.day_of_week.charAt(0).toUpperCase() + c.day_of_week.slice(1,3) + ' ' : ''}{c.shift_time}
                           </span>
                         )}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                         {c.reason && <span style={{ fontSize: '0.82rem', color: 'var(--muted)', fontStyle: 'italic' }}>{c.reason}</span>}
-                        <button onClick={() => markCalloutRead(c.id, true)} style={{ padding: '0.2rem 0.6rem', background: 'rgba(74,222,128,0.1)', color: 'var(--accent)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', whiteSpace: 'nowrap' }}>
+                        <button onClick={() => markCalloutRead(c.id, true)} style={{ padding: '0.2rem 0.6rem', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', whiteSpace: 'nowrap' }}>
                           ✓ Dismiss
                         </button>
                       </div>
@@ -897,7 +897,7 @@ export default function AdminPage() {
                       <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{role}</span>
                       <button onClick={() => { setAddingRole(isOpen ? null : role); setAddVolId('') }} style={{
                         padding: '0.3rem 0.75rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-                        background: isOpen ? 'var(--surface)' : 'rgba(74,222,128,0.15)',
+                        background: isOpen ? 'var(--surface)' : 'rgba(2,65,107,0.12)',
                         color: isOpen ? 'var(--muted)' : 'var(--accent)',
                         border: `1px solid ${isOpen ? 'var(--border)' : 'var(--accent)'}`,
                       }}>{isOpen ? 'Cancel' : '+ Assign'}</button>
@@ -920,8 +920,8 @@ export default function AdminPage() {
                               <div style={{
                                 display: 'flex', alignItems: 'center', gap: '0.5rem',
                                 padding: '0.3rem 0.6rem 0.3rem 0.75rem', borderRadius: '100px', fontSize: '0.85rem',
-                                background: approvedCallout ? 'rgba(251,191,36,0.08)' : 'rgba(74,222,128,0.08)',
-                                border: `1px solid ${approvedCallout ? 'rgba(251,191,36,0.4)' : 'rgba(74,222,128,0.35)'}`,
+                                background: approvedCallout ? 'rgba(96,165,250,0.08)' : 'rgba(2,65,107,0.08)',
+                                border: `1px solid ${approvedCallout ? 'rgba(96,165,250,0.4)' : 'rgba(2,65,107,0.35)'}`,
                                 color: approvedCallout ? 'var(--warn)' : 'var(--text)',
                               }}>
                                 {approvedCallout && <span style={{ fontSize: '0.7rem' }}>out</span>}
@@ -932,7 +932,7 @@ export default function AdminPage() {
                                   </span>
                                 )}
                                 {(entry.start_date || entry.end_date) && (
-                                  <span style={{ fontSize: '0.65rem', color: 'var(--muted)' }} title={`${entry.start_date || '...'} → ${entry.end_date || '...'}`}>📅</span>
+                                  <span style={{ fontSize: '0.65rem', color: 'var(--muted)' }} title={`${entry.start_date || '...'} → ${entry.end_date || '...'}`}></span>
                                 )}
                                 <button onClick={() => handleRemoveEntry(entry.id)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 2px' }}>✕</button>
                               </div>
@@ -1085,12 +1085,12 @@ export default function AdminPage() {
                 {(() => {
                   const isInactive = (selectedVolunteer.status || 'active') === 'inactive'
                   return (
-                    <div style={{ padding: '1rem 1.25rem', borderRadius: '8px', border: `1px solid ${isInactive ? 'rgba(156,163,175,0.4)' : 'rgba(74,222,128,0.3)'}`, background: isInactive ? 'rgba(156,163,175,0.06)' : 'rgba(74,222,128,0.04)' }}>
+                    <div style={{ padding: '1rem 1.25rem', borderRadius: '8px', border: `1px solid ${isInactive ? 'rgba(156,163,175,0.4)' : 'rgba(2,65,107,0.35)'}`, background: isInactive ? 'rgba(156,163,175,0.06)' : 'rgba(2,65,107,0.04)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem' }}>
                         <div>
                           <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>Status</p>
                           <p style={{ fontWeight: 600, color: isInactive ? 'var(--muted)' : 'var(--accent)' }}>
-                            {isInactive ? '⊘ Inactive' : '● Active'}
+                            {isInactive ? 'Inactive' : 'Active'}
                           </p>
                           {isInactive && selectedVolunteer.status_reason && (
                             <p style={{ fontSize: '0.82rem', color: 'var(--muted)', marginTop: '0.25rem', fontStyle: 'italic' }}>
@@ -1179,7 +1179,7 @@ export default function AdminPage() {
 
             {/* New Entry Form */}
             {showNewShiftForm && (
-              <div style={{ ...card, borderColor: 'var(--accent)', background: 'rgba(74,222,128,0.04)' }}>
+              <div style={{ ...card, borderColor: 'var(--accent)', background: 'rgba(2,65,107,0.04)' }}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>New Shift Entry</h2>
                 <form onSubmit={handleCreateShift} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   <div>
@@ -1247,7 +1247,7 @@ export default function AdminPage() {
                 </h2>
                 <button
                   onClick={() => { setShowNewShiftForm(true); setEditingShiftId(null); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem', background: 'rgba(74,222,128,0.15)', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}
                 >
                   + New Entry
                 </button>
@@ -1299,14 +1299,14 @@ export default function AdminPage() {
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                               {s.role ? (
-                                <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', borderRadius: '100px', background: 'rgba(167,139,250,0.12)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)', fontWeight: 500, whiteSpace: 'nowrap' }}>{s.role}</span>
+                                <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', borderRadius: '100px', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', fontWeight: 500, whiteSpace: 'nowrap' }}>{s.role}</span>
                               ) : (
                                 <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', borderRadius: '100px', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', fontStyle: 'italic' }}>no role</span>
                               )}
                               {hours !== null ? (
                                 <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', color: 'var(--accent)', fontWeight: 600 }}>{hours}h</span>
                               ) : (
-                                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--accent)', background: 'rgba(74,222,128,0.1)', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid rgba(74,222,128,0.3)' }}>active</span>
+                                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--accent)', background: 'rgba(2,65,107,0.1)', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid rgba(2,65,107,0.35)' }}>active</span>
                               )}
                               <button
                                 onClick={() => {
@@ -1407,7 +1407,7 @@ export default function AdminPage() {
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>
                   Pending Call-Outs
                   {pendingCallouts.length > 0 && (
-                    <span style={{ marginLeft: '0.5rem', padding: '0.15rem 0.55rem', background: 'rgba(251,191,36,0.15)', color: 'var(--warn)', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(251,191,36,0.3)' }}>
+                    <span style={{ marginLeft: '0.5rem', padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>
                       {pendingCallouts.length}
                     </span>
                   )}
@@ -1417,19 +1417,19 @@ export default function AdminPage() {
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                     {pendingCallouts.map(c => (
-                      <div key={c.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid rgba(251,191,36,0.35)' }}>
+                      <div key={c.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid rgba(96,165,250,0.35)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
                           <div>
                             <span style={{ fontWeight: 600 }}>{c.profiles?.full_name}</span>
                             <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'capitalize' }}>
                               {c.callout_date} · {c.day_of_week} {c.shift_time}
                             </span>
-                            {c.role && <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: 'rgba(167,139,250,0.12)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}>{c.role}</span>}
+                            {c.role && <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)' }}>{c.role}</span>}
                             {c.reason && <p style={{ color: 'var(--muted)', fontSize: '0.82rem', marginTop: '0.25rem', fontStyle: 'italic' }}>{c.reason}</p>}
                           </div>
                           <div style={{ display: 'flex', gap: '0.5rem' }}>
                             <button onClick={() => approveCallout(c)}
-                              style={{ padding: '0.3rem 0.8rem', background: 'rgba(74,222,128,0.12)', color: 'var(--accent)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                              style={{ padding: '0.3rem 0.8rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                               ✓ Approve
                             </button>
                             <button onClick={() => denyCallout(c.id)}
@@ -1468,7 +1468,7 @@ export default function AdminPage() {
                               <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)' }}>
                                 {c.callout_date} · {c.day_of_week} {c.shift_time}
                               </span>
-                              {c.role && <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: 'rgba(167,139,250,0.12)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}>{c.role}</span>}
+                              {c.role && <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)' }}>{c.role}</span>}
                             </div>
                             {pending.length === 0 && (
                               <span style={{ fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic' }}>No volunteers yet</span>
@@ -1481,7 +1481,7 @@ export default function AdminPage() {
                                   <span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{r.profiles?.full_name}</span>
                                   <div style={{ display: 'flex', gap: '0.4rem' }}>
                                     <button onClick={() => approveCover(r)} disabled={approvingCoverId === r.id}
-                                      style={{ padding: '0.25rem 0.7rem', background: 'rgba(74,222,128,0.12)', color: 'var(--accent)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                                      style={{ padding: '0.25rem 0.7rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                                       {approvingCoverId === r.id ? '...' : '✓ Assign'}
                                     </button>
                                     <button onClick={() => denyCover(r.id)} disabled={approvingCoverId === r.id}
@@ -1519,9 +1519,9 @@ export default function AdminPage() {
   
                             <span style={{
                               fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px',
-                              background: c.covered_by ? 'rgba(74,222,128,0.1)' : 'rgba(239,68,68,0.08)',
+                              background: c.covered_by ? 'rgba(2,65,107,0.1)' : 'rgba(239,68,68,0.08)',
                               color: c.covered_by ? 'var(--accent)' : '#ef4444',
-                              border: `1px solid ${c.covered_by ? 'rgba(74,222,128,0.3)' : 'rgba(239,68,68,0.25)'}`,
+                              border: `1px solid ${c.covered_by ? 'rgba(2,65,107,0.35)' : 'rgba(239,68,68,0.25)'}`,
                             }}>{c.covered_by ? 'covered' : 'denied'}</span>
                           </div>
                         </div>
@@ -1551,7 +1551,7 @@ export default function AdminPage() {
                   <div style={card}>
                     <h2 style={{ fontWeight: 600, marginBottom: '1rem' }}>
                       Pending Approval
-                      <span style={{ marginLeft: '0.5rem', padding: '0.15rem 0.55rem', background: 'rgba(251,191,36,0.15)', color: 'var(--warn)', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(251,191,36,0.3)' }}>
+                      <span style={{ marginLeft: '0.5rem', padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>
                         {hoursSubmissions.filter(h => h.status === 'pending').length}
                       </span>
                     </h2>
@@ -1567,7 +1567,7 @@ export default function AdminPage() {
                             <button
                               onClick={() => approveHours(h)}
                               disabled={approvingHoursId === h.id}
-                              style={{ padding: '0.4rem 0.9rem', background: 'rgba(74,222,128,0.12)', color: 'var(--accent)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                              style={{ padding: '0.4rem 0.9rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                               {approvingHoursId === h.id ? '...' : '✓ Approve'}
                             </button>
                             <button
@@ -1595,9 +1595,9 @@ export default function AdminPage() {
                           </div>
                           <span style={{
                             fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', fontWeight: 500,
-                            background: h.status === 'approved' ? 'rgba(74,222,128,0.12)' : 'rgba(239,68,68,0.1)',
+                            background: h.status === 'approved' ? 'rgba(2,65,107,0.12)' : 'rgba(239,68,68,0.1)',
                             color: h.status === 'approved' ? 'var(--accent)' : '#ef4444',
-                            border: `1px solid ${h.status === 'approved' ? 'rgba(74,222,128,0.3)' : 'rgba(239,68,68,0.25)'}`,
+                            border: `1px solid ${h.status === 'approved' ? 'rgba(2,65,107,0.35)' : 'rgba(239,68,68,0.25)'}`,
                           }}>{h.status}</span>
                         </div>
                       ))}
