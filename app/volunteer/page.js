@@ -107,12 +107,12 @@ export default function VolunteerPage() {
     // Load open shifts (approved callouts not yet covered)
     const { data: openSubs } = await supabase
       .from('callouts')
-      .select('*, profiles(full_name)')
+      .select('*, volunteer:profiles!callouts_volunteer_id_fkey(full_name)')
       .eq('status', 'approved')
       .is('covered_by', null)
       .gte('callout_date', new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }))
       .order('callout_date', { ascending: true })
-    setOpenShifts(openSubs || [])
+    setOpenShifts((openSubs || []).map(c => ({ ...c, profiles: c.volunteer })))
 
     const { data: myCoverReqs } = await supabase
       .from('shift_cover_requests')

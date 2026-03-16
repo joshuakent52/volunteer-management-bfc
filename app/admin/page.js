@@ -1272,8 +1272,9 @@ export default function AdminPage() {
 
         {/* CALLOUTS TAB */}
         {tab === 'callouts' && (() => {
-          const pendingCallouts  = callouts.filter(c => !c.status || c.status === 'pending')
-          const approvedCallouts = callouts.filter(c => c.status === 'approved' && !c.covered_by)
+          const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
+          const pendingCallouts  = callouts.filter(c => (!c.status || c.status === 'pending') && c.callout_date >= todayStr)
+          const approvedCallouts = callouts.filter(c => c.status === 'approved' && !c.covered_by && c.callout_date >= todayStr)
           const closedCallouts   = callouts.filter(c => c.status === 'denied' || (c.status === 'approved' && c.covered_by))
           const pendingCovers    = coverRequests.filter(r => r.status === 'pending')
           return (
