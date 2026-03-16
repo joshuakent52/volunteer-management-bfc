@@ -271,27 +271,14 @@ export default function AdminPage() {
 
   async function approveCover(req) {
     setApprovingCoverId(req.id)
-    // Get the callout details to build the shift
     const callout = callouts.find(c => c.id === req.callout_id)
     if (!callout) { showMessage('Callout not found', 'error'); setApprovingCoverId(null); return }
 
-    // Build clock_in from callout_date + shift start time
-    const shiftHour = callout.shift_time === '10-2' ? '10:00' : '14:00'
-    const clockInUTC = fromMountainInputValue(callout.callout_date + 'T' + shiftHour)
-
-    // Insert pre-created shift for the covering volunteer (clock_out null — they clock out normally)
-    const { error: shiftErr } = await supabase.from('shifts').insert({
-      volunteer_id: req.volunteer_id,
-      clock_in: clockInUTC,
-      clock_out: null,
-      role: callout.role || null,
-    })
-    if (shiftErr) { showMessage(shiftErr.message, 'error'); setApprovingCoverId(null); return }
-
-    // Mark callout as covered
-    await supabase.from('callouts')
+    // Mark callout as covered — no shift pre-created, volunteer clocks in normally on the day
+    const { error: covErr } = await supabase.from('callouts')
       .update({ covered_by: req.volunteer_id })
       .eq('id', req.callout_id)
+    if (covErr) { showMessage(covErr.message, 'error'); setApprovingCoverId(null); return }
 
     // Approve this request, deny all others for same callout
     await supabase.from('shift_cover_requests')
@@ -305,7 +292,6 @@ export default function AdminPage() {
     showMessage(`${req.profiles?.full_name} approved to cover shift!`, 'success')
     await loadCallouts()
     await loadCoverRequests()
-    await loadActiveShifts()
     setApprovingCoverId(null)
   }
 
@@ -752,9 +738,70 @@ export default function AdminPage() {
         </div>
 
         {/* LIVE TAB */}
-        {tab === 'dashboard' && (
+        {tab === 'dashboard' && (() => {
+          const todayMtnStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
+          const mtnNow = getMountainNow()
+          const dayIndex = mtnNow.getDay()
+          const isWeekday = dayIndex >= 1 && dayIndex <= 5
+          const h = mtnNow.getHours() + mtnNow.getMinutes() / 60
+          const currentShift = h >= 10 && h < 14 ? '10-2' : h >= 14 && h < 18 ? '2-6' : null
+          const currentDay = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
+
+          // Who should be here: scheduled for today's shift, not called out, not an approved cover absence
+          const expectedVolunteers = isWeekday && currentShift ? (() => {
+            const calledOutIds = new Set(
+              callouts
+                .filter(c => c.callout_date === todayMtnStr && c.shift_time === currentShift && c.status === 'approved')
+                .map(c => c.volunteer_id)
+            )
+            // Approved covers are expected in place of the called-out person
+            const coverIds = new Set(
+              callouts
+                .filter(c => c.callout_date === todayMtnStr && c.shift_time === currentShift && c.covered_by)
+                .map(c => c.covered_by)
+            )
+            const scheduled = schedule.filter(s =>
+              s.day_of_week === currentDay && s.shift_time === currentShift &&
+              (!s.start_date || s.start_date <= todayMtnStr) &&
+              (!s.end_date   || s.end_date   >= todayMtnStr)
+            )
+            const expectedIds = new Set([
+              ...scheduled.filter(s => !calledOutIds.has(s.volunteer_id)).map(s => s.volunteer_id),
+              ...coverIds,
+            ])
+            const clockedInIds = new Set(activeShifts.map(s => s.profiles?.id).filter(Boolean))
+            return [...expectedIds]
+              .filter(id => !clockedInIds.has(id))
+              .map(id => {
+                const vol = volunteers.find(v => v.id === id)
+                const entry = scheduled.find(s => s.volunteer_id === id)
+                return { id, name: vol?.full_name, role: entry?.role || '—' }
+              })
+              .filter(v => v.name)
+          })() : []
+
+          return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-{/* Missing volunteer / shift presence block commented out */}
+            {/* Expected but not clocked in */}
+            {isWeekday && currentShift && (
+              <div style={{ ...card, borderColor: expectedVolunteers.length > 0 ? 'var(--danger)' : 'rgba(74,222,128,0.4)', background: expectedVolunteers.length > 0 ? 'rgba(239,68,68,0.03)' : 'rgba(74,222,128,0.03)' }}>
+                <h2 style={{ fontWeight: 600, marginBottom: expectedVolunteers.length > 0 ? '1rem' : 0, fontSize: '1rem' }}>
+                  {expectedVolunteers.length > 0
+                    ? `⚠️ ${expectedVolunteers.length} volunteer${expectedVolunteers.length !== 1 ? 's' : ''} not yet clocked in — ${currentDay} ${currentShift}`
+                    : `✅ All expected volunteers clocked in — ${currentDay} ${currentShift}`}
+                </h2>
+                {expectedVolunteers.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {expectedVolunteers.map(v => (
+                      <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'rgba(239,68,68,0.06)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.2)' }}>
+                        <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{v.name}</span>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{v.role}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div style={card}>
               <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Currently Clocked In</h2>
               {activeShifts.length === 0 ? (
@@ -807,7 +854,8 @@ export default function AdminPage() {
               </div>
             )})()}
           </div>
-        )}
+          )
+        })()}
 
         {/* SCHEDULE TAB */}
         {tab === 'schedule' && (
