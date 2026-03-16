@@ -208,16 +208,16 @@ export default function AdminPage() {
     // Simple query — works before and after migration
     const { data, error } = await supabase
       .from('callouts')
-      .select('*, profiles(full_name)')
+      .select('*, volunteer:profiles!callouts_volunteer_id_fkey(full_name)')
       .order('submitted_at', { ascending: false })
       .limit(100)
     if (error) { console.error('loadCallouts error:', error.message); return }
-    console.log('loadCallouts raw:', data?.length, 'rows', data?.[0])
+    // Map volunteer alias back to profiles for existing rendering code
     const normalised = (data || []).map(c => ({
       ...c,
+      profiles: c.volunteer,
       status: c.status ?? (c.is_read ? 'approved' : 'pending'),
     }))
-    console.log('loadCallouts normalised pending:', normalised.filter(c => c.status === 'pending').length)
     setCallouts(normalised)
   }
 
