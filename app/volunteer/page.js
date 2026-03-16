@@ -438,17 +438,24 @@ export default function VolunteerPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {DAYS.map(day => {
                   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
-                  const weekNum = (() => {
+                  // Week-of-month: count occurrences of this weekday in the month up to today
+                  const wom = (() => {
                     const d = new Date(today + 'T12:00:00')
-                    const startOfYear = new Date(d.getFullYear(), 0, 1)
-                    return Math.ceil(((d - startOfYear) / 86400000 + startOfYear.getDay() + 1) / 7)
+                    let count = 0
+                    const target = d.getDay()
+                    const check = new Date(d.getFullYear(), d.getMonth(), 1)
+                    while (check <= d) {
+                      if (check.getDay() === target) count++
+                      check.setDate(check.getDate() + 1)
+                    }
+                    return count
                   })()
                   const dayEntries = schedule.filter(s => {
                     if (s.day_of_week !== day.toLowerCase()) return false
                     if (s.start_date && s.start_date > today) return false
                     if (s.end_date   && s.end_date   < today) return false
-                    if (s.week_pattern === 'odd'  && weekNum % 2 !== 1) return false
-                    if (s.week_pattern === 'even' && weekNum % 2 !== 0) return false
+                    if (s.week_pattern === 'odd'  && wom % 2 !== 1) return false
+                    if (s.week_pattern === 'even' && wom % 2 !== 0) return false
                     return true
                   })
                   if (dayEntries.length === 0) return null
@@ -465,7 +472,7 @@ export default function VolunteerPage() {
                                 <span style={{ fontSize: '0.9rem' }}>{entry.role}</span>
                                 {entry.week_pattern && entry.week_pattern !== 'every' && (
                                   <span style={{ marginLeft: '0.4rem', fontSize: '0.72rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>
-                                    {entry.week_pattern === 'odd' ? 'Every other week (odd)' : 'Every other week (even)'}
+                                    {entry.week_pattern === 'odd' ? '1st & 3rd week of month' : '2nd & 4th week of month'}
                                   </span>
                                 )}
                                 {(entry.start_date || entry.end_date) && (

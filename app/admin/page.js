@@ -160,9 +160,7 @@ export default function AdminPage() {
   const [approvingCoverId, setApprovingCoverId] = useState(null)
 
   // Schedule date picker
-  const [scheduleDate, setScheduleDate] = useState(() => {
-    return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
-  })
+  const [scheduleDate, setScheduleDate] = useState('')
   const [dateCoverShifts, setDateCoverShifts] = useState([])
 
   // Hours submissions tab
@@ -478,19 +476,34 @@ export default function AdminPage() {
     return { missing, day, shift, isShiftTime: true }
   }
 
+  function weekOfMonth(dateStr) {
+    if (!dateStr) return null
+    const d = new Date(dateStr + 'T12:00:00')
+    // Count how many times this weekday has occurred in the month so far (including today)
+    // e.g. if today is the 3rd Monday of the month, return 3
+    let count = 0
+    const target = d.getDay()
+    const check = new Date(d.getFullYear(), d.getMonth(), 1)
+    while (check <= d) {
+      if (check.getDay() === target) count++
+      check.setDate(check.getDate() + 1)
+    }
+    return count
+  }
+
   function getEntries(day, shift, role) {
-    const viewDate = scheduleDate || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
-    const weekNum = (() => {
-      const d = new Date(viewDate + 'T12:00:00')
-      const startOfYear = new Date(d.getFullYear(), 0, 1)
-      return Math.ceil(((d - startOfYear) / 86400000 + startOfYear.getDay() + 1) / 7)
-    })()
+    // If no date selected, show all entries ignoring pattern/date filters
+    if (!scheduleDate) {
+      return schedule.filter(s => s.day_of_week === day && s.shift_time === shift && s.role === role)
+    }
+    const wom = weekOfMonth(scheduleDate) // 1=1st, 2=2nd, 3=3rd, 4=4th, 5=5th
     return schedule.filter(s => {
       if (s.day_of_week !== day || s.shift_time !== shift || s.role !== role) return false
-      if (s.start_date && s.start_date > viewDate) return false
-      if (s.end_date   && s.end_date   < viewDate) return false
-      if (s.week_pattern === 'odd'  && weekNum % 2 !== 1) return false
-      if (s.week_pattern === 'even' && weekNum % 2 !== 0) return false
+      if (s.start_date && s.start_date > scheduleDate) return false
+      if (s.end_date   && s.end_date   < scheduleDate) return false
+      // odd = 1st + 3rd (+ 5th) occurrences; even = 2nd + 4th
+      if (s.week_pattern === 'odd'  && wom % 2 !== 1) return false
+      if (s.week_pattern === 'even' && wom % 2 !== 0) return false
       return true
     })
   }
@@ -802,22 +815,27 @@ export default function AdminPage() {
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 {DAYS.map(d => (
-                  <button key={d} onClick={() => { setScheduleDay(d); setAddingRole(null) }} style={{ ...pillBtn(scheduleDay === d, false), textTransform: 'capitalize' }}>{d.slice(0,3)}</button>
+                  <button key={d} onClick={() => { setScheduleDay(d); setAddingRole(null); setScheduleDate(''); setDateCoverShifts([]) }} style={{ ...pillBtn(scheduleDay === d, false), textTransform: 'capitalize' }}>{d.slice(0,3)}</button>
                 ))}
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 {SHIFTS.map(sh => (
-                  <button key={sh} onClick={() => { setScheduleShift(sh); setAddingRole(null) }} style={pillBtn(scheduleShift === sh, true)}>{sh}</button>
+                  <button key={sh} onClick={() => { setScheduleShift(sh); setAddingRole(null); setScheduleDate(''); setDateCoverShifts([]) }} style={pillBtn(scheduleShift === sh, true)}>{sh}</button>
                 ))}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: 'auto' }}>
                 <label style={{ ...labelStyle, margin: 0, whiteSpace: 'nowrap' }}>View date:</label>
                 <input type="date" value={scheduleDate} onChange={e => {
-                  setScheduleDate(e.target.value)
-                  loadDateCoverShifts(e.target.value)
-                  const d = new Date(e.target.value + 'T12:00:00')
-                  const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][d.getDay()]
-                  if (dayName !== 'sunday' && dayName !== 'saturday') setScheduleDay(dayName)
+                  const val = e.target.value
+                  setScheduleDate(val)
+                  if (val) {
+                    loadDateCoverShifts(val)
+                    const d = new Date(val + 'T12:00:00')
+                    const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][d.getDay()]
+                    if (dayName !== 'sunday' && dayName !== 'saturday') setScheduleDay(dayName)
+                  } else {
+                    setDateCoverShifts([])
+                  }
                 }} style={{ ...inputStyle, width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.85rem' }} />
               </div>
             </div>
@@ -862,7 +880,7 @@ export default function AdminPage() {
                                 <span style={{ textDecoration: approvedCallout ? 'line-through' : 'none', opacity: approvedCallout ? 0.6 : 1 }}>{entry.profiles?.full_name}</span>
                                 {entry.week_pattern && entry.week_pattern !== 'every' && (
                                   <span style={{ fontSize: '0.65rem', background: 'rgba(96,165,250,0.15)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>
-                                    {entry.week_pattern}
+                                    {entry.week_pattern === 'odd' ? '1st&3rd' : '2nd&4th'}
                                   </span>
                                 )}
                                 {(entry.start_date || entry.end_date) && (
@@ -895,8 +913,8 @@ export default function AdminPage() {
                         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                           {[
                             { value: 'every', label: 'Every week' },
-                            { value: 'odd',   label: 'Odd weeks' },
-                            { value: 'even',  label: 'Even weeks' },
+                            { value: 'odd',   label: '1st & 3rd' },
+                            { value: 'even',  label: '2nd & 4th' },
                           ].map(opt => (
                             <button key={opt.value} type="button"
                               onClick={() => setAddWeekPattern(opt.value)}
