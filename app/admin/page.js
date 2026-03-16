@@ -211,12 +211,13 @@ export default function AdminPage() {
       .select('*, profiles(full_name)')
       .order('submitted_at', { ascending: false })
       .limit(100)
-    if (error) { console.error('loadCallouts:', error.message); return }
-    // Normalise status: derive from is_read if status column not yet present
+    if (error) { console.error('loadCallouts error:', error.message); return }
+    console.log('loadCallouts raw:', data?.length, 'rows', data?.[0])
     const normalised = (data || []).map(c => ({
       ...c,
       status: c.status ?? (c.is_read ? 'approved' : 'pending'),
     }))
+    console.log('loadCallouts normalised pending:', normalised.filter(c => c.status === 'pending').length)
     setCallouts(normalised)
   }
 
@@ -658,7 +659,7 @@ export default function AdminPage() {
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
           <div>
-            <h1 style={{ fontSize: '1.4rem', fontWeight: 599, letterSpacing: '-0.02em' }}>Admin Dashboard</h1>
+            <h1 style={{ fontSize: '1.4rem', fontWeight: 600, letterSpacing: '-0.02em' }}>Admin Dashboard</h1>
             <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
               Bingham Family Clinic &nbsp;·&nbsp;
               <span style={{ fontFamily: 'DM Mono, monospace' }}>
@@ -677,7 +678,7 @@ export default function AdminPage() {
           {[
             { label: 'Messages (24h)', value: messages24h, info: messages24h > 0 },
             { label: 'Clocked In Now', value: activeShifts.length, accent: true },
-            { label: 'Pending Call-Outs', value: callouts.filter(c => c.status === 'pending').length, warn: callouts.filter(c => c.status === 'pending').length > 0 },
+            { label: 'Pending Call-Outs', value: callouts.filter(c => !c.status || c.status === 'pending').length, warn: callouts.filter(c => !c.status || c.status === 'pending').length > 0 },
           ].map(s => (
             <div key={s.label} style={{ ...card, textAlign: 'center', borderColor: s.accent ? 'var(--accent)' : s.warn ? 'var(--warn)' : s.info ? '#60a5fa' : 'var(--border)' }}>
               <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: s.accent ? 'var(--accent)' : s.warn ? 'var(--warn)' : s.info ? '#60a5fa' : 'var(--text)' }}>{s.value}</p>
@@ -737,7 +738,7 @@ export default function AdminPage() {
             </div>
             {(() => {
               const todayMtn = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }) // YYYY-MM-DD
-              const todaysCallouts = callouts.filter(c => c.callout_date === todayMtn && c.status === 'pending')
+              const todaysCallouts = callouts.filter(c => c.callout_date === todayMtn && (!c.status || c.status === 'pending'))
               return todaysCallouts.length > 0 && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -1271,9 +1272,9 @@ export default function AdminPage() {
 
         {/* CALLOUTS TAB */}
         {tab === 'callouts' && (() => {
-          const pendingCallouts  = callouts.filter(c => c.status === 'pending')
-          const approvedCallouts = callouts.filter(c => c.status === 'approved')
-          const closedCallouts   = callouts.filter(c => c.status === 'denied' || c.covered_by)
+          const pendingCallouts  = callouts.filter(c => !c.status || c.status === 'pending')
+          const approvedCallouts = callouts.filter(c => c.status === 'approved' && !c.covered_by)
+          const closedCallouts   = callouts.filter(c => c.status === 'denied' || (c.status === 'approved' && c.covered_by))
           const pendingCovers    = coverRequests.filter(r => r.status === 'pending')
           return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
