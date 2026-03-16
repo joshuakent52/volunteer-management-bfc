@@ -437,7 +437,20 @@ export default function VolunteerPage() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {DAYS.map(day => {
-                  const dayEntries = schedule.filter(s => s.day_of_week === day.toLowerCase())
+                  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
+                  const weekNum = (() => {
+                    const d = new Date(today + 'T12:00:00')
+                    const startOfYear = new Date(d.getFullYear(), 0, 1)
+                    return Math.ceil(((d - startOfYear) / 86400000 + startOfYear.getDay() + 1) / 7)
+                  })()
+                  const dayEntries = schedule.filter(s => {
+                    if (s.day_of_week !== day.toLowerCase()) return false
+                    if (s.start_date && s.start_date > today) return false
+                    if (s.end_date   && s.end_date   < today) return false
+                    if (s.week_pattern === 'odd'  && weekNum % 2 !== 1) return false
+                    if (s.week_pattern === 'even' && weekNum % 2 !== 0) return false
+                    return true
+                  })
                   if (dayEntries.length === 0) return null
                   return (
                     <div key={day} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
@@ -447,9 +460,21 @@ export default function VolunteerPage() {
                           const shiftEntries = dayEntries.filter(s => s.shift_time === shift)
                           if (shiftEntries.length === 0) return null
                           return shiftEntries.map(entry => (
-                            <div key={entry.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <span style={{ fontSize: '0.9rem' }}>{entry.role}</span>
-                              <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', background: 'var(--surface)', padding: '0.2rem 0.6rem', borderRadius: '6px' }}>{shift}</span>
+                            <div key={entry.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                              <div>
+                                <span style={{ fontSize: '0.9rem' }}>{entry.role}</span>
+                                {entry.week_pattern && entry.week_pattern !== 'every' && (
+                                  <span style={{ marginLeft: '0.4rem', fontSize: '0.72rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>
+                                    {entry.week_pattern === 'odd' ? 'Every other week (odd)' : 'Every other week (even)'}
+                                  </span>
+                                )}
+                                {(entry.start_date || entry.end_date) && (
+                                  <p style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: '0.15rem' }}>
+                                    {entry.start_date && `From ${entry.start_date}`}{entry.start_date && entry.end_date && ' · '}{entry.end_date && `Until ${entry.end_date}`}
+                                  </p>
+                                )}
+                              </div>
+                              <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', background: 'var(--surface)', padding: '0.2rem 0.6rem', borderRadius: '6px', whiteSpace: 'nowrap' }}>{shift}</span>
                             </div>
                           ))
                         })}

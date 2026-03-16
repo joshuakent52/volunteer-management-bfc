@@ -117,6 +117,9 @@ export default function AdminPage() {
   const [addingRole, setAddingRole] = useState(null)
   const [addVolId, setAddVolId] = useState('')
   const [addingEntry, setAddingEntry] = useState(false)
+  const [addStartDate, setAddStartDate] = useState('')
+  const [addEndDate, setAddEndDate] = useState('')
+  const [addWeekPattern, setAddWeekPattern] = useState('every')
 
   // Volunteer detail/edit
   const [selectedVolunteer, setSelectedVolunteer] = useState(null)
@@ -476,7 +479,20 @@ export default function AdminPage() {
   }
 
   function getEntries(day, shift, role) {
-    return schedule.filter(s => s.day_of_week === day && s.shift_time === shift && s.role === role)
+    const viewDate = scheduleDate || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
+    const weekNum = (() => {
+      const d = new Date(viewDate + 'T12:00:00')
+      const startOfYear = new Date(d.getFullYear(), 0, 1)
+      return Math.ceil(((d - startOfYear) / 86400000 + startOfYear.getDay() + 1) / 7)
+    })()
+    return schedule.filter(s => {
+      if (s.day_of_week !== day || s.shift_time !== shift || s.role !== role) return false
+      if (s.start_date && s.start_date > viewDate) return false
+      if (s.end_date   && s.end_date   < viewDate) return false
+      if (s.week_pattern === 'odd'  && weekNum % 2 !== 1) return false
+      if (s.week_pattern === 'even' && weekNum % 2 !== 0) return false
+      return true
+    })
   }
 
   function hasCallout(volunteerId, day, shift) {
@@ -493,9 +509,17 @@ export default function AdminPage() {
     if (exists) { showMessage('Volunteer already assigned to this slot', 'error'); setAddingEntry(false); return }
     const { error } = await supabase.from('schedule').insert({
       volunteer_id: addVolId, day_of_week: scheduleDay, shift_time: scheduleShift, role: addingRole,
+      start_date: addStartDate || null,
+      end_date: addEndDate || null,
+      week_pattern: addWeekPattern || 'every',
     })
     if (error) showMessage(error.message, 'error')
-    else { showMessage('Volunteer assigned!', 'success'); setAddingRole(null); setAddVolId(''); await loadSchedule() }
+    else {
+      showMessage('Volunteer assigned!', 'success')
+      setAddingRole(null); setAddVolId('')
+      setAddStartDate(''); setAddEndDate(''); setAddWeekPattern('every')
+      await loadSchedule()
+    }
     setAddingEntry(false)
   }
 
@@ -836,6 +860,14 @@ export default function AdminPage() {
                               }}>
                                 {approvedCallout && <span style={{ fontSize: '0.7rem' }}>out</span>}
                                 <span style={{ textDecoration: approvedCallout ? 'line-through' : 'none', opacity: approvedCallout ? 0.6 : 1 }}>{entry.profiles?.full_name}</span>
+                                {entry.week_pattern && entry.week_pattern !== 'every' && (
+                                  <span style={{ fontSize: '0.65rem', background: 'rgba(96,165,250,0.15)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>
+                                    {entry.week_pattern}
+                                  </span>
+                                )}
+                                {(entry.start_date || entry.end_date) && (
+                                  <span style={{ fontSize: '0.65rem', color: 'var(--muted)' }} title={`${entry.start_date || '...'} → ${entry.end_date || '...'}`}>📅</span>
+                                )}
                                 <button onClick={() => handleRemoveEntry(entry.id)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 2px' }}>✕</button>
                               </div>
                               {coverName && (
@@ -855,12 +887,36 @@ export default function AdminPage() {
                       </div>
                     )}
                     {isOpen && (
-                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                        <select value={addVolId} onChange={e => setAddVolId(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        <select value={addVolId} onChange={e => setAddVolId(e.target.value)} style={inputStyle}>
                           <option value="">— Select volunteer —</option>
                           {volunteerList.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}
                         </select>
-                        <button onClick={handleAddEntry} disabled={!addVolId || addingEntry} style={{ padding: '0.75rem 1.25rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          {[
+                            { value: 'every', label: 'Every week' },
+                            { value: 'odd',   label: 'Odd weeks' },
+                            { value: 'even',  label: 'Even weeks' },
+                          ].map(opt => (
+                            <button key={opt.value} type="button"
+                              onClick={() => setAddWeekPattern(opt.value)}
+                              style={{ ...pillBtn(addWeekPattern === opt.value, false), fontSize: '0.78rem', padding: '0.3rem 0.75rem' }}>
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                          <div>
+                            <label style={labelStyle}>Start date <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional)</span></label>
+                            <input type="date" value={addStartDate} onChange={e => setAddStartDate(e.target.value)} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} />
+                          </div>
+                          <div>
+                            <label style={labelStyle}>End date <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional)</span></label>
+                            <input type="date" value={addEndDate} onChange={e => setAddEndDate(e.target.value)} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} />
+                          </div>
+                        </div>
+                        <button onClick={handleAddEntry} disabled={!addVolId || addingEntry}
+                          style={{ padding: '0.75rem 1.25rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                           {addingEntry ? '...' : 'Assign'}
                         </button>
                       </div>
