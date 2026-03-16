@@ -205,12 +205,19 @@ export default function AdminPage() {
   }
 
   async function loadCallouts() {
-    const { data } = await supabase
+    // Simple query — works before and after migration
+    const { data, error } = await supabase
       .from('callouts')
-      .select('*, profiles(full_name), covered_by_profile:profiles!callouts_covered_by_fkey(full_name)')
+      .select('*, profiles(full_name)')
       .order('submitted_at', { ascending: false })
       .limit(100)
-    setCallouts(data || [])
+    if (error) { console.error('loadCallouts:', error.message); return }
+    // Normalise status: derive from is_read if status column not yet present
+    const normalised = (data || []).map(c => ({
+      ...c,
+      status: c.status ?? (c.is_read ? 'approved' : 'pending'),
+    }))
+    setCallouts(normalised)
   }
 
   async function loadSchedule() {
@@ -816,8 +823,7 @@ export default function AdminPage() {
                           const coverShift = approvedCallout && dateCoverShifts.find(s =>
                             s.volunteer_id === approvedCallout.covered_by
                           )
-                          const coverName = approvedCallout?.covered_by_profile?.full_name ||
-                            (coverShift ? coverShift.profiles?.full_name : null)
+                          const coverName = coverShift ? coverShift.profiles?.full_name : null
                           return (
                             <div key={entry.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                               <div style={{
@@ -1386,9 +1392,7 @@ export default function AdminPage() {
                             <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', color: 'var(--muted)' }}>{c.callout_date} · {c.shift_time}</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            {c.covered_by_profile && (
-                              <span style={{ fontSize: '0.78rem', color: 'var(--accent)' }}>→ {c.covered_by_profile.full_name}</span>
-                            )}
+  
                             <span style={{
                               fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px',
                               background: c.covered_by ? 'rgba(74,222,128,0.1)' : 'rgba(239,68,68,0.08)',
