@@ -152,6 +152,16 @@ export default function AdminPage() {
   const [sendingMsg, setSendingMsg] = useState(false)
   const [msgView, setMsgView] = useState('inbox')
 
+  // Cover requests
+  const [coverRequests, setCoverRequests] = useState([])
+  const [approvingCoverId, setApprovingCoverId] = useState(null)
+
+  // Schedule date picker
+  const [scheduleDate, setScheduleDate] = useState(() => {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
+  })
+  const [dateCoverShifts, setDateCoverShifts] = useState([])
+
   // Hours submissions tab
   const [hoursSubmissions, setHoursSubmissions] = useState([])
   const [hoursLoading, setHoursLoading] = useState(false)
@@ -180,7 +190,7 @@ export default function AdminPage() {
     const { data: p } = await supabase.from('profiles').select('*').eq('id', user.id).single()
     if (p?.role !== 'admin') { window.location.href = '/volunteer'; return }
     setProfile(p)
-    await Promise.all([loadVolunteers(), loadActiveShifts(), loadCallouts(), loadSchedule(), loadAdminMessages()])
+    await Promise.all([loadVolunteers(), loadActiveShifts(), loadCallouts(), loadSchedule(), loadAdminMessages(), loadCoverRequests()])
     setLoading(false)
   }
 
@@ -195,7 +205,11 @@ export default function AdminPage() {
   }
 
   async function loadCallouts() {
-    const { data } = await supabase.from('callouts').select('*, profiles(full_name)').order('submitted_at', { ascending: false }).limit(50)
+    const { data } = await supabase
+      .from('callouts')
+      .select('*, profiles(full_name), covered_by_profile:profiles!callouts_covered_by_fkey(full_name)')
+      .order('submitted_at', { ascending: false })
+      .limit(100)
     setCallouts(data || [])
   }
 
@@ -211,6 +225,89 @@ export default function AdminPage() {
       .order('created_at', { ascending: false })
       .limit(100)
     setAdminMessages(data || [])
+  }
+
+  async function loadCoverRequests() {
+    const { data } = await supabase
+      .from('shift_cover_requests')
+      .select('*, profiles(full_name)')
+      .order('requested_at', { ascending: false })
+    setCoverRequests(data || [])
+  }
+
+  async function loadDateCoverShifts(date) {
+    const { data } = await supabase
+      .from('shifts')
+      .select('*, profiles(id, full_name)')
+      .gte('clock_in', date + 'T00:00:00Z')
+      .lt('clock_in', date + 'T23:59:59Z')
+    setDateCoverShifts(data || [])
+  }
+
+  async function approveCallout(callout) {
+    const { error } = await supabase.from('callouts')
+      .update({ status: 'approved', is_read: true })
+      .eq('id', callout.id)
+    if (error) showMessage(error.message, 'error')
+    else { showMessage('Callout approved — shift is now open for coverage', 'success'); await loadCallouts() }
+  }
+
+  async function denyCallout(id) {
+    const { error } = await supabase.from('callouts')
+      .update({ status: 'denied', is_read: true })
+      .eq('id', id)
+    if (error) showMessage(error.message, 'error')
+    else { showMessage('Callout denied.', 'success'); await loadCallouts() }
+  }
+
+  async function approveCover(req) {
+    setApprovingCoverId(req.id)
+    // Get the callout details to build the shift
+    const callout = callouts.find(c => c.id === req.callout_id)
+    if (!callout) { showMessage('Callout not found', 'error'); setApprovingCoverId(null); return }
+
+    // Build clock_in from callout_date + shift start time
+    const shiftHour = callout.shift_time === '10-2' ? '10:00' : '14:00'
+    const clockInUTC = fromMountainInputValue(callout.callout_date + 'T' + shiftHour)
+
+    // Insert pre-created shift for the covering volunteer (clock_out null — they clock out normally)
+    const { error: shiftErr } = await supabase.from('shifts').insert({
+      volunteer_id: req.volunteer_id,
+      clock_in: clockInUTC,
+      clock_out: null,
+      role: callout.role || null,
+    })
+    if (shiftErr) { showMessage(shiftErr.message, 'error'); setApprovingCoverId(null); return }
+
+    // Mark callout as covered
+    await supabase.from('callouts')
+      .update({ covered_by: req.volunteer_id })
+      .eq('id', req.callout_id)
+
+    // Approve this request, deny all others for same callout
+    await supabase.from('shift_cover_requests')
+      .update({ status: 'approved', reviewed_at: new Date().toISOString() })
+      .eq('id', req.id)
+    await supabase.from('shift_cover_requests')
+      .update({ status: 'denied', reviewed_at: new Date().toISOString() })
+      .eq('callout_id', req.callout_id)
+      .neq('id', req.id)
+
+    showMessage(`${req.profiles?.full_name} approved to cover shift!`, 'success')
+    await loadCallouts()
+    await loadCoverRequests()
+    await loadActiveShifts()
+    setApprovingCoverId(null)
+  }
+
+  async function denyCover(id) {
+    setApprovingCoverId(id)
+    const { error } = await supabase.from('shift_cover_requests')
+      .update({ status: 'denied', reviewed_at: new Date().toISOString() })
+      .eq('id', id)
+    if (error) showMessage(error.message, 'error')
+    else { showMessage('Cover request denied.', 'success'); await loadCoverRequests() }
+    setApprovingCoverId(null)
   }
 
   async function loadAllShifts() {
@@ -573,7 +670,7 @@ export default function AdminPage() {
           {[
             { label: 'Messages (24h)', value: messages24h, info: messages24h > 0 },
             { label: 'Clocked In Now', value: activeShifts.length, accent: true },
-            { label: 'Unread Call-Outs', value: unreadCallouts.length, warn: unreadCallouts.length > 0 },
+            { label: 'Pending Call-Outs', value: callouts.filter(c => c.status === 'pending').length, warn: callouts.filter(c => c.status === 'pending').length > 0 },
           ].map(s => (
             <div key={s.label} style={{ ...card, textAlign: 'center', borderColor: s.accent ? 'var(--accent)' : s.warn ? 'var(--warn)' : s.info ? '#60a5fa' : 'var(--border)' }}>
               <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: s.accent ? 'var(--accent)' : s.warn ? 'var(--warn)' : s.info ? '#60a5fa' : 'var(--text)' }}>{s.value}</p>
@@ -633,7 +730,7 @@ export default function AdminPage() {
             </div>
             {(() => {
               const todayMtn = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }) // YYYY-MM-DD
-              const todaysCallouts = unreadCallouts.filter(c => c.callout_date === todayMtn)
+              const todaysCallouts = callouts.filter(c => c.callout_date === todayMtn && c.status === 'pending')
               return todaysCallouts.length > 0 && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -670,7 +767,7 @@ export default function AdminPage() {
         {/* SCHEDULE TAB */}
         {tab === 'schedule' && (
           <div>
-            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 {DAYS.map(d => (
                   <button key={d} onClick={() => { setScheduleDay(d); setAddingRole(null) }} style={{ ...pillBtn(scheduleDay === d, false), textTransform: 'capitalize' }}>{d.slice(0,3)}</button>
@@ -680,6 +777,16 @@ export default function AdminPage() {
                 {SHIFTS.map(sh => (
                   <button key={sh} onClick={() => { setScheduleShift(sh); setAddingRole(null) }} style={pillBtn(scheduleShift === sh, true)}>{sh}</button>
                 ))}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: 'auto' }}>
+                <label style={{ ...labelStyle, margin: 0, whiteSpace: 'nowrap' }}>View date:</label>
+                <input type="date" value={scheduleDate} onChange={e => {
+                  setScheduleDate(e.target.value)
+                  loadDateCoverShifts(e.target.value)
+                  const d = new Date(e.target.value + 'T12:00:00')
+                  const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][d.getDay()]
+                  if (dayName !== 'sunday' && dayName !== 'saturday') setScheduleDay(dayName)
+                }} style={{ ...inputStyle, width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.85rem' }} />
               </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -699,18 +806,45 @@ export default function AdminPage() {
                     </div>
                     {entries.length > 0 && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: isOpen ? '0.75rem' : 0 }}>
-                        {entries.map(entry => (
-                          <div key={entry.id} style={{
-                            display: 'flex', alignItems: 'center', gap: '0.5rem',
-                            padding: '0.3rem 0.6rem 0.3rem 0.75rem', borderRadius: '100px', fontSize: '0.85rem',
-                            background: 'rgba(74,222,128,0.08)',
-                            border: '1px solid rgba(74,222,128,0.35)',
-                            color: 'var(--text)',
-                          }}>
-                            <span>{entry.profiles?.full_name}</span>
-                            <button onClick={() => handleRemoveEntry(entry.id)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 2px' }}>✕</button>
-                          </div>
-                        ))}
+                        {entries.map(entry => {
+                          const approvedCallout = callouts.find(c =>
+                            c.volunteer_id === entry.volunteer_id &&
+                            c.callout_date === scheduleDate &&
+                            c.shift_time === scheduleShift &&
+                            c.status === 'approved'
+                          )
+                          const coverShift = approvedCallout && dateCoverShifts.find(s =>
+                            s.volunteer_id === approvedCallout.covered_by
+                          )
+                          const coverName = approvedCallout?.covered_by_profile?.full_name ||
+                            (coverShift ? coverShift.profiles?.full_name : null)
+                          return (
+                            <div key={entry.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                              <div style={{
+                                display: 'flex', alignItems: 'center', gap: '0.5rem',
+                                padding: '0.3rem 0.6rem 0.3rem 0.75rem', borderRadius: '100px', fontSize: '0.85rem',
+                                background: approvedCallout ? 'rgba(251,191,36,0.08)' : 'rgba(74,222,128,0.08)',
+                                border: `1px solid ${approvedCallout ? 'rgba(251,191,36,0.4)' : 'rgba(74,222,128,0.35)'}`,
+                                color: approvedCallout ? 'var(--warn)' : 'var(--text)',
+                              }}>
+                                {approvedCallout && <span style={{ fontSize: '0.7rem' }}>out</span>}
+                                <span style={{ textDecoration: approvedCallout ? 'line-through' : 'none', opacity: approvedCallout ? 0.6 : 1 }}>{entry.profiles?.full_name}</span>
+                                <button onClick={() => handleRemoveEntry(entry.id)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 2px' }}>✕</button>
+                              </div>
+                              {coverName && (
+                                <div style={{
+                                  display: 'flex', alignItems: 'center', gap: '0.4rem',
+                                  padding: '0.25rem 0.6rem 0.25rem 0.75rem', borderRadius: '100px', fontSize: '0.82rem',
+                                  background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.35)',
+                                  color: '#60a5fa', marginLeft: '0.5rem',
+                                }}>
+                                  <span style={{ fontSize: '0.7rem' }}>cover</span>
+                                  <span>{coverName}</span>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
                     )}
                     {isOpen && (
@@ -1130,72 +1264,148 @@ export default function AdminPage() {
         )}
 
         {/* CALLOUTS TAB */}
-        {tab === 'callouts' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={card}>
-              <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>
-                Unread Call-Outs
-                {unreadCallouts.length > 0 && (
-                  <span style={{ marginLeft: '0.5rem', padding: '0.15rem 0.55rem', background: 'rgba(251,191,36,0.15)', color: 'var(--warn)', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(251,191,36,0.3)' }}>
-                    {unreadCallouts.length}
-                  </span>
-                )}
-              </h2>
-              {unreadCallouts.length === 0 ? (
-                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No unread call-outs. You're all caught up!</p>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {unreadCallouts.map(c => (
-                    <div key={c.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: c.reason ? '0.25rem' : 0 }}>
-                        <div>
-                          <span style={{ fontWeight: 500 }}>{c.profiles?.full_name}</span>
-                          {c.shift_time && <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'capitalize' }}>{c.day_of_week} {c.shift_time}</span>}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                          <span style={{ color: 'var(--warn)', fontFamily: 'DM Mono, monospace', fontSize: '0.85rem' }}>{formatDateMountain(c.callout_date)}</span>
-                          <button onClick={() => markCalloutRead(c.id, true)} style={{ padding: '0.25rem 0.65rem', background: 'rgba(74,222,128,0.1)', color: 'var(--accent)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', whiteSpace: 'nowrap' }}>
-                            ✓ Mark read
-                          </button>
-                        </div>
-                      </div>
-                      {c.reason && <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{c.reason}</p>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            {readCallouts.length > 0 && (
+        {tab === 'callouts' && (() => {
+          const pendingCallouts  = callouts.filter(c => c.status === 'pending')
+          const approvedCallouts = callouts.filter(c => c.status === 'approved')
+          const closedCallouts   = callouts.filter(c => c.status === 'denied' || c.covered_by)
+          const pendingCovers    = coverRequests.filter(r => r.status === 'pending')
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+              {/* ── PENDING CALLOUTS ── */}
               <div style={card}>
-                <button onClick={() => setShowReadCallouts(!showReadCallouts)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.9rem', fontWeight: 500, padding: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span style={{ display: 'inline-block', transform: showReadCallouts ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>›</span>
-                  Read Call-Outs ({readCallouts.length})
-                </button>
-                {showReadCallouts && (
-                  <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {readCallouts.map(c => (
-                      <div key={c.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', opacity: 0.6 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: c.reason ? '0.25rem' : 0 }}>
+                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>
+                  Pending Call-Outs
+                  {pendingCallouts.length > 0 && (
+                    <span style={{ marginLeft: '0.5rem', padding: '0.15rem 0.55rem', background: 'rgba(251,191,36,0.15)', color: 'var(--warn)', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(251,191,36,0.3)' }}>
+                      {pendingCallouts.length}
+                    </span>
+                  )}
+                </h2>
+                {pendingCallouts.length === 0 ? (
+                  <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No pending call-outs.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {pendingCallouts.map(c => (
+                      <div key={c.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid rgba(251,191,36,0.35)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
                           <div>
-                            <span style={{ fontWeight: 500 }}>{c.profiles?.full_name}</span>
-                            {c.shift_time && <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'capitalize' }}>{c.day_of_week} {c.shift_time}</span>}
+                            <span style={{ fontWeight: 600 }}>{c.profiles?.full_name}</span>
+                            <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'capitalize' }}>
+                              {c.callout_date} · {c.day_of_week} {c.shift_time}
+                            </span>
+                            {c.role && <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: 'rgba(167,139,250,0.12)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}>{c.role}</span>}
+                            {c.reason && <p style={{ color: 'var(--muted)', fontSize: '0.82rem', marginTop: '0.25rem', fontStyle: 'italic' }}>{c.reason}</p>}
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                            <span style={{ color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: '0.85rem' }}>{formatDateMountain(c.callout_date)}</span>
-                            <button onClick={() => markCalloutRead(c.id, false)} style={{ padding: '0.25rem 0.65rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', whiteSpace: 'nowrap' }}>
-                              ↩ Unmark
+                          <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <button onClick={() => approveCallout(c)}
+                              style={{ padding: '0.3rem 0.8rem', background: 'rgba(74,222,128,0.12)', color: 'var(--accent)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                              ✓ Approve
+                            </button>
+                            <button onClick={() => denyCallout(c.id)}
+                              style={{ padding: '0.3rem 0.8rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                              ✕ Deny
                             </button>
                           </div>
                         </div>
-                        {c.reason && <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{c.reason}</p>}
                       </div>
                     ))}
                   </div>
                 )}
               </div>
-            )}
-          </div>
-        )}
+
+              {/* ── OPEN SHIFTS / COVER REQUESTS ── */}
+              {(approvedCallouts.length > 0 || pendingCovers.length > 0) && (
+                <div style={card}>
+                  <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>
+                    Open Shifts — Awaiting Coverage
+                    {pendingCovers.length > 0 && (
+                      <span style={{ marginLeft: '0.5rem', padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.15)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>
+                        {pendingCovers.length} request{pendingCovers.length !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </h2>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    {approvedCallouts.filter(c => !c.covered_by).map(c => {
+                      const requests = coverRequests.filter(r => r.callout_id === c.id)
+                      const pending  = requests.filter(r => r.status === 'pending')
+                      return (
+                        <div key={c.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid rgba(96,165,250,0.35)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: pending.length > 0 ? '0.75rem' : 0, flexWrap: 'wrap', gap: '0.5rem' }}>
+                            <div>
+                              <span style={{ fontWeight: 500, color: 'var(--muted)', fontSize: '0.85rem' }}>Called out: </span>
+                              <span style={{ fontWeight: 600 }}>{c.profiles?.full_name}</span>
+                              <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)' }}>
+                                {c.callout_date} · {c.day_of_week} {c.shift_time}
+                              </span>
+                              {c.role && <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: 'rgba(167,139,250,0.12)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' }}>{c.role}</span>}
+                            </div>
+                            {pending.length === 0 && (
+                              <span style={{ fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic' }}>No volunteers yet</span>
+                            )}
+                          </div>
+                          {pending.length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                              {pending.map(r => (
+                                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'var(--surface)', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                                  <span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{r.profiles?.full_name}</span>
+                                  <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                    <button onClick={() => approveCover(r)} disabled={approvingCoverId === r.id}
+                                      style={{ padding: '0.25rem 0.7rem', background: 'rgba(74,222,128,0.12)', color: 'var(--accent)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                                      {approvingCoverId === r.id ? '...' : '✓ Assign'}
+                                    </button>
+                                    <button onClick={() => denyCover(r.id)} disabled={approvingCoverId === r.id}
+                                      style={{ padding: '0.25rem 0.7rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                                      ✕
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ── COVERED / CLOSED ── */}
+              {closedCallouts.length > 0 && (
+                <div style={card}>
+                  <button onClick={() => setShowReadCallouts(!showReadCallouts)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.9rem', fontWeight: 500, padding: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ display: 'inline-block', transform: showReadCallouts ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>›</span>
+                    Covered / Closed ({closedCallouts.length})
+                  </button>
+                  {showReadCallouts && (
+                    <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {closedCallouts.map(c => (
+                        <div key={c.id} style={{ padding: '0.6rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', opacity: 0.65, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          <div>
+                            <span style={{ fontWeight: 500 }}>{c.profiles?.full_name}</span>
+                            <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', color: 'var(--muted)' }}>{c.callout_date} · {c.shift_time}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            {c.covered_by_profile && (
+                              <span style={{ fontSize: '0.78rem', color: 'var(--accent)' }}>→ {c.covered_by_profile.full_name}</span>
+                            )}
+                            <span style={{
+                              fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px',
+                              background: c.covered_by ? 'rgba(74,222,128,0.1)' : 'rgba(239,68,68,0.08)',
+                              color: c.covered_by ? 'var(--accent)' : '#ef4444',
+                              border: `1px solid ${c.covered_by ? 'rgba(74,222,128,0.3)' : 'rgba(239,68,68,0.25)'}`,
+                            }}>{c.covered_by ? 'covered' : 'denied'}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+            </div>
+          )
+        })()}
 
         {/* HOURS SUBMISSIONS TAB */}
         {tab === 'hours' && (

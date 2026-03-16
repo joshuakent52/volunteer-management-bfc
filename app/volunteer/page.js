@@ -43,6 +43,11 @@ export default function VolunteerPage() {
   const [changingPassword, setChangingPassword] = useState(false)
   const [showShiftHistory, setShowShiftHistory] = useState(false)
 
+  // Open shifts / cover requests
+  const [openShifts, setOpenShifts] = useState([])
+  const [myCoverRequests, setMyCoverRequests] = useState([])
+  const [requestingCoverId, setRequestingCoverId] = useState(null)
+
   // Hours submission state
   const [hoursDate, setHoursDate] = useState('')
   const [hoursRole, setHoursRole] = useState('')
@@ -98,6 +103,22 @@ export default function VolunteerPage() {
       .order('created_at', { ascending: false })
       .limit(50)
     setMessages(msgs || [])
+
+    // Load open shifts (approved callouts not yet covered)
+    const { data: openSubs } = await supabase
+      .from('callouts')
+      .select('*, profiles(full_name)')
+      .eq('status', 'approved')
+      .is('covered_by', null)
+      .gte('callout_date', new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }))
+      .order('callout_date', { ascending: true })
+    setOpenShifts(openSubs || [])
+
+    const { data: myCoverReqs } = await supabase
+      .from('shift_cover_requests')
+      .select('callout_id, status')
+      .eq('volunteer_id', user.id)
+    setMyCoverRequests(myCoverReqs || [])
 
     const { data: hoursSubs } = await supabase
       .from('hours_submissions')
@@ -226,6 +247,20 @@ export default function VolunteerPage() {
       setCurrentPassword(''); setNewPassword(''); setConfirmPassword('')
     }
     setChangingPassword(false)
+  }
+
+  async function handleRequestCover(calloutId) {
+    setRequestingCoverId(calloutId)
+    const { error } = await supabase.from('shift_cover_requests').insert({
+      callout_id: calloutId,
+      volunteer_id: user.id,
+    })
+    if (error) showToast(error.message, 'error')
+    else {
+      showToast('Cover request submitted!', 'success')
+      setMyCoverRequests(prev => [...prev, { callout_id: calloutId, status: 'pending' }])
+    }
+    setRequestingCoverId(null)
   }
 
   async function handleSubmitHours(e) {
@@ -428,6 +463,7 @@ export default function VolunteerPage() {
 
         {/* CALLOUT TAB */}
         {tab === 'callout' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div style={card}>
             <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Submit a Call-Out</h2>
             <form onSubmit={handleCallout} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -450,6 +486,49 @@ export default function VolunteerPage() {
                 Submit Call-Out
               </button>
             </form>
+          </div>
+
+          {/* Open shifts available to cover */}
+          <div style={card}>
+            <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Open Shifts</h2>
+            <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Shifts that need coverage — tap to volunteer.</p>
+            {openShifts.length === 0 ? (
+              <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No open shifts right now.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {openShifts.map(c => {
+                  const myReq = myCoverRequests.find(r => r.callout_id === c.id)
+                  const alreadyRequested = !!myReq
+                  const isApproved = myReq?.status === 'approved'
+                  return (
+                    <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: `1px solid ${isApproved ? 'rgba(74,222,128,0.4)' : 'var(--border)'}`, flexWrap: 'wrap', gap: '0.75rem' }}>
+                      <div>
+                        <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                          {c.callout_date}
+                          <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.82rem', color: 'var(--muted)' }}>{c.shift_time}</span>
+                        </p>
+                        <p style={{ color: 'var(--muted)', fontSize: '0.82rem', textTransform: 'capitalize' }}>
+                          {c.day_of_week}{c.role ? ` · ${c.role}` : ''}
+                        </p>
+                      </div>
+                      {isApproved ? (
+                        <span style={{ fontSize: '0.8rem', padding: '0.25rem 0.7rem', borderRadius: '100px', background: 'rgba(74,222,128,0.12)', color: 'var(--accent)', border: '1px solid rgba(74,222,128,0.3)', fontWeight: 600 }}>✓ You're covering</span>
+                      ) : alreadyRequested ? (
+                        <span style={{ fontSize: '0.8rem', padding: '0.25rem 0.7rem', borderRadius: '100px', background: 'rgba(96,165,250,0.1)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)', fontWeight: 500 }}>Requested</span>
+                      ) : (
+                        <button
+                          onClick={() => handleRequestCover(c.id)}
+                          disabled={requestingCoverId === c.id || c.volunteer_id === user?.id}
+                          style={{ padding: '0.35rem 0.9rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', opacity: c.volunteer_id === user?.id ? 0.4 : 1 }}>
+                          {requestingCoverId === c.id ? '...' : 'I can cover'}
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
           </div>
         )}
 
