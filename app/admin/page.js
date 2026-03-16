@@ -658,7 +658,7 @@ export default function AdminPage() {
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
           <div>
-            <h1 style={{ fontSize: '1.4rem', fontWeight: 600, letterSpacing: '-0.02em' }}>Admin Dashboard</h1>
+            <h1 style={{ fontSize: '1.4rem', fontWeight: 599, letterSpacing: '-0.02em' }}>Admin Dashboard</h1>
             <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
               Bingham Family Clinic &nbsp;·&nbsp;
               <span style={{ fontFamily: 'DM Mono, monospace' }}>
