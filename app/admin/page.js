@@ -136,7 +136,7 @@ export default function AdminPage() {
   const [newPassword, setNewPassword] = useState('')
   const [newRole, setNewRole] = useState('volunteer')
   const [newAffiliation, setNewAffiliation] = useState('')
-  const [newParking, setNewParking] = useState('')
+  const [newCredentials, setNewCredentials] = useState('')
   const [newPhone, setNewPhone] = useState('')
   const [newLanguages, setNewLanguages] = useState('')
   const [newSmaName, setNewSmaName] = useState('')
@@ -532,7 +532,7 @@ export default function AdminPage() {
     setSelectedVolunteer(v)
     setEditForm({
       full_name: v.full_name||'', email: v.email||'', phone: v.phone||'',
-      affiliation: v.affiliation||'', parking_pass: v.parking_pass||'',
+      affiliation: v.affiliation||'', credentials: v.credentials||'',
       languages: v.languages||'', role: v.role||'volunteer',
       sma_name: v.sma_name||'', sma_contact: v.sma_contact||'', school: v.school||'',
       default_role: v.default_role||'',
@@ -563,7 +563,7 @@ export default function AdminPage() {
     const { error } = await supabase.from('profiles').update({
       full_name: editForm.full_name, phone: editForm.phone,
       affiliation: editForm.affiliation || null,
-      parking_pass: editForm.parking_pass ? parseInt(editForm.parking_pass) : null,
+      credentials: editForm.credentials || null,
       languages: editForm.languages, role: editForm.role,
       sma_name: editForm.affiliation === 'missionary' ? (editForm.sma_name||null) : null,
       sma_contact: editForm.affiliation === 'missionary' ? (editForm.sma_contact||null) : null,
@@ -587,7 +587,7 @@ export default function AdminPage() {
     if (error) { showMessage(error.message, 'error'); setCreating(false); return }
     const { error: pe } = await supabase.from('profiles').insert({
       id: data.user.id, full_name: newName, email: newEmail, role: newRole,
-      affiliation: newAffiliation||null, parking_pass: newParking ? parseInt(newParking) : null,
+      affiliation: newAffiliation||null, credentials: newCredentials || null,
       phone: newPhone||null, languages: newLanguages||null,
       sma_name: newAffiliation === 'missionary' ? (newSmaName||null) : null,
       sma_contact: newAffiliation === 'missionary' ? (newSmaContact||null) : null,
@@ -597,7 +597,7 @@ export default function AdminPage() {
     else {
       showMessage(`Account created for ${newName}!`, 'success')
       setNewName(''); setNewEmail(''); setNewPassword(''); setNewRole('volunteer')
-      setNewAffiliation(''); setNewParking(''); setNewPhone(''); setNewLanguages('')
+      setNewAffiliation(''); setNewCredentials(''); setNewPhone(''); setNewLanguages('')
       setNewSmaName(''); setNewSmaContact(''); setNewSchool('')
       loadVolunteers()
     }
@@ -719,8 +719,8 @@ export default function AdminPage() {
             ['shifts','Shifts'],
             ['callouts','Call-Outs'],
             ['messages','Messages'],
-            ['hours','Hours'],
-            ['create','Add Volunteer'],
+            ['hours','⏱ Hours'],
+            ['create','➕ Add Volunteer'],
           ].map(([key, label]) => (
             <button key={key} onClick={() => {
               setTab(key)
@@ -787,8 +787,8 @@ export default function AdminPage() {
               <div style={{ ...card, borderColor: expectedVolunteers.length > 0 ? 'var(--danger)' : 'rgba(74,222,128,0.4)', background: expectedVolunteers.length > 0 ? 'rgba(239,68,68,0.03)' : 'rgba(74,222,128,0.03)' }}>
                 <h2 style={{ fontWeight: 600, marginBottom: expectedVolunteers.length > 0 ? '1rem' : 0, fontSize: '1rem' }}>
                   {expectedVolunteers.length > 0
-                    ? `${expectedVolunteers.length} volunteer${expectedVolunteers.length !== 1 ? 's' : ''} not yet clocked in — ${currentDay} ${currentShift}`
-                    : `All expected volunteers clocked in — ${currentDay} ${currentShift}`}
+                    ? `⚠️ ${expectedVolunteers.length} volunteer${expectedVolunteers.length !== 1 ? 's' : ''} not yet clocked in — ${currentDay} ${currentShift}`
+                    : `✅ All expected volunteers clocked in — ${currentDay} ${currentShift}`}
                 </h2>
                 {expectedVolunteers.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -826,7 +826,7 @@ export default function AdminPage() {
               return todaysCallouts.length > 0 && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span>Today's Call-Outs</span>
+                  <span>📋 Today's Call-Outs</span>
                   <span style={{ padding: '0.15rem 0.55rem', background: 'rgba(251,191,36,0.15)', color: 'var(--warn)', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(251,191,36,0.3)' }}>
                     {todaysCallouts.length}
                   </span>
@@ -932,7 +932,7 @@ export default function AdminPage() {
                                   </span>
                                 )}
                                 {(entry.start_date || entry.end_date) && (
-                                  <span style={{ fontSize: '0.65rem', color: 'var(--muted)' }} title={`${entry.start_date || '...'} → ${entry.end_date || '...'}`}></span>
+                                  <span style={{ fontSize: '0.65rem', color: 'var(--muted)' }} title={`${entry.start_date || '...'} → ${entry.end_date || '...'}`}>📅</span>
                                 )}
                                 <button onClick={() => handleRemoveEntry(entry.id)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 2px' }}>✕</button>
                               </div>
@@ -1061,7 +1061,7 @@ export default function AdminPage() {
                   {[
                     { label: 'Phone', value: selectedVolunteer.phone },
                     { label: 'Affiliation', value: selectedVolunteer.affiliation },
-                    { label: 'Parking Pass', value: selectedVolunteer.parking_pass },
+                    { label: 'Credentials / Skills', value: selectedVolunteer.credentials },
                     { label: 'Languages', value: selectedVolunteer.languages },
                     { label: 'Total Hours', value: totalHours(selectedVolunteer.shifts) + 'h' },
                     { label: 'Role', value: selectedVolunteer.role },
@@ -1141,7 +1141,7 @@ export default function AdminPage() {
                       <option value="provider">Provider</option>
                     </select>
                   </div>
-                  <div><label style={labelStyle}>Parking Pass (1–100)</label><input type="number" min="1" max="100" value={editForm.parking_pass} onChange={e => setEditForm({...editForm, parking_pass: e.target.value})} style={inputStyle} /></div>
+                  <div><label style={labelStyle}>Credentials / Skills</label><input type="text" value={editForm.credentials} onChange={e => setEditForm({...editForm, credentials: e.target.value})} placeholder="e.g. EMT, Phlebotomy" style={inputStyle} /></div>
                   <div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Languages</label><input value={editForm.languages} onChange={e => setEditForm({...editForm, languages: e.target.value})} placeholder="e.g. Spanish, French" style={inputStyle} /></div>
                   <div>
                     <label style={labelStyle}>Role</label>
@@ -1613,7 +1613,7 @@ export default function AdminPage() {
         {tab === 'messages' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              {[['inbox','Inbox'],['sent','Sent'],['compose','Compose']].map(([key, label]) => (
+              {[['inbox','📥 Inbox'],['sent','📤 Sent'],['compose','✏️ Compose']].map(([key, label]) => (
                 <button key={key} onClick={() => setMsgView(key)} style={{
                   padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
                   cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
@@ -1773,7 +1773,7 @@ export default function AdminPage() {
                     <option value="provider">Provider</option>
                   </select>
                 </div>
-                <div><label style={labelStyle}>Parking Pass (1–100)</label><input type="number" min="1" max="100" value={newParking} onChange={e => setNewParking(e.target.value)} placeholder="e.g. 42" style={inputStyle} /></div>
+                <div><label style={labelStyle}>Credentials / Skills</label><input type="text" value={newCredentials} onChange={e => setNewCredentials(e.target.value)} placeholder="e.g. EMT, Phlebotomy" style={inputStyle} /></div>
                 <div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Languages Spoken</label><input value={newLanguages} onChange={e => setNewLanguages(e.target.value)} placeholder="e.g. Spanish, Mandarin" style={inputStyle} /></div>
                 <div>
                   <label style={labelStyle}>Role</label>
