@@ -22,6 +22,7 @@ export default function VolunteerPage() {
   const [calloutDate, setCalloutDate] = useState('')
   const [calloutShift, setCalloutShift] = useState('')
   const [calloutReason, setCalloutReason] = useState('')
+  const [calloutRole, setCalloutRole] = useState('')
   const [toast, setToast] = useState(null)
   const [loading, setLoading] = useState(true)
   const [clockLoading, setClockLoading] = useState(false)
@@ -184,7 +185,6 @@ export default function VolunteerPage() {
 
   async function handleCallout(e) {
     e.preventDefault()
-    // Derive day_of_week from the selected date
     const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
     const derivedDay = calloutDate ? dayNames[new Date(calloutDate + 'T12:00:00').getDay()] : null
     const { error } = await supabase.from('callouts').insert({
@@ -193,11 +193,12 @@ export default function VolunteerPage() {
       day_of_week: derivedDay,
       shift_time: calloutShift || null,
       reason: calloutReason,
+      role: calloutRole || null,
     })
     if (error) showToast(error.message, 'error')
     else {
       showToast('Call-out submitted!', 'success')
-      setCalloutDate(''); setCalloutShift(''); setCalloutReason('')
+      setCalloutDate(''); setCalloutShift(''); setCalloutReason(''); setCalloutRole('')
     }
   }
 
@@ -473,16 +474,34 @@ export default function VolunteerPage() {
               </div>
               <div>
                 <label style={labelStyle}>Shift</label>
-                <select value={calloutShift} onChange={e => setCalloutShift(e.target.value)} style={inputStyle}>
+                <select value={calloutShift} onChange={e => {
+                  const shift = e.target.value
+                  setCalloutShift(shift)
+                  // Auto-populate role from schedule for this day+shift
+                  if (calloutDate && shift) {
+                    const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
+                    const derivedDay = dayNames[new Date(calloutDate + 'T12:00:00').getDay()]
+                    const matched = schedule.find(s => s.day_of_week === derivedDay && s.shift_time === shift)
+                    if (matched?.role) setCalloutRole(matched.role)
+                  }
+                }} style={inputStyle}>
                   <option value="">— Select —</option>
                   {SHIFTS.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>Role</label>
+                <select value={calloutRole} onChange={e => setCalloutRole(e.target.value)} required style={inputStyle}>
+                  <option value="">— Select role —</option>
+                  {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
               </div>
               <div>
                 <label style={labelStyle}>Reason (optional)</label>
                 <textarea value={calloutReason} onChange={e => setCalloutReason(e.target.value)} rows={3} placeholder="Let the team know why..." style={{ ...inputStyle, resize: 'vertical' }} />
               </div>
-              <button type="submit" style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+              <button type="submit" disabled={!calloutDate || !calloutShift || !calloutRole}
+                style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', opacity: (!calloutDate || !calloutShift || !calloutRole) ? 0.5 : 1 }}>
                 Submit Call-Out
               </button>
             </form>
@@ -508,7 +527,7 @@ export default function VolunteerPage() {
                           <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.82rem', color: 'var(--muted)' }}>{c.shift_time}</span>
                         </p>
                         <p style={{ color: 'var(--muted)', fontSize: '0.82rem', textTransform: 'capitalize' }}>
-                          {c.day_of_week}{c.role ? ` · ${c.role}` : ''}
+                          {c.day_of_week}{c.role ? ` · ${c.role}` : ''}{c.profiles?.full_name ? ` · ${c.profiles.full_name} calling out` : ''}
                         </p>
                       </div>
                       {isApproved ? (
@@ -518,8 +537,8 @@ export default function VolunteerPage() {
                       ) : (
                         <button
                           onClick={() => handleRequestCover(c.id)}
-                          disabled={requestingCoverId === c.id || c.volunteer_id === user?.id}
-                          style={{ padding: '0.35rem 0.9rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', opacity: c.volunteer_id === user?.id ? 0.4 : 1 }}>
+                          disabled={requestingCoverId === c.id}
+                          style={{ padding: '0.35rem 0.9rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                           {requestingCoverId === c.id ? '...' : 'I can cover'}
                         </button>
                       )}
