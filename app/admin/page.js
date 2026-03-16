@@ -932,7 +932,7 @@ export default function AdminPage() {
                                   </span>
                                 )}
                                 {(entry.start_date || entry.end_date) && (
-                                  <span style={{ fontSize: '0.65rem', color: 'var(--muted)' }} title={`${entry.start_date || '...'} → ${entry.end_date || '...'}`}>📅</span>
+                                  <span style={{ fontSize: '0.65rem', color: 'var(--muted)' }} title={`${entry.start_date || '...'} → ${entry.end_date || '...'}`}></span>
                                 )}
                                 <button onClick={() => handleRemoveEntry(entry.id)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 2px' }}>✕</button>
                               </div>
