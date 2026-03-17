@@ -120,6 +120,7 @@ export default function AdminPage() {
   const [addStartDate, setAddStartDate] = useState('')
   const [addEndDate, setAddEndDate] = useState('')
   const [addWeekPattern, setAddWeekPattern] = useState('every')
+  const [addNotes, setAddNotes] = useState('')
 
   // Volunteer detail/edit
   const [selectedVolunteer, setSelectedVolunteer] = useState(null)
@@ -511,12 +512,13 @@ export default function AdminPage() {
       start_date: addStartDate || null,
       end_date: addEndDate || null,
       week_pattern: addWeekPattern || 'every',
+      notes: addNotes || null,
     })
     if (error) showMessage(error.message, 'error')
     else {
       showMessage('Volunteer assigned!', 'success')
       setAddingRole(null); setAddVolId('')
-      setAddStartDate(''); setAddEndDate(''); setAddWeekPattern('every')
+      setAddStartDate(''); setAddEndDate(''); setAddWeekPattern('every'); setAddNotes('')
       await loadSchedule()
     }
     setAddingEntry(false)
@@ -775,7 +777,7 @@ export default function AdminPage() {
               .map(id => {
                 const vol = volunteers.find(v => v.id === id)
                 const entry = scheduled.find(s => s.volunteer_id === id)
-                return { id, name: vol?.full_name, role: entry?.role || '—' }
+                return { id, name: vol?.full_name, role: entry?.role || '—', notes: entry?.notes || null }
               })
               .filter(v => v.name)
           })() : []
@@ -795,6 +797,7 @@ export default function AdminPage() {
                     {expectedVolunteers.map(v => (
                       <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'rgba(239,68,68,0.06)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.2)' }}>
                         <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{v.name}</span>
+                        {v.notes && <span style={{ fontSize: '0.78rem', color: '#60a5fa', fontStyle: 'italic' }}>({v.notes})</span>}
                         <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{v.role}</span>
                       </div>
                     ))}
@@ -933,6 +936,9 @@ export default function AdminPage() {
                               }}>
                                 {approvedCallout && <span style={{ fontSize: '0.7rem' }}>out</span>}
                                 <span style={{ textDecoration: approvedCallout ? 'line-through' : 'none', opacity: approvedCallout ? 0.6 : 1 }}>{entry.profiles?.full_name}</span>
+                                {entry.notes && (
+                                  <span style={{ fontSize: '0.65rem', color: 'var(--muted)', fontStyle: 'italic' }}>({entry.notes})</span>
+                                )}
                                 {entry.week_pattern && entry.week_pattern !== 'every' && (
                                   <span style={{ fontSize: '0.65rem', background: 'rgba(96,165,250,0.15)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>
                                     {entry.week_pattern === 'odd' ? '1st&3rd' : '2nd&4th'}
@@ -987,6 +993,10 @@ export default function AdminPage() {
                             <label style={labelStyle}>End date <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional)</span></label>
                             <input type="date" value={addEndDate} onChange={e => setAddEndDate(e.target.value)} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} />
                           </div>
+                        </div>
+                        <div>
+                          <label style={labelStyle}>Schedule note <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional — e.g. "arriving late", "leaving early 1pm")</span></label>
+                          <input type="text" value={addNotes} onChange={e => setAddNotes(e.target.value)} placeholder="e.g. arriving late" style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} />
                         </div>
                         <button onClick={handleAddEntry} disabled={!addVolId || addingEntry}
                           style={{ padding: '0.75rem 1.25rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
