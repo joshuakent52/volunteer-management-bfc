@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 const DAYS = ['monday','tuesday','wednesday','thursday','friday']
 const SHIFTS = ['10-2','2-6']
 const ROLES = [
-  'Clinical Staff','Scribe','Receptionist','Lab','Pharmacy',
+  'Clinical Staff','Scribe', 'Director', 'Receptionist','Lab','Pharmacy',
   'Clinical Supervisor','Patient Nav.','Mental Health','Support Center',
   'Young Support','Float','OSSM','Information Systems',
   'Credentialing','Media','Provider'
