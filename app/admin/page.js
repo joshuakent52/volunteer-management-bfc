@@ -130,7 +130,7 @@ export default function AdminPage() {
   const [editForm, setEditForm] = useState({})
   const [saving, setSaving] = useState(false)
 
-// Create volunteer
+  // Create volunteer
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -258,15 +258,24 @@ export default function AdminPage() {
       .update({ status: 'approved', is_read: true })
       .eq('id', callout.id)
     if (error) showMessage(error.message, 'error')
-    else { showMessage('Callout approved — shift is now open for coverage', 'success'); await loadCallouts() }
+    else {
+      showMessage('Callout approved — shift is now open for coverage', 'success')
+      await logAction('callout_approved', `Approved callout for ${callout.profiles?.full_name} — ${callout.day_of_week} ${callout.shift_time}`, callout.profiles?.full_name)
+      await loadCallouts()
+    }
   }
 
   async function denyCallout(id) {
+    const callout = callouts.find(c => c.id === id)
     const { error } = await supabase.from('callouts')
       .update({ status: 'denied', is_read: true })
       .eq('id', id)
     if (error) showMessage(error.message, 'error')
-    else { showMessage('Callout denied.', 'success'); await loadCallouts() }
+    else {
+      showMessage('Callout denied.', 'success')
+      await logAction('callout_denied', `Denied callout for ${callout?.profiles?.full_name} — ${callout?.day_of_week} ${callout?.shift_time}`, callout?.profiles?.full_name)
+      await loadCallouts()
+    }
   }
 
   async function approveCover(req) {
@@ -288,6 +297,7 @@ export default function AdminPage() {
       .neq('id', req.id)
 
     showMessage(`${req.profiles?.full_name} approved to cover shift!`, 'success')
+    await logAction('cover_approved', `Approved ${req.profiles?.full_name} to cover ${callout.profiles?.full_name}'s shift — ${callout.day_of_week} ${callout.shift_time}`, req.profiles?.full_name)
     await loadCallouts()
     await loadCoverRequests()
     setApprovingCoverId(null)
@@ -295,11 +305,16 @@ export default function AdminPage() {
 
   async function denyCover(id) {
     setApprovingCoverId(id)
+    const req = coverRequests.find(r => r.id === id)
     const { error } = await supabase.from('shift_cover_requests')
       .update({ status: 'denied', reviewed_at: new Date().toISOString() })
       .eq('id', id)
     if (error) showMessage(error.message, 'error')
-    else { showMessage('Cover request denied.', 'success'); await loadCoverRequests() }
+    else {
+      showMessage('Cover request denied.', 'success')
+      await logAction('cover_denied', `Denied cover request from ${req?.profiles?.full_name}`, req?.profiles?.full_name)
+      await loadCoverRequests()
+    }
     setApprovingCoverId(null)
   }
 
@@ -317,6 +332,7 @@ export default function AdminPage() {
 
   async function handleShiftEditSave(shiftId) {
     setSavingShift(true)
+    const shift = allShifts.find(s => s.id === shiftId)
     const clockIn = fromMountainInputValue(shiftEditForm.clock_in)
     const clockOut = shiftEditForm.clock_out ? fromMountainInputValue(shiftEditForm.clock_out) : null
     const { error } = await supabase
@@ -326,6 +342,7 @@ export default function AdminPage() {
     if (error) showMessage(error.message, 'error')
     else {
       showMessage('Shift updated!', 'success')
+      await logAction('shift_edited', `Edited shift for ${shift?.profiles?.full_name} — ${shiftEditForm.role || 'no role'} on ${shiftEditForm.clock_in?.slice(0,10)}`, shift?.profiles?.full_name)
       setEditingShiftId(null)
       await loadAllShifts()
       await loadActiveShifts()
@@ -335,10 +352,12 @@ export default function AdminPage() {
 
   async function handleShiftDelete(shiftId) {
     if (!confirm('Delete this shift entry? This cannot be undone.')) return
+    const shift = allShifts.find(s => s.id === shiftId)
     const { error } = await supabase.from('shifts').delete().eq('id', shiftId)
     if (error) showMessage(error.message, 'error')
     else {
       showMessage('Shift deleted.', 'success')
+      await logAction('shift_deleted', `Deleted shift for ${shift?.profiles?.full_name} — ${shift?.role || 'no role'} on ${shift?.clock_in?.slice(0,10)}`, shift?.profiles?.full_name)
       await loadAllShifts()
       await loadActiveShifts()
     }
@@ -371,17 +390,26 @@ export default function AdminPage() {
       .update({ status: 'approved', reviewed_at: new Date().toISOString() })
       .eq('id', sub.id)
     if (statusErr) showMessage(statusErr.message, 'error')
-    else { showMessage('Hours approved and shift created!', 'success'); await loadHoursSubmissions() }
+    else {
+      showMessage('Hours approved and shift created!', 'success')
+      await logAction('hours_approved', `Approved ${sub.hours}h submission for ${sub.profiles?.full_name} — ${sub.role} on ${sub.work_date}`, sub.profiles?.full_name)
+      await loadHoursSubmissions()
+    }
     setApprovingHoursId(null)
   }
 
   async function rejectHours(id) {
     setApprovingHoursId(id)
+    const sub = hoursSubmissions.find(h => h.id === id)
     const { error } = await supabase.from('hours_submissions')
       .update({ status: 'rejected', reviewed_at: new Date().toISOString() })
       .eq('id', id)
     if (error) showMessage(error.message, 'error')
-    else { showMessage('Submission rejected.', 'success'); await loadHoursSubmissions() }
+    else {
+      showMessage('Submission rejected.', 'success')
+      await logAction('hours_rejected', `Rejected ${sub?.hours}h submission for ${sub?.profiles?.full_name} — ${sub?.role} on ${sub?.work_date}`, sub?.profiles?.full_name)
+      await loadHoursSubmissions()
+    }
     setApprovingHoursId(null)
   }
 
@@ -389,6 +417,7 @@ export default function AdminPage() {
     e.preventDefault()
     if (!newShiftForm.volunteer_id || !newShiftForm.clock_in) return
     setCreatingShift(true)
+    const vol = volunteers.find(v => v.id === newShiftForm.volunteer_id)
     const clockIn = fromMountainInputValue(newShiftForm.clock_in)
     const clockOut = newShiftForm.clock_out ? fromMountainInputValue(newShiftForm.clock_out) : null
     const { error } = await supabase.from('shifts').insert({
@@ -400,6 +429,7 @@ export default function AdminPage() {
     if (error) showMessage(error.message, 'error')
     else {
       showMessage('Shift entry created!', 'success')
+      await logAction('shift_created', `Created shift for ${vol?.full_name} — ${newShiftForm.role || 'no role'} on ${newShiftForm.clock_in?.slice(0,10)}`, vol?.full_name)
       setNewShiftForm({ volunteer_id: '', clock_in: '', clock_out: '', role: '' })
       setShowNewShiftForm(false)
       await loadAllShifts()
@@ -426,6 +456,7 @@ export default function AdminPage() {
     if (error) showMessage(error.message, 'error')
     else {
       showMessage('Message sent!', 'success')
+      await logAction('message_sent', `Sent message to ${recipientLabelFromType(msgRecipientType, msgRecipientDay, msgRecipientShift, msgRecipientRole, msgRecipientVolId)}`)
       setMsgBody('')
       setMsgView('inbox')
       await loadAdminMessages()
@@ -493,6 +524,7 @@ export default function AdminPage() {
   async function handleAddEntry() {
     if (!addVolId) return
     setAddingEntry(true)
+    const vol = volunteers.find(v => v.id === addVolId)
     const exists = schedule.find(s =>
       s.volunteer_id === addVolId && s.day_of_week === scheduleDay &&
       s.shift_time === scheduleShift && s.role === addingRole
@@ -508,6 +540,7 @@ export default function AdminPage() {
     if (error) showMessage(error.message, 'error')
     else {
       showMessage('Volunteer assigned!', 'success')
+      await logAction('schedule_add', `Added ${vol?.full_name} to ${addingRole} on ${scheduleDay} ${scheduleShift}`, vol?.full_name)
       setAddingRole(null); setAddVolId('')
       setAddStartDate(''); setAddEndDate(''); setAddWeekPattern('every'); setAddNotes('')
       await loadSchedule()
@@ -516,9 +549,14 @@ export default function AdminPage() {
   }
 
   async function handleRemoveEntry(id) {
+    const entry = schedule.find(s => s.id === id)
     const { error } = await supabase.from('schedule').delete().eq('id', id)
     if (error) showMessage(error.message, 'error')
-    else { showMessage('Removed from schedule', 'success'); await loadSchedule() }
+    else {
+      showMessage('Removed from schedule', 'success')
+      await logAction('schedule_remove', `Removed ${entry?.profiles?.full_name} from ${entry?.role} on ${entry?.day_of_week} ${entry?.shift_time}`, entry?.profiles?.full_name)
+      await loadSchedule()
+    }
   }
 
   function openVolunteer(v) {
@@ -547,6 +585,11 @@ export default function AdminPage() {
     const { data: fresh } = await supabase
       .from('profiles').select('*, shifts(*)').eq('id', selectedVolunteer.id).single()
     showMessage(isDeactivating ? 'Volunteer deactivated.' : 'Volunteer reactivated!', 'success')
+    await logAction(
+      isDeactivating ? 'volunteer_deactivated' : 'volunteer_reactivated',
+      `${isDeactivating ? 'Deactivated' : 'Reactivated'} ${selectedVolunteer.full_name}${isDeactivating && reason ? ` — reason: ${reason}` : ''}`,
+      selectedVolunteer.full_name
+    )
     setSelectedVolunteer(fresh)
     await loadVolunteers()
     setChangingStatus(false)
@@ -569,13 +612,14 @@ export default function AdminPage() {
     const { data: fresh } = await supabase
       .from('profiles').select('*, shifts(*)').eq('id', selectedVolunteer.id).single()
     showMessage('Profile updated!', 'success')
+    await logAction('profile_edited', `Edited profile for ${selectedVolunteer.full_name}`, selectedVolunteer.full_name)
     setEditing(false)
     setSelectedVolunteer(fresh)
     await loadVolunteers()
     setSaving(false)
   }
 
- async function handleCreateVolunteer(e) {
+  async function handleCreateVolunteer(e) {
     e.preventDefault()
     setCreating(true)
     const { data, error } = await supabase.auth.signUp({ email: newEmail, password: newPassword })
@@ -593,6 +637,7 @@ export default function AdminPage() {
     if (pe) showMessage(pe.message, 'error')
     else {
       showMessage(`Account created for ${newName}!`, 'success')
+      await logAction('volunteer_created', `Created account for ${newName} (${newRole}${newAffiliation ? ', ' + newAffiliation : ''})`, newName)
       setNewName(''); setNewEmail(''); setNewPassword(''); setNewRole('volunteer')
       setNewAffiliation(''); setNewCredentials(''); setNewPhone(''); setNewLanguages('')
       setNewSmaName(''); setNewSmaContact(''); setNewSchool(''); setNewBirthday('')
@@ -617,6 +662,32 @@ export default function AdminPage() {
   function showMessage(text, type) {
     setToast({ text, type })
     setTimeout(() => setToast(null), 3500)
+  }
+
+  async function logAction(actionType, description, targetName = null) {
+    try {
+      await supabase.from('admin_actions').insert({
+        action_type: actionType,
+        description: description,
+        changed_by_name: profile?.full_name || 'Unknown',
+        target_name: targetName || null,
+      })
+    } catch (e) {
+      console.error('logAction failed:', e)
+    }
+  }
+
+  function recipientLabelFromType(type, day, shift, role, volId) {
+    if (type === 'everyone') return 'Everyone'
+    if (type === 'admin') return 'Admins'
+    if (type === 'affiliation_missionary') return 'Missionaries'
+    if (type === 'shift') return `${day} ${shift}`
+    if (type === 'role') return role
+    if (type === 'volunteer') {
+      const v = volunteers.find(v => v.id === volId)
+      return v?.full_name || 'Individual volunteer'
+    }
+    return type
   }
 
   function recipientLabel(msg) {
@@ -863,7 +934,7 @@ export default function AdminPage() {
               const todayMD = `${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
               const upcoming = volunteers.filter(v => {
                 if (!v.birthday) return false
-                const bd = v.birthday.slice(5) // "MM-DD"
+                const bd = v.birthday.slice(5)
                 return bd === todayMD
               })
               return upcoming.length > 0 && (
