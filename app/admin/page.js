@@ -16,17 +16,13 @@ const ROLE_SUGGESTIONS = {
   'Clinical Supervisor': 1,
   'Credentialing': 1,
   'Float': 1,
-  'Information Systems': 1,
-  'Intake': 2,
   'Lab': 2,
   'Mental Health': 1,
-  'OSSM': 3,
   'Patient Nav.': 2,
   'Pharmacy': 2,
-  'Receptionist': 3,
+  'Receptionist': 2,
   'Scribe': 3,
   'Support Center': 2,
-  'Young Support': 2,
   'Clinical Staff': 4,
 }
 
