@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
-import { supabase } from '../../lib/supabase'
-import { card } from '../../lib/styles'
+import { supabase } from '../../../lib/supabase'
+import { card } from '../../../lib/styles'
 
 export default function CalloutsTab({ callouts, coverRequests, onCalloutsChange, onCoverRequestsChange, showMessage }) {
   const [showReadCallouts, setShowReadCallouts] = useState(false)

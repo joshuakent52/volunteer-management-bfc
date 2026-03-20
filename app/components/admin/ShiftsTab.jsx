@@ -1,9 +1,9 @@
 'use client'
 import { useState } from 'react'
-import { supabase } from '../../lib/supabase'
-import { ROLES } from '../../lib/constants'
-import { toMountainInputValue, fromMountainInputValue, formatDateTime, calcShiftHours } from '../../lib/timeUtils'
-import { card, inputStyle, labelStyle } from '../../lib/styles'
+import { supabase } from '../../../lib/supabase'
+import { ROLES } from '../../../lib/constants'
+import { toMountainInputValue, fromMountainInputValue, formatDateTime, calcShiftHours } from '../../../lib/timeUtils'
+import { card, inputStyle, labelStyle } from '../../../lib/styles'
 
 export default function ShiftsTab({ volunteers, tzLabel, showMessage, onShiftsChange }) {
   const [allShifts, setAllShifts] = useState([])

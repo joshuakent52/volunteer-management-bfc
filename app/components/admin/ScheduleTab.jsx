@@ -1,9 +1,9 @@
 'use client'
 import { useState } from 'react'
-import { supabase } from '../../lib/supabase'
-import { DAYS, SHIFTS, ROLES } from '../../lib/constants'
-import { weekOfMonth } from '../../lib/timeUtils'
-import { card, inputStyle, labelStyle, pillBtn } from '../../lib/styles'
+import { supabase } from '../../../lib/supabase'
+import { DAYS, SHIFTS, ROLES } from '../../../lib/constants'
+import { weekOfMonth } from '../../../lib/timeUtils'
+import { card, inputStyle, labelStyle, pillBtn } from '../../../lib/styles'
 
 export default function ScheduleTab({ schedule, callouts, volunteers, onScheduleChange, showMessage }) {
   const [scheduleDay, setScheduleDay] = useState('monday')

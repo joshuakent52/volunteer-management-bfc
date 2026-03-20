@@ -1,8 +1,8 @@
 'use client'
 import { useState } from 'react'
-import { supabase } from '../../lib/supabase'
-import { ROLES } from '../../lib/constants'
-import { card, inputStyle, labelStyle } from '../../lib/styles'
+import { supabase } from '../../../lib/supabase'
+import { ROLES } from '../../../lib/constants'
+import { card, inputStyle, labelStyle } from '../../../lib/styles'
 
 export default function CreateVolunteerTab({ onVolunteersChange, showMessage }) {
   const [newName, setNewName] = useState('')

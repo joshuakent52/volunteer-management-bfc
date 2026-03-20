@@ -1,9 +1,9 @@
 'use client'
 import { useState } from 'react'
-import { supabase } from '../../lib/supabase'
-import { ROLES } from '../../lib/constants'
-import { totalHours } from '../../lib/timeUtils'
-import { card, inputStyle, labelStyle, affiliationColor, badgeStyle } from '../../lib/styles'
+import { supabase } from '../../../lib/supabase'
+import { ROLES } from '../../../lib/constants'
+import { totalHours } from '../../../lib/timeUtils'
+import { card, inputStyle, labelStyle, affiliationColor, badgeStyle } from '../../../lib/styles'
 
 export default function VolunteersTab({ volunteers, onVolunteersChange, showMessage }) {
   const [selectedVolunteer, setSelectedVolunteer] = useState(null)

@@ -1,6 +1,6 @@
 'use client'
-import { card } from '../../lib/styles'
-import { getMountainNow, formatMountain } from '../../lib/timeUtils'
+import { card } from '../../../lib/styles'
+import { getMountainNow, formatMountain } from '../../../lib/timeUtils'
 
 export default function LiveTab({ volunteers, activeShifts, callouts, schedule }) {
   const todayMtnStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })

@@ -1,9 +1,9 @@
 'use client'
 import { useState } from 'react'
-import { supabase } from '../../lib/supabase'
-import { DAYS, SHIFTS, ROLES } from '../../lib/constants'
-import { formatDateTime } from '../../lib/timeUtils'
-import { card, inputStyle, labelStyle } from '../../lib/styles'
+import { supabase } from '../../../lib/supabase'
+import { DAYS, SHIFTS, ROLES } from '../../../lib/constants'
+import { formatDateTime } from '../../../lib/timeUtils'
+import { card, inputStyle, labelStyle } from '../../../lib/styles'
 
 export default function MessagesTab({ adminMessages, volunteers, profile, onMessagesChange, showMessage }) {
   const [msgView, setMsgView] = useState('inbox')

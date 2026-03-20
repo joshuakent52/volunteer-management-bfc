@@ -1,8 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { supabase } from '../../lib/supabase'
-import { fromMountainInputValue } from '../../lib/timeUtils'
-import { card } from '../../lib/styles'
+import { supabase } from '../../../lib/supabase'
+import { fromMountainInputValue } from '../../../lib/timeUtils'
+import { card } from '../../../lib/styles'
 
 export default function HoursTab({ showMessage }) {
   const [hoursSubmissions, setHoursSubmissions] = useState([])
