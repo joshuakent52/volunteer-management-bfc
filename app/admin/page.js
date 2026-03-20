@@ -38,10 +38,8 @@ function getCurrentDayAndShift() {
   return { day: dayName, shift, isShiftTime: !!shift }
 }
 
-// Ensure Supabase timestamps (which may lack 'Z') are always parsed as UTC
 function asUTC(ts) {
   if (!ts) return null
-  // If it already has a timezone indicator, use as-is; otherwise append Z
   return /Z|[+-]\d{2}:\d{2}$/.test(ts) ? new Date(ts) : new Date(ts + 'Z')
 }
 
@@ -60,11 +58,8 @@ function formatDateTime(ts) {
   return asUTC(ts).toLocaleString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-// Convert a UTC ISO string to local datetime-local input value (Mountain)
-// Convert a UTC ISO timestamp → "YYYY-MM-DDTHH:MM" in Mountain time for datetime-local inputs
 function toMountainInputValue(ts) {
   if (!ts) return ''
-  // Use Intl.DateTimeFormat parts to reliably extract Mountain time components
   const d = asUTC(ts)
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Denver',
@@ -72,27 +67,18 @@ function toMountainInputValue(ts) {
     hour: '2-digit', minute: '2-digit', hour12: false,
   }).formatToParts(d)
   const get = type => parts.find(p => p.type === type).value
-  // hour12:false can return '24' for midnight — clamp to '00'
   const hour = get('hour') === '24' ? '00' : get('hour')
   return `${get('year')}-${get('month')}-${get('day')}T${hour}:${get('minute')}`
 }
 
-// Convert a "YYYY-MM-DDTHH:MM" Mountain time string back to UTC ISO
 function fromMountainInputValue(val) {
   if (!val) return null
-  // Build an unambiguous Mountain time string and let Intl resolve the UTC offset
-  // by asking what UTC time corresponds to this Mountain wall-clock time.
-  // We do this by formatting a candidate UTC date in Mountain and binary-searching
-  // for the one that matches — but the simple approach below is accurate to ±1min:
   const [datePart, timePart] = val.split('T')
   const [year, month, day] = datePart.split('-').map(Number)
   const [hour, minute] = timePart.split(':').map(Number)
-  // Construct a UTC candidate assuming Mountain is UTC-7 (MDT), then correct
   const candidate = new Date(Date.UTC(year, month - 1, day, hour + 7, minute))
-  // Check what Mountain wall-clock that candidate actually is
   const check = toMountainInputValue(candidate.toISOString())
   if (check === val) return candidate.toISOString()
-  // If off (we're in MST = UTC-7 vs MDT = UTC-6), adjust by the difference
   const checkDate = new Date(check.replace('T', ' ') + ':00')
   const inputDate = new Date(val.replace('T', ' ') + ':00')
   const diffMs = inputDate - checkDate
@@ -143,6 +129,7 @@ export default function AdminPage() {
   const [newSmaName, setNewSmaName] = useState('')
   const [newSmaContact, setNewSmaContact] = useState('')
   const [newSchool, setNewSchool] = useState('')
+  const [newBirthday, setNewBirthday] = useState('')
   const [creating, setCreating] = useState(false)
 
   // Messaging
@@ -207,14 +194,12 @@ export default function AdminPage() {
   }
 
   async function loadCallouts() {
-    // Simple query — works before and after migration
     const { data, error } = await supabase
       .from('callouts')
       .select('*, volunteer:profiles!callouts_volunteer_id_fkey(full_name)')
       .order('submitted_at', { ascending: false })
       .limit(100)
     if (error) { console.error('loadCallouts error:', error.message); return }
-    // Map volunteer alias back to profiles for existing rendering code
     const normalised = (data || []).map(c => ({
       ...c,
       profiles: c.volunteer,
@@ -275,13 +260,11 @@ export default function AdminPage() {
     const callout = callouts.find(c => c.id === req.callout_id)
     if (!callout) { showMessage('Callout not found', 'error'); setApprovingCoverId(null); return }
 
-    // Mark callout as covered — no shift pre-created, volunteer clocks in normally on the day
     const { error: covErr } = await supabase.from('callouts')
       .update({ covered_by: req.volunteer_id })
       .eq('id', req.callout_id)
     if (covErr) { showMessage(covErr.message, 'error'); setApprovingCoverId(null); return }
 
-    // Approve this request, deny all others for same callout
     await supabase.from('shift_cover_requests')
       .update({ status: 'approved', reviewed_at: new Date().toISOString() })
       .eq('id', req.id)
@@ -360,8 +343,6 @@ export default function AdminPage() {
 
   async function approveHours(sub) {
     setApprovingHoursId(sub.id)
-    // Build clock_in at 9:00 AM Mountain on work_date, clock_out = clock_in + hours
-    const [year, month, day] = sub.work_date.split('-').map(Number)
     const clockInMtn = `${sub.work_date}T09:00`
     const clockInUTC = fromMountainInputValue(clockInMtn)
     const clockOutUTC = new Date(new Date(clockInUTC).getTime() + sub.hours * 3600000).toISOString()
@@ -466,8 +447,6 @@ export default function AdminPage() {
   function weekOfMonth(dateStr) {
     if (!dateStr) return null
     const d = new Date(dateStr + 'T12:00:00')
-    // Count how many times this weekday has occurred in the month so far (including today)
-    // e.g. if today is the 3rd Monday of the month, return 3
     let count = 0
     const target = d.getDay()
     const check = new Date(d.getFullYear(), d.getMonth(), 1)
@@ -479,16 +458,14 @@ export default function AdminPage() {
   }
 
   function getEntries(day, shift, role) {
-    // If no date selected, show all entries ignoring pattern/date filters
     if (!scheduleDate) {
       return schedule.filter(s => s.day_of_week === day && s.shift_time === shift && s.role === role)
     }
-    const wom = weekOfMonth(scheduleDate) // 1=1st, 2=2nd, 3=3rd, 4=4th, 5=5th
+    const wom = weekOfMonth(scheduleDate)
     return schedule.filter(s => {
       if (s.day_of_week !== day || s.shift_time !== shift || s.role !== role) return false
       if (s.start_date && s.start_date > scheduleDate) return false
       if (s.end_date   && s.end_date   < scheduleDate) return false
-      // odd = 1st + 3rd (+ 5th) occurrences; even = 2nd + 4th
       if (s.week_pattern === 'odd'  && wom % 2 !== 1) return false
       if (s.week_pattern === 'even' && wom % 2 !== 0) return false
       return true
@@ -538,6 +515,7 @@ export default function AdminPage() {
       languages: v.languages||'', role: v.role||'volunteer',
       sma_name: v.sma_name||'', sma_contact: v.sma_contact||'', school: v.school||'',
       default_role: v.default_role||'',
+      birthday: v.birthday||'',
     })
     setStatusForm({ status: v.status || 'active', status_reason: v.status_reason || '' })
     setEditing(false)
@@ -571,6 +549,7 @@ export default function AdminPage() {
       sma_contact: editForm.affiliation === 'missionary' ? (editForm.sma_contact||null) : null,
       school: editForm.affiliation === 'student' ? (editForm.school||null) : null,
       default_role: editForm.default_role || null,
+      birthday: editForm.birthday || null,
     }).eq('id', selectedVolunteer.id)
     if (error) { showMessage(error.message, 'error'); setSaving(false); return }
     const { data: fresh } = await supabase
@@ -594,13 +573,14 @@ export default function AdminPage() {
       sma_name: newAffiliation === 'missionary' ? (newSmaName||null) : null,
       sma_contact: newAffiliation === 'missionary' ? (newSmaContact||null) : null,
       school: newAffiliation === 'student' ? (newSchool||null) : null,
+      birthday: newBirthday || null,
     })
     if (pe) showMessage(pe.message, 'error')
     else {
       showMessage(`Account created for ${newName}!`, 'success')
       setNewName(''); setNewEmail(''); setNewPassword(''); setNewRole('volunteer')
       setNewAffiliation(''); setNewCredentials(''); setNewPhone(''); setNewLanguages('')
-      setNewSmaName(''); setNewSmaContact(''); setNewSchool('')
+      setNewSmaName(''); setNewSmaContact(''); setNewSchool(''); setNewBirthday('')
       loadVolunteers()
     }
     setCreating(false)
@@ -658,7 +638,6 @@ export default function AdminPage() {
     border: active ? 'none' : '1px solid var(--border)',
   })
 
-  // const { missing, day: currentDay, shift: currentShift, isShiftTime } = getMissingVolunteers()
   const unreadCallouts = callouts.filter(c => !c.is_read)
   const readCallouts = callouts.filter(c => c.is_read)
   const tzLabel = getMountainLabel()
@@ -749,14 +728,12 @@ export default function AdminPage() {
           const currentShift = h >= 10 && h < 14 ? '10-2' : h >= 14 && h < 18 ? '2-6' : null
           const currentDay = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
 
-          // Who should be here: scheduled for today's shift, not called out, not an approved cover absence
           const expectedVolunteers = isWeekday && currentShift ? (() => {
             const calledOutIds = new Set(
               callouts
                 .filter(c => c.callout_date === todayMtnStr && c.shift_time === currentShift && c.status === 'approved')
                 .map(c => c.volunteer_id)
             )
-            // Approved covers are expected in place of the called-out person
             const coverIds = new Set(
               callouts
                 .filter(c => c.callout_date === todayMtnStr && c.shift_time === currentShift && c.covered_by)
@@ -824,7 +801,7 @@ export default function AdminPage() {
               )}
             </div>
             {(() => {
-              const todayMtn = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }) // YYYY-MM-DD
+              const todayMtn = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
               const todaysCallouts = callouts.filter(c => c.callout_date === todayMtn && c.status !== 'denied')
               return todaysCallouts.length > 0 && (
               <div style={card}>
@@ -863,6 +840,29 @@ export default function AdminPage() {
                 </div>
               </div>
             )})()}
+
+            {/* Birthdays Today */}
+            {(() => {
+              const today = getMountainNow()
+              const todayMD = `${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
+              const upcoming = volunteers.filter(v => {
+                if (!v.birthday) return false
+                const bd = v.birthday.slice(5) // "MM-DD"
+                return bd === todayMD
+              })
+              return upcoming.length > 0 && (
+                <div style={{ ...card, borderColor: 'rgba(129,140,248,0.5)', background: 'rgba(129,140,248,0.04)' }}>
+                  <h2 style={{ fontWeight: 600, marginBottom: '0.75rem', fontSize: '1rem' }}>Birthdays Today</h2>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    {upcoming.map(v => (
+                      <span key={v.id} style={{ padding: '0.3rem 0.75rem', borderRadius: '100px', background: 'rgba(129,140,248,0.12)', color: '#818cf8', border: '1px solid rgba(129,140,248,0.35)', fontSize: '0.875rem', fontWeight: 500 }}>
+                        {v.full_name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
           </div>
           )
         })()}
@@ -1083,6 +1083,7 @@ export default function AdminPage() {
                     { label: 'Total Hours', value: totalHours(selectedVolunteer.shifts) + 'h' },
                     { label: 'Role', value: selectedVolunteer.role },
                     { label: 'Default Position', value: selectedVolunteer.default_role },
+                    { label: 'Birthday', value: selectedVolunteer.birthday },
                     ...(selectedVolunteer.affiliation === 'missionary' ? [
                       { label: 'SMA Name', value: selectedVolunteer.sma_name },
                       { label: 'SMA Contact', value: selectedVolunteer.sma_contact },
@@ -1173,6 +1174,15 @@ export default function AdminPage() {
                       <option value="">— None —</option>
                       {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                     </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Birthday</label>
+                    <input
+                      type="date"
+                      value={editForm.birthday || ''}
+                      onChange={e => setEditForm({ ...editForm, birthday: e.target.value })}
+                      style={inputStyle}
+                    />
                   </div>
                   {editForm.affiliation === 'missionary' && <>
                     <div><label style={labelStyle}>SMA Name</label><input value={editForm.sma_name} onChange={e => setEditForm({...editForm, sma_name: e.target.value})} placeholder="SMA full name" style={inputStyle} /></div>
@@ -1301,7 +1311,6 @@ export default function AdminPage() {
                         transition: 'border-color 0.15s',
                       }}>
                         {!isEditing ? (
-                          /* READ VIEW */
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                               <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: '0.85rem', color: 'var(--accent)', flexShrink: 0 }}>
@@ -1347,7 +1356,6 @@ export default function AdminPage() {
                             </div>
                           </div>
                         ) : (
-                          /* EDIT VIEW */
                           <div>
                             <p style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.75rem', color: 'var(--accent)' }}>
                               Editing: {s.profiles?.full_name}
@@ -1419,7 +1427,7 @@ export default function AdminPage() {
           return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-              {/* ── PENDING CALLOUTS ── */}
+              {/* PENDING CALLOUTS */}
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>
                   Pending Call-Outs
@@ -1461,7 +1469,7 @@ export default function AdminPage() {
                 )}
               </div>
 
-              {/* ── OPEN SHIFTS / COVER REQUESTS ── */}
+              {/* OPEN SHIFTS / COVER REQUESTS */}
               {(approvedCallouts.length > 0 || pendingCovers.length > 0) && (
                 <div style={card}>
                   <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>
@@ -1517,7 +1525,7 @@ export default function AdminPage() {
                 </div>
               )}
 
-              {/* ── COVERED / CLOSED ── */}
+              {/* COVERED / CLOSED */}
               {closedCallouts.length > 0 && (
                 <div style={card}>
                   <button onClick={() => setShowReadCallouts(!showReadCallouts)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.9rem', fontWeight: 500, padding: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -1533,7 +1541,6 @@ export default function AdminPage() {
                             <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', color: 'var(--muted)' }}>{c.callout_date} · {c.shift_time}</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-  
                             <span style={{
                               fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px',
                               background: c.covered_by ? 'rgba(2,65,107,0.1)' : 'rgba(239,68,68,0.08)',
@@ -1563,7 +1570,6 @@ export default function AdminPage() {
               </div>
             ) : (
               <>
-                {/* Pending first */}
                 {hoursSubmissions.filter(h => h.status === 'pending').length > 0 && (
                   <div style={card}>
                     <h2 style={{ fontWeight: 600, marginBottom: '1rem' }}>
@@ -1599,7 +1605,6 @@ export default function AdminPage() {
                     </div>
                   </div>
                 )}
-                {/* Reviewed submissions */}
                 {hoursSubmissions.filter(h => h.status !== 'pending').length > 0 && (
                   <div style={card}>
                     <h2 style={{ fontWeight: 600, marginBottom: '1rem', color: 'var(--muted)' }}>Previously Reviewed</h2>
@@ -1798,6 +1803,15 @@ export default function AdminPage() {
                     <option value="volunteer">Volunteer</option>
                     <option value="admin">Admin</option>
                   </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Birthday</label>
+                  <input
+                    type="date"
+                    value={newBirthday}
+                    onChange={e => setNewBirthday(e.target.value)}
+                    style={inputStyle}
+                  />
                 </div>
                 {newAffiliation === 'missionary' && <>
                   <div><label style={labelStyle}>SMA Name</label><input value={newSmaName} onChange={e => setNewSmaName(e.target.value)} placeholder="SMA full name" style={inputStyle} /></div>
