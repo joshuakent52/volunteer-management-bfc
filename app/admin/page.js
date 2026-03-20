@@ -117,7 +117,7 @@ export default function AdminPage() {
   const [editForm, setEditForm] = useState({})
   const [saving, setSaving] = useState(false)
 
-  // Create volunteer
+// Create volunteer
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -130,6 +130,7 @@ export default function AdminPage() {
   const [newSmaContact, setNewSmaContact] = useState('')
   const [newSchool, setNewSchool] = useState('')
   const [newBirthday, setNewBirthday] = useState('')
+  const [newDefaultRole, setNewDefaultRole] = useState('')
   const [creating, setCreating] = useState(false)
 
   // Messaging
@@ -561,7 +562,7 @@ export default function AdminPage() {
     setSaving(false)
   }
 
-  async function handleCreateVolunteer(e) {
+ async function handleCreateVolunteer(e) {
     e.preventDefault()
     setCreating(true)
     const { data, error } = await supabase.auth.signUp({ email: newEmail, password: newPassword })
@@ -574,6 +575,7 @@ export default function AdminPage() {
       sma_contact: newAffiliation === 'missionary' ? (newSmaContact||null) : null,
       school: newAffiliation === 'student' ? (newSchool||null) : null,
       birthday: newBirthday || null,
+      default_role: newDefaultRole || null,
     })
     if (pe) showMessage(pe.message, 'error')
     else {
@@ -581,6 +583,7 @@ export default function AdminPage() {
       setNewName(''); setNewEmail(''); setNewPassword(''); setNewRole('volunteer')
       setNewAffiliation(''); setNewCredentials(''); setNewPhone(''); setNewLanguages('')
       setNewSmaName(''); setNewSmaContact(''); setNewSchool(''); setNewBirthday('')
+      setNewDefaultRole('')
       loadVolunteers()
     }
     setCreating(false)
@@ -1802,6 +1805,13 @@ export default function AdminPage() {
                   <select value={newRole} onChange={e => setNewRole(e.target.value)} style={inputStyle}>
                     <option value="volunteer">Volunteer</option>
                     <option value="admin">Admin</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Default Position</label>
+                  <select value={newDefaultRole} onChange={e => setNewDefaultRole(e.target.value)} style={inputStyle}>
+                    <option value="">— None —</option>
+                    {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </div>
                 <div>
