@@ -12,6 +12,23 @@ const ROLES = [
   'Young Support','Float','OSSM','Information Systems',
   'Credentialing','Media','Provider', 'Director'
 ]
+const ROLE_SUGGESTIONS = {
+  'Clinical Supervisor': 1,
+  'Credentialing': 1,
+  'Float': 1,
+  'Information Systems': 1,
+  'Intake': 2,
+  'Lab': 2,
+  'Mental Health': 1,
+  'OSSM': 3,
+  'Patient Nav.': 2,
+  'Pharmacy': 2,
+  'Receptionist': 3,
+  'Scribe': 3,
+  'Support Center': 2,
+  'Young Support': 2,
+  'Clinical Staff': 4,
+}
 
 function getMountainNow() {
   const str = new Date().toLocaleString('en-US', { timeZone: 'America/Denver' })
@@ -907,7 +924,9 @@ export default function AdminPage() {
                 return (
                   <div key={role} style={{ ...card, padding: '1rem 1.25rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: entries.length > 0 || isOpen ? '0.75rem' : 0 }}>
-                      <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{role}</span>
+                      <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                        {role}{ROLE_SUGGESTIONS[role] ? ` - ${ROLE_SUGGESTIONS[role]}` : ''}
+                      </span>
                       <button onClick={() => { setAddingRole(isOpen ? null : role); setAddVolId('') }} style={{
                         padding: '0.3rem 0.75rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
                         background: isOpen ? 'var(--surface)' : 'rgba(2,65,107,0.12)',
