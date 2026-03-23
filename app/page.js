@@ -21,14 +21,11 @@ export default function LoginPage() {
       return
     }
 
-    // Fetch profile to check role
     const { data: profile } = await supabase
       .from('profiles')
       .select('role')
       .eq('id', data.user.id)
       .single()
-
-    console.log('Profile role:', profile?.role)
 
     if (profile?.role === 'admin') {
       window.location.href = '/admin'
@@ -46,7 +43,6 @@ export default function LoginPage() {
       background: 'var(--bg)',
       padding: '1rem',
     }}>
-      {/* Background grid */}
       <div style={{
         position: 'fixed', inset: 0, zIndex: 0,
         backgroundImage: 'linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px)',
@@ -63,12 +59,11 @@ export default function LoginPage() {
         padding: '2.5rem',
         boxShadow: '0 0 60px rgba(74,222,128,0.05)',
       }}>
-        {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <img 
-            src="/logo.jpg" 
+          <img
+            src="/logo.jpg"
             alt="Logo"
-            style={{ width: '120px', height: 'auto', display: 'block', margin: '0 auto 1rem', marginBottom: '1rem', borderRadius: '12px' }}
+            style={{ width: '120px', height: 'auto', display: 'block', margin: '0 auto 1rem', borderRadius: '12px' }}
           />
           <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--text)', letterSpacing: '-0.02em' }}>
             Bingham Family Clinic Volunteers
@@ -100,9 +95,14 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Password
-            </label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Password
+              </label>
+              <a href="/forgot-password" style={{ fontSize: '0.8rem', color: 'var(--muted)', textDecoration: 'none' }}>
+                Forgot password?
+              </a>
+            </div>
             <input
               type="password"
               value={password}
@@ -139,7 +139,6 @@ export default function LoginPage() {
               border: 'none', borderRadius: '8px',
               fontSize: '0.95rem', cursor: loading ? 'not-allowed' : 'pointer',
               fontFamily: 'DM Sans, sans-serif',
-              transition: 'opacity 0.15s',
             }}
           >
             {loading ? 'Signing in...' : 'Sign In'}
