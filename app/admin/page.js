@@ -25,6 +25,8 @@ const ROLE_SUGGESTIONS = {
   'Support Center': 2,
   'Clinical Staff': 4,
 }
+const SCHOOLS = ['BYU', 'UVU', 'Norda', 'SLCC', 'U of U', 'Other']
+const MAJORS = ['Pre-Med', 'Other']
 
 function getMountainNow() {
   const str = new Date().toLocaleString('en-US', { timeZone: 'America/Denver' })
@@ -110,7 +112,6 @@ export default function AdminPage() {
   const [currentTime, setCurrentTime] = useState(getMountainNow())
   const [showReadCallouts, setShowReadCallouts] = useState(false)
 
-  // Schedule UI
   const [scheduleDay, setScheduleDay] = useState('monday')
   const [scheduleShift, setScheduleShift] = useState('10-2')
   const [addingRole, setAddingRole] = useState(null)
@@ -121,7 +122,6 @@ export default function AdminPage() {
   const [addWeekPattern, setAddWeekPattern] = useState('every')
   const [addNotes, setAddNotes] = useState('')
 
-  // Volunteer detail/edit
   const [selectedVolunteer, setSelectedVolunteer] = useState(null)
   const [editing, setEditing] = useState(false)
   const [showInactive, setShowInactive] = useState(false)
@@ -130,7 +130,6 @@ export default function AdminPage() {
   const [editForm, setEditForm] = useState({})
   const [saving, setSaving] = useState(false)
 
-// Create volunteer
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -142,11 +141,11 @@ export default function AdminPage() {
   const [newSmaName, setNewSmaName] = useState('')
   const [newSmaContact, setNewSmaContact] = useState('')
   const [newSchool, setNewSchool] = useState('')
+  const [newMajor, setNewMajor] = useState('')
   const [newBirthday, setNewBirthday] = useState('')
   const [newDefaultRole, setNewDefaultRole] = useState('')
   const [creating, setCreating] = useState(false)
 
-  // Messaging
   const [adminMessages, setAdminMessages] = useState([])
   const [msgBody, setMsgBody] = useState('')
   const [msgRecipientType, setMsgRecipientType] = useState('everyone')
@@ -157,20 +156,16 @@ export default function AdminPage() {
   const [sendingMsg, setSendingMsg] = useState(false)
   const [msgView, setMsgView] = useState('inbox')
 
-  // Cover requests
   const [coverRequests, setCoverRequests] = useState([])
   const [approvingCoverId, setApprovingCoverId] = useState(null)
 
-  // Schedule date picker
   const [scheduleDate, setScheduleDate] = useState('')
   const [dateCoverShifts, setDateCoverShifts] = useState([])
 
-  // Hours submissions tab
   const [hoursSubmissions, setHoursSubmissions] = useState([])
   const [hoursLoading, setHoursLoading] = useState(false)
   const [approvingHoursId, setApprovingHoursId] = useState(null)
 
-  // Shifts tab
   const [allShifts, setAllShifts] = useState([])
   const [shiftsLoading, setShiftsLoading] = useState(false)
   const [editingShiftId, setEditingShiftId] = useState(null)
@@ -273,12 +268,10 @@ export default function AdminPage() {
     setApprovingCoverId(req.id)
     const callout = callouts.find(c => c.id === req.callout_id)
     if (!callout) { showMessage('Callout not found', 'error'); setApprovingCoverId(null); return }
-
     const { error: covErr } = await supabase.from('callouts')
       .update({ covered_by: req.volunteer_id })
       .eq('id', req.callout_id)
     if (covErr) { showMessage(covErr.message, 'error'); setApprovingCoverId(null); return }
-
     await supabase.from('shift_cover_requests')
       .update({ status: 'approved', reviewed_at: new Date().toISOString() })
       .eq('id', req.id)
@@ -286,7 +279,6 @@ export default function AdminPage() {
       .update({ status: 'denied', reviewed_at: new Date().toISOString() })
       .eq('callout_id', req.callout_id)
       .neq('id', req.id)
-
     showMessage(`${req.profiles?.full_name} approved to cover shift!`, 'success')
     await loadCallouts()
     await loadCoverRequests()
@@ -530,6 +522,7 @@ export default function AdminPage() {
       sma_name: v.sma_name||'', sma_contact: v.sma_contact||'', school: v.school||'',
       default_role: v.default_role||'',
       birthday: v.birthday||'',
+      major: v.major||'',
     })
     setStatusForm({ status: v.status || 'active', status_reason: v.status_reason || '' })
     setEditing(false)
@@ -562,6 +555,7 @@ export default function AdminPage() {
       sma_name: editForm.affiliation === 'missionary' ? (editForm.sma_name||null) : null,
       sma_contact: editForm.affiliation === 'missionary' ? (editForm.sma_contact||null) : null,
       school: editForm.affiliation === 'student' ? (editForm.school||null) : null,
+      major: editForm.affiliation === 'student' ? (editForm.major||null) : null,
       default_role: editForm.default_role || null,
       birthday: editForm.birthday || null,
     }).eq('id', selectedVolunteer.id)
@@ -575,7 +569,7 @@ export default function AdminPage() {
     setSaving(false)
   }
 
- async function handleCreateVolunteer(e) {
+  async function handleCreateVolunteer(e) {
     e.preventDefault()
     setCreating(true)
     const { data, error } = await supabase.auth.signUp({ email: newEmail, password: newPassword })
@@ -587,6 +581,7 @@ export default function AdminPage() {
       sma_name: newAffiliation === 'missionary' ? (newSmaName||null) : null,
       sma_contact: newAffiliation === 'missionary' ? (newSmaContact||null) : null,
       school: newAffiliation === 'student' ? (newSchool||null) : null,
+      major: newAffiliation === 'student' ? (newMajor||null) : null,
       birthday: newBirthday || null,
       default_role: newDefaultRole || null,
     })
@@ -595,7 +590,7 @@ export default function AdminPage() {
       showMessage(`Account created for ${newName}!`, 'success')
       setNewName(''); setNewEmail(''); setNewPassword(''); setNewRole('volunteer')
       setNewAffiliation(''); setNewCredentials(''); setNewPhone(''); setNewLanguages('')
-      setNewSmaName(''); setNewSmaContact(''); setNewSchool(''); setNewBirthday('')
+      setNewSmaName(''); setNewSmaContact(''); setNewSchool(''); setNewMajor(''); setNewBirthday('')
       setNewDefaultRole('')
       loadVolunteers()
     }
@@ -665,12 +660,8 @@ export default function AdminPage() {
     })
   const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
   const messages24h = adminMessages.filter(m => m.created_at >= cutoff24h && m.sender_id !== profile?.id).length
-
   const dayShiftCombos = DAYS.flatMap(d => SHIFTS.map(s => ({ day: d, shift: s, label: `${d.charAt(0).toUpperCase() + d.slice(1,3)} ${s}` })))
-
-  const filteredShifts = shiftFilterVolId
-    ? allShifts.filter(s => s.volunteer_id === shiftFilterVolId)
-    : allShifts
+  const filteredShifts = shiftFilterVolId ? allShifts.filter(s => s.volunteer_id === shiftFilterVolId) : allShifts
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
@@ -776,110 +767,108 @@ export default function AdminPage() {
           })() : []
 
           return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {/* Expected but not clocked in */}
-            {isWeekday && currentShift && (
-              <div style={{ ...card, borderColor: expectedVolunteers.length > 0 ? 'var(--danger)' : 'rgba(2,65,107,0.4)', background: expectedVolunteers.length > 0 ? 'rgba(239,68,68,0.03)' : 'rgba(2,65,107,0.03)' }}>
-                <h2 style={{ fontWeight: 600, marginBottom: expectedVolunteers.length > 0 ? '1rem' : 0, fontSize: '1rem' }}>
-                  {expectedVolunteers.length > 0
-                    ? `${expectedVolunteers.length} volunteer${expectedVolunteers.length !== 1 ? 's' : ''} not yet clocked in — ${currentDay} ${currentShift}`
-                    : `All expected volunteers clocked in — ${currentDay} ${currentShift}`}
-                </h2>
-                {expectedVolunteers.length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {expectedVolunteers.map(v => (
-                      <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'rgba(239,68,68,0.06)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.2)' }}>
-                        <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{v.name}</span>
-                        {v.notes && <span style={{ fontSize: '0.78rem', color: '#60a5fa', fontStyle: 'italic' }}>({v.notes})</span>}
-                        <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{v.role}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {isWeekday && currentShift && (
+                <div style={{ ...card, borderColor: expectedVolunteers.length > 0 ? 'var(--danger)' : 'rgba(2,65,107,0.4)', background: expectedVolunteers.length > 0 ? 'rgba(239,68,68,0.03)' : 'rgba(2,65,107,0.03)' }}>
+                  <h2 style={{ fontWeight: 600, marginBottom: expectedVolunteers.length > 0 ? '1rem' : 0, fontSize: '1rem' }}>
+                    {expectedVolunteers.length > 0
+                      ? `${expectedVolunteers.length} volunteer${expectedVolunteers.length !== 1 ? 's' : ''} not yet clocked in — ${currentDay} ${currentShift}`
+                      : `All expected volunteers clocked in — ${currentDay} ${currentShift}`}
+                  </h2>
+                  {expectedVolunteers.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {expectedVolunteers.map(v => (
+                        <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'rgba(239,68,68,0.06)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.2)' }}>
+                          <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{v.name}</span>
+                          {v.notes && <span style={{ fontSize: '0.78rem', color: '#60a5fa', fontStyle: 'italic' }}>({v.notes})</span>}
+                          <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{v.role}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              <div style={card}>
+                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Currently Clocked In</h2>
+                {activeShifts.length === 0 ? (
+                  <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No one is currently clocked in.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {activeShifts.map(s => (
+                      <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(2,65,107,0.05)', borderRadius: '8px', border: '1px solid var(--accent)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 6px var(--accent)' }} />
+                          <span style={{ fontWeight: 500 }}>{s.profiles?.full_name}</span>
+                        </div>
+                        <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Since {formatMountain(s.clock_in)}</span>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
-            )}
-            <div style={card}>
-              <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Currently Clocked In</h2>
-              {activeShifts.length === 0 ? (
-                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No one is currently clocked in.</p>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {activeShifts.map(s => (
-                    <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(2,65,107,0.05)', borderRadius: '8px', border: '1px solid var(--accent)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 6px var(--accent)' }} />
-                        <span style={{ fontWeight: 500 }}>{s.profiles?.full_name}</span>
-                      </div>
-                      <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Since {formatMountain(s.clock_in)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            {(() => {
-              const todayMtn = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
-              const todaysCallouts = callouts.filter(c => c.callout_date === todayMtn && c.status !== 'denied')
-              return todaysCallouts.length > 0 && (
-              <div style={card}>
-                <h2 style={{ fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span>Today's Call-Outs</span>
-                  <span style={{ padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>
-                    {todaysCallouts.length}
-                  </span>
-                </h2>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {todaysCallouts.map(c => {
-                    const isCovered = c.status === 'approved' && c.covered_by
-                    const isOpen    = c.status === 'approved' && !c.covered_by
-                    const isPending = !c.status || c.status === 'pending'
-                    return (
-                    <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: isCovered ? 'rgba(2,65,107,0.04)' : isOpen ? 'rgba(239,68,68,0.04)' : 'rgba(96,165,250,0.05)', borderRadius: '8px', border: `1px solid ${isCovered ? 'rgba(2,65,107,0.25)' : isOpen ? 'rgba(239,68,68,0.25)' : 'rgba(96,165,250,0.3)'}`, flexWrap: 'wrap', gap: '0.5rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-                        <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{c.profiles?.full_name}</span>
-                        {c.shift_time && (
-                          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(96,165,250,0.3)' }}>
-                            {c.day_of_week ? c.day_of_week.charAt(0).toUpperCase() + c.day_of_week.slice(1,3) + ' ' : ''}{c.shift_time}
-                          </span>
-                        )}
-                        <span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', fontWeight: 600,
-                          background: isCovered ? 'rgba(2,65,107,0.1)' : isOpen ? 'rgba(239,68,68,0.08)' : 'rgba(96,165,250,0.1)',
-                          color: isCovered ? 'var(--accent)' : isOpen ? '#ef4444' : '#60a5fa',
-                          border: `1px solid ${isCovered ? 'rgba(2,65,107,0.3)' : isOpen ? 'rgba(239,68,68,0.25)' : 'rgba(96,165,250,0.3)'}`,
-                        }}>
-                          {isCovered ? 'covered' : isOpen ? 'open' : 'pending'}
-                        </span>
-                        {c.reason && <span style={{ fontSize: '0.82rem', color: 'var(--muted)', fontStyle: 'italic' }}>{c.reason}</span>}
-                      </div>
-                    </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )})()}
-
-            {/* Birthdays Today */}
-            {(() => {
-              const today = getMountainNow()
-              const todayMD = `${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
-              const upcoming = volunteers.filter(v => {
-                if (!v.birthday) return false
-                const bd = v.birthday.slice(5) // "MM-DD"
-                return bd === todayMD
-              })
-              return upcoming.length > 0 && (
-                <div style={{ ...card, borderColor: 'rgba(129,140,248,0.5)', background: 'rgba(129,140,248,0.04)' }}>
-                  <h2 style={{ fontWeight: 600, marginBottom: '0.75rem', fontSize: '1rem' }}>Birthdays Today</h2>
-                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                    {upcoming.map(v => (
-                      <span key={v.id} style={{ padding: '0.3rem 0.75rem', borderRadius: '100px', background: 'rgba(129,140,248,0.12)', color: '#818cf8', border: '1px solid rgba(129,140,248,0.35)', fontSize: '0.875rem', fontWeight: 500 }}>
-                        {v.full_name}
+              {(() => {
+                const todayMtn = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
+                const todaysCallouts = callouts.filter(c => c.callout_date === todayMtn && c.status !== 'denied')
+                return todaysCallouts.length > 0 && (
+                  <div style={card}>
+                    <h2 style={{ fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span>Today's Call-Outs</span>
+                      <span style={{ padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>
+                        {todaysCallouts.length}
                       </span>
-                    ))}
+                    </h2>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {todaysCallouts.map(c => {
+                        const isCovered = c.status === 'approved' && c.covered_by
+                        const isOpen    = c.status === 'approved' && !c.covered_by
+                        const isPending = !c.status || c.status === 'pending'
+                        return (
+                          <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: isCovered ? 'rgba(2,65,107,0.04)' : isOpen ? 'rgba(239,68,68,0.04)' : 'rgba(96,165,250,0.05)', borderRadius: '8px', border: `1px solid ${isCovered ? 'rgba(2,65,107,0.25)' : isOpen ? 'rgba(239,68,68,0.25)' : 'rgba(96,165,250,0.3)'}`, flexWrap: 'wrap', gap: '0.5rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{c.profiles?.full_name}</span>
+                              {c.shift_time && (
+                                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(96,165,250,0.3)' }}>
+                                  {c.day_of_week ? c.day_of_week.charAt(0).toUpperCase() + c.day_of_week.slice(1,3) + ' ' : ''}{c.shift_time}
+                                </span>
+                              )}
+                              <span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', fontWeight: 600,
+                                background: isCovered ? 'rgba(2,65,107,0.1)' : isOpen ? 'rgba(239,68,68,0.08)' : 'rgba(96,165,250,0.1)',
+                                color: isCovered ? 'var(--accent)' : isOpen ? '#ef4444' : '#60a5fa',
+                                border: `1px solid ${isCovered ? 'rgba(2,65,107,0.3)' : isOpen ? 'rgba(239,68,68,0.25)' : 'rgba(96,165,250,0.3)'}`,
+                              }}>
+                                {isCovered ? 'covered' : isOpen ? 'open' : 'pending'}
+                              </span>
+                              {c.reason && <span style={{ fontSize: '0.82rem', color: 'var(--muted)', fontStyle: 'italic' }}>{c.reason}</span>}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
-                </div>
-              )
-            })()}
-          </div>
+                )
+              })()}
+              {(() => {
+                const today = getMountainNow()
+                const todayMD = `${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
+                const upcoming = volunteers.filter(v => {
+                  if (!v.birthday) return false
+                  const bd = v.birthday.slice(5)
+                  return bd === todayMD
+                })
+                return upcoming.length > 0 && (
+                  <div style={{ ...card, borderColor: 'rgba(129,140,248,0.5)', background: 'rgba(129,140,248,0.04)' }}>
+                    <h2 style={{ fontWeight: 600, marginBottom: '0.75rem', fontSize: '1rem' }}>Birthdays Today</h2>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      {upcoming.map(v => (
+                        <span key={v.id} style={{ padding: '0.3rem 0.75rem', borderRadius: '100px', background: 'rgba(129,140,248,0.12)', color: '#818cf8', border: '1px solid rgba(129,140,248,0.35)', fontSize: '0.875rem', fontWeight: 500 }}>
+                          {v.full_name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
           )
         })()}
 
@@ -962,9 +951,6 @@ export default function AdminPage() {
                                     {entry.week_pattern === 'odd' ? '1st&3rd' : '2nd&4th'}
                                   </span>
                                 )}
-                                {(entry.start_date || entry.end_date) && (
-                                  <span style={{ fontSize: '0.65rem', color: 'var(--muted)' }} title={`${entry.start_date || '...'} → ${entry.end_date || '...'}`}></span>
-                                )}
                                 <button onClick={() => handleRemoveEntry(entry.id)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 2px' }}>✕</button>
                               </div>
                               {coverName && (
@@ -1013,7 +999,7 @@ export default function AdminPage() {
                           </div>
                         </div>
                         <div>
-                          <label style={labelStyle}>Schedule note <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional — e.g. "arriving late", "leaving early 1pm")</span></label>
+                          <label style={labelStyle}>Schedule note <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional)</span></label>
                           <input type="text" value={addNotes} onChange={e => setAddNotes(e.target.value)} placeholder="e.g. arriving late" style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} />
                         </div>
                         <button onClick={handleAddEntry} disabled={!addVolId || addingEntry}
@@ -1108,6 +1094,7 @@ export default function AdminPage() {
                     ] : []),
                     ...(selectedVolunteer.affiliation === 'student' ? [
                       { label: 'School', value: selectedVolunteer.school },
+                      { label: 'Major', value: selectedVolunteer.major },
                     ] : []),
                   ].map(({ label, value }) => (
                     <div key={label} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
@@ -1195,19 +1182,27 @@ export default function AdminPage() {
                   </div>
                   <div>
                     <label style={labelStyle}>Birthday</label>
-                    <input
-                      type="date"
-                      value={editForm.birthday || ''}
-                      onChange={e => setEditForm({ ...editForm, birthday: e.target.value })}
-                      style={inputStyle}
-                    />
+                    <input type="date" value={editForm.birthday || ''} onChange={e => setEditForm({ ...editForm, birthday: e.target.value })} style={inputStyle} />
                   </div>
                   {editForm.affiliation === 'missionary' && <>
                     <div><label style={labelStyle}>SMA Name</label><input value={editForm.sma_name} onChange={e => setEditForm({...editForm, sma_name: e.target.value})} placeholder="SMA full name" style={inputStyle} /></div>
                     <div><label style={labelStyle}>SMA Contact</label><input value={editForm.sma_contact} onChange={e => setEditForm({...editForm, sma_contact: e.target.value})} placeholder="Phone or email" style={inputStyle} /></div>
                   </>}
                   {editForm.affiliation === 'student' && <>
-                    <div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>School</label><input value={editForm.school} onChange={e => setEditForm({...editForm, school: e.target.value})} placeholder="University or college name" style={inputStyle} /></div>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label style={labelStyle}>School</label>
+                      <select value={editForm.school} onChange={e => setEditForm({...editForm, school: e.target.value})} style={inputStyle}>
+                        <option value="">— Select school —</option>
+                        {SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label style={labelStyle}>Major</label>
+                      <select value={editForm.major || ''} onChange={e => setEditForm({...editForm, major: e.target.value})} style={inputStyle}>
+                        <option value="">— Select major —</option>
+                        {MAJORS.map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </div>
                   </>}
                 </div>
                 <button onClick={handleSaveEdit} disabled={saving} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
@@ -1221,20 +1216,13 @@ export default function AdminPage() {
         {/* SHIFTS TAB */}
         {tab === 'shifts' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-
-            {/* New Entry Form */}
             {showNewShiftForm && (
               <div style={{ ...card, borderColor: 'var(--accent)', background: 'rgba(2,65,107,0.04)' }}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>New Shift Entry</h2>
                 <form onSubmit={handleCreateShift} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   <div>
                     <label style={labelStyle}>Volunteer</label>
-                    <select
-                      value={newShiftForm.volunteer_id}
-                      onChange={e => setNewShiftForm({ ...newShiftForm, volunteer_id: e.target.value })}
-                      required
-                      style={inputStyle}
-                    >
+                    <select value={newShiftForm.volunteer_id} onChange={e => setNewShiftForm({ ...newShiftForm, volunteer_id: e.target.value })} required style={inputStyle}>
                       <option value="">— Select volunteer —</option>
                       {volunteers.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}
                     </select>
@@ -1242,31 +1230,16 @@ export default function AdminPage() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                     <div>
                       <label style={labelStyle}>Clock In ({tzLabel})</label>
-                      <input
-                        type="datetime-local"
-                        value={newShiftForm.clock_in}
-                        onChange={e => setNewShiftForm({ ...newShiftForm, clock_in: e.target.value })}
-                        required
-                        style={inputStyle}
-                      />
+                      <input type="datetime-local" value={newShiftForm.clock_in} onChange={e => setNewShiftForm({ ...newShiftForm, clock_in: e.target.value })} required style={inputStyle} />
                     </div>
                     <div>
-                      <label style={labelStyle}>Clock Out ({tzLabel}) <span style={{ color: 'var(--muted)', textTransform: 'none', fontSize: '0.75rem' }}>— leave blank if active</span></label>
-                      <input
-                        type="datetime-local"
-                        value={newShiftForm.clock_out}
-                        onChange={e => setNewShiftForm({ ...newShiftForm, clock_out: e.target.value })}
-                        style={inputStyle}
-                      />
+                      <label style={labelStyle}>Clock Out ({tzLabel})</label>
+                      <input type="datetime-local" value={newShiftForm.clock_out} onChange={e => setNewShiftForm({ ...newShiftForm, clock_out: e.target.value })} style={inputStyle} />
                     </div>
                   </div>
                   <div>
                     <label style={labelStyle}>Position</label>
-                    <select
-                      value={newShiftForm.role}
-                      onChange={e => setNewShiftForm({ ...newShiftForm, role: e.target.value })}
-                      style={inputStyle}
-                    >
+                    <select value={newShiftForm.role} onChange={e => setNewShiftForm({ ...newShiftForm, role: e.target.value })} style={inputStyle}>
                       <option value="">— No role —</option>
                       {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                     </select>
@@ -1282,35 +1255,21 @@ export default function AdminPage() {
                 </form>
               </div>
             )}
-
-            {/* List header */}
             <div style={card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-                <h2 style={{ fontWeight: 600 }}>
-                  All Shift Entries
-                  <span style={{ marginLeft: '0.5rem', color: 'var(--muted)', fontWeight: 400, fontSize: '0.85rem' }}>— last 200</span>
-                </h2>
-                <button
-                  onClick={() => { setShowNewShiftForm(true); setEditingShiftId(null); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}
-                >
+                <h2 style={{ fontWeight: 600 }}>All Shift Entries <span style={{ marginLeft: '0.5rem', color: 'var(--muted)', fontWeight: 400, fontSize: '0.85rem' }}>— last 200</span></h2>
+                <button onClick={() => { setShowNewShiftForm(true); setEditingShiftId(null); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}>
                   + New Entry
                 </button>
               </div>
-
-              {/* Filter by volunteer */}
               <div style={{ marginBottom: '1rem' }}>
                 <label style={labelStyle}>Filter by volunteer</label>
-                <select
-                  value={shiftFilterVolId}
-                  onChange={e => setShiftFilterVolId(e.target.value)}
-                  style={{ ...inputStyle, maxWidth: '320px' }}
-                >
+                <select value={shiftFilterVolId} onChange={e => setShiftFilterVolId(e.target.value)} style={{ ...inputStyle, maxWidth: '320px' }}>
                   <option value="">All volunteers</option>
                   {volunteers.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}
                 </select>
               </div>
-
               {shiftsLoading ? (
                 <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading shifts...</p>
               ) : filteredShifts.length === 0 ? (
@@ -1321,13 +1280,7 @@ export default function AdminPage() {
                     const isEditing = editingShiftId === s.id
                     const hours = calcShiftHours(s.clock_in, s.clock_out)
                     return (
-                      <div key={s.id} style={{
-                        padding: '0.85rem 1rem',
-                        background: 'var(--bg)',
-                        borderRadius: '10px',
-                        border: `1px solid ${isEditing ? 'var(--accent)' : 'var(--border)'}`,
-                        transition: 'border-color 0.15s',
-                      }}>
+                      <div key={s.id} style={{ padding: '0.85rem 1rem', background: 'var(--bg)', borderRadius: '10px', border: `1px solid ${isEditing ? 'var(--accent)' : 'var(--border)'}` }}>
                         {!isEditing ? (
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -1343,7 +1296,7 @@ export default function AdminPage() {
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                               {s.role ? (
-                                <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', borderRadius: '100px', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', fontWeight: 500, whiteSpace: 'nowrap' }}>{s.role}</span>
+                                <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', borderRadius: '100px', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', fontWeight: 500 }}>{s.role}</span>
                               ) : (
                                 <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', borderRadius: '100px', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', fontStyle: 'italic' }}>no role</span>
                               )}
@@ -1352,75 +1305,43 @@ export default function AdminPage() {
                               ) : (
                                 <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--accent)', background: 'rgba(2,65,107,0.1)', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid rgba(2,65,107,0.35)' }}>active</span>
                               )}
-                              <button
-                                onClick={() => {
-                                  setEditingShiftId(s.id)
-                                  setShiftEditForm({
-                                    clock_in: toMountainInputValue(s.clock_in),
-                                    clock_out: toMountainInputValue(s.clock_out),
-                                    role: s.role || '',
-                                  })
-                                }}
-                                style={{ padding: '0.3rem 0.7rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}
-                              >
+                              <button onClick={() => { setEditingShiftId(s.id); setShiftEditForm({ clock_in: toMountainInputValue(s.clock_in), clock_out: toMountainInputValue(s.clock_out), role: s.role || '' }) }}
+                                style={{ padding: '0.3rem 0.7rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                                 Edit
                               </button>
-                              <button
-                                onClick={() => handleShiftDelete(s.id)}
-                                style={{ padding: '0.3rem 0.7rem', background: 'rgba(248,113,113,0.08)', color: 'var(--danger)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}
-                              >
+                              <button onClick={() => handleShiftDelete(s.id)}
+                                style={{ padding: '0.3rem 0.7rem', background: 'rgba(248,113,113,0.08)', color: 'var(--danger)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                                 Delete
                               </button>
                             </div>
                           </div>
                         ) : (
                           <div>
-                            <p style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.75rem', color: 'var(--accent)' }}>
-                              Editing: {s.profiles?.full_name}
-                            </p>
+                            <p style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.75rem', color: 'var(--accent)' }}>Editing: {s.profiles?.full_name}</p>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
                               <div>
                                 <label style={labelStyle}>Clock In ({tzLabel})</label>
-                                <input
-                                  type="datetime-local"
-                                  value={shiftEditForm.clock_in}
-                                  onChange={e => setShiftEditForm({ ...shiftEditForm, clock_in: e.target.value })}
-                                  style={inputStyle}
-                                />
+                                <input type="datetime-local" value={shiftEditForm.clock_in} onChange={e => setShiftEditForm({ ...shiftEditForm, clock_in: e.target.value })} style={inputStyle} />
                               </div>
                               <div>
-                                <label style={labelStyle}>Clock Out ({tzLabel}) <span style={{ color: 'var(--muted)', textTransform: 'none', fontSize: '0.75rem' }}>— clear to mark active</span></label>
-                                <input
-                                  type="datetime-local"
-                                  value={shiftEditForm.clock_out}
-                                  onChange={e => setShiftEditForm({ ...shiftEditForm, clock_out: e.target.value })}
-                                  style={inputStyle}
-                                />
+                                <label style={labelStyle}>Clock Out ({tzLabel})</label>
+                                <input type="datetime-local" value={shiftEditForm.clock_out} onChange={e => setShiftEditForm({ ...shiftEditForm, clock_out: e.target.value })} style={inputStyle} />
                               </div>
                             </div>
                             <div style={{ marginBottom: '0.75rem' }}>
                               <label style={labelStyle}>Position</label>
-                              <select
-                                value={shiftEditForm.role}
-                                onChange={e => setShiftEditForm({ ...shiftEditForm, role: e.target.value })}
-                                style={inputStyle}
-                              >
+                              <select value={shiftEditForm.role} onChange={e => setShiftEditForm({ ...shiftEditForm, role: e.target.value })} style={inputStyle}>
                                 <option value="">— No role —</option>
                                 {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                               </select>
                             </div>
                             <div style={{ display: 'flex', gap: '0.5rem' }}>
-                              <button
-                                onClick={() => handleShiftEditSave(s.id)}
-                                disabled={savingShift}
-                                style={{ padding: '0.55rem 1.1rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '7px', fontWeight: 600, cursor: savingShift ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}
-                              >
+                              <button onClick={() => handleShiftEditSave(s.id)} disabled={savingShift}
+                                style={{ padding: '0.55rem 1.1rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '7px', fontWeight: 600, cursor: savingShift ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}>
                                 {savingShift ? 'Saving...' : 'Save'}
                               </button>
-                              <button
-                                onClick={() => setEditingShiftId(null)}
-                                style={{ padding: '0.55rem 1rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '7px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}
-                              >
+                              <button onClick={() => setEditingShiftId(null)}
+                                style={{ padding: '0.55rem 1rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '7px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}>
                                 Cancel
                               </button>
                             </div>
@@ -1444,8 +1365,6 @@ export default function AdminPage() {
           const pendingCovers    = coverRequests.filter(r => r.status === 'pending')
           return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-
-              {/* PENDING CALLOUTS */}
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>
                   Pending Call-Outs
@@ -1487,7 +1406,6 @@ export default function AdminPage() {
                 )}
               </div>
 
-              {/* OPEN SHIFTS / COVER REQUESTS */}
               {(approvedCallouts.length > 0 || pendingCovers.length > 0) && (
                 <div style={card}>
                   <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>
@@ -1513,9 +1431,7 @@ export default function AdminPage() {
                               </span>
                               {c.role && <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)' }}>{c.role}</span>}
                             </div>
-                            {pending.length === 0 && (
-                              <span style={{ fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic' }}>No volunteers yet</span>
-                            )}
+                            {pending.length === 0 && <span style={{ fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic' }}>No volunteers yet</span>}
                           </div>
                           {pending.length > 0 && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -1543,7 +1459,6 @@ export default function AdminPage() {
                 </div>
               )}
 
-              {/* COVERED / CLOSED */}
               {closedCallouts.length > 0 && (
                 <div style={card}>
                   <button onClick={() => setShowReadCallouts(!showReadCallouts)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.9rem', fontWeight: 500, padding: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -1558,34 +1473,29 @@ export default function AdminPage() {
                             <span style={{ fontWeight: 500 }}>{c.profiles?.full_name}</span>
                             <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', color: 'var(--muted)' }}>{c.callout_date} · {c.shift_time}</span>
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span style={{
-                              fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px',
-                              background: c.covered_by ? 'rgba(2,65,107,0.1)' : 'rgba(239,68,68,0.08)',
-                              color: c.covered_by ? 'var(--accent)' : '#ef4444',
-                              border: `1px solid ${c.covered_by ? 'rgba(2,65,107,0.35)' : 'rgba(239,68,68,0.25)'}`,
-                            }}>{c.covered_by ? 'covered' : 'denied'}</span>
-                          </div>
+                          <span style={{
+                            fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px',
+                            background: c.covered_by ? 'rgba(2,65,107,0.1)' : 'rgba(239,68,68,0.08)',
+                            color: c.covered_by ? 'var(--accent)' : '#ef4444',
+                            border: `1px solid ${c.covered_by ? 'rgba(2,65,107,0.35)' : 'rgba(239,68,68,0.25)'}`,
+                          }}>{c.covered_by ? 'covered' : 'denied'}</span>
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
               )}
-
             </div>
           )
         })()}
 
-        {/* HOURS SUBMISSIONS TAB */}
+        {/* HOURS TAB */}
         {tab === 'hours' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {hoursLoading ? (
               <p style={{ color: 'var(--muted)', padding: '1rem' }}>Loading...</p>
             ) : hoursSubmissions.length === 0 ? (
-              <div style={card}>
-                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No hours submissions yet.</p>
-              </div>
+              <div style={card}><p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No hours submissions yet.</p></div>
             ) : (
               <>
                 {hoursSubmissions.filter(h => h.status === 'pending').length > 0 && (
@@ -1605,15 +1515,11 @@ export default function AdminPage() {
                             {h.notes && <p style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic', marginTop: '0.2rem' }}>{h.notes}</p>}
                           </div>
                           <div style={{ display: 'flex', gap: '0.5rem' }}>
-                            <button
-                              onClick={() => approveHours(h)}
-                              disabled={approvingHoursId === h.id}
+                            <button onClick={() => approveHours(h)} disabled={approvingHoursId === h.id}
                               style={{ padding: '0.4rem 0.9rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                               {approvingHoursId === h.id ? '...' : '✓ Approve'}
                             </button>
-                            <button
-                              onClick={() => rejectHours(h.id)}
-                              disabled={approvingHoursId === h.id}
+                            <button onClick={() => rejectHours(h.id)} disabled={approvingHoursId === h.id}
                               style={{ padding: '0.4rem 0.9rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                               ✕ Reject
                             </button>
@@ -1663,7 +1569,6 @@ export default function AdminPage() {
                 }}>{label}</button>
               ))}
             </div>
-
             {msgView === 'inbox' && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>All Messages</h2>
@@ -1676,9 +1581,7 @@ export default function AdminPage() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
                           <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{m.sender?.full_name || 'Unknown'}</span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
-                              {recipientLabel(m)}
-                            </span>
+                            <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>{recipientLabel(m)}</span>
                             <span style={{ color: 'var(--muted)', fontSize: '0.78rem', fontFamily: 'DM Mono, monospace' }}>{formatDateTime(m.created_at)}</span>
                           </div>
                         </div>
@@ -1689,7 +1592,6 @@ export default function AdminPage() {
                 )}
               </div>
             )}
-
             {msgView === 'sent' && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Sent Messages</h2>
@@ -1710,7 +1612,6 @@ export default function AdminPage() {
                 )}
               </div>
             )}
-
             {msgView === 'compose' && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>New Message</h2>
@@ -1735,7 +1636,6 @@ export default function AdminPage() {
                         }}>{opt.label}</button>
                       ))}
                     </div>
-
                     {msgRecipientType === 'shift' && (
                       <div style={{ marginTop: '0.75rem' }}>
                         <label style={labelStyle}>Which shift</label>
@@ -1743,21 +1643,18 @@ export default function AdminPage() {
                           {dayShiftCombos.map(({ day, shift, label }) => {
                             const active = msgRecipientDay === day && msgRecipientShift === shift
                             return (
-                              <button key={label} type="button"
-                                onClick={() => { setMsgRecipientDay(day); setMsgRecipientShift(shift) }}
-                                style={{
-                                  padding: '0.4rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500,
-                                  cursor: 'pointer', fontFamily: 'DM Mono, monospace',
-                                  background: active ? '#1e40af' : 'var(--surface)',
-                                  color: active ? '#bfdbfe' : 'var(--muted)',
-                                  border: active ? 'none' : '1px solid var(--border)',
-                                }}>{label}</button>
+                              <button key={label} type="button" onClick={() => { setMsgRecipientDay(day); setMsgRecipientShift(shift) }} style={{
+                                padding: '0.4rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500,
+                                cursor: 'pointer', fontFamily: 'DM Mono, monospace',
+                                background: active ? '#1e40af' : 'var(--surface)',
+                                color: active ? '#bfdbfe' : 'var(--muted)',
+                                border: active ? 'none' : '1px solid var(--border)',
+                              }}>{label}</button>
                             )
                           })}
                         </div>
                       </div>
                     )}
-
                     {msgRecipientType === 'role' && (
                       <div style={{ marginTop: '0.75rem' }}>
                         <label style={labelStyle}>Which role</label>
@@ -1766,7 +1663,6 @@ export default function AdminPage() {
                         </select>
                       </div>
                     )}
-
                     {msgRecipientType === 'volunteer' && (
                       <div style={{ marginTop: '0.75rem' }}>
                         <label style={labelStyle}>Which volunteer</label>
@@ -1777,13 +1673,11 @@ export default function AdminPage() {
                       </div>
                     )}
                   </div>
-
                   <div>
                     <label style={labelStyle}>Message</label>
                     <textarea value={msgBody} onChange={e => setMsgBody(e.target.value)} required rows={4} placeholder="Write your message..." style={{ ...inputStyle, resize: 'vertical' }} />
                   </div>
-                  <button type="submit"
-                    disabled={sendingMsg || !msgBody.trim() || (msgRecipientType === 'volunteer' && !msgRecipientVolId)}
+                  <button type="submit" disabled={sendingMsg || !msgBody.trim() || (msgRecipientType === 'volunteer' && !msgRecipientVolId)}
                     style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: sendingMsg ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                     {sendingMsg ? 'Sending...' : 'Send Message'}
                   </button>
@@ -1831,19 +1725,27 @@ export default function AdminPage() {
                 </div>
                 <div>
                   <label style={labelStyle}>Birthday</label>
-                  <input
-                    type="date"
-                    value={newBirthday}
-                    onChange={e => setNewBirthday(e.target.value)}
-                    style={inputStyle}
-                  />
+                  <input type="date" value={newBirthday} onChange={e => setNewBirthday(e.target.value)} style={inputStyle} />
                 </div>
                 {newAffiliation === 'missionary' && <>
                   <div><label style={labelStyle}>SMA Name</label><input value={newSmaName} onChange={e => setNewSmaName(e.target.value)} placeholder="SMA full name" style={inputStyle} /></div>
                   <div><label style={labelStyle}>SMA Contact</label><input value={newSmaContact} onChange={e => setNewSmaContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div>
                 </>}
                 {newAffiliation === 'student' && <>
-                  <div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>School</label><input value={newSchool} onChange={e => setNewSchool(e.target.value)} placeholder="University or college name" style={inputStyle} /></div>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={labelStyle}>School</label>
+                    <select value={newSchool} onChange={e => setNewSchool(e.target.value)} style={inputStyle}>
+                      <option value="">— Select school —</option>
+                      {SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={labelStyle}>Major</label>
+                    <select value={newMajor} onChange={e => setNewMajor(e.target.value)} style={inputStyle}>
+                      <option value="">— Select major —</option>
+                      {MAJORS.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </div>
                 </>}
               </div>
               <button type="submit" disabled={creating} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: creating ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
