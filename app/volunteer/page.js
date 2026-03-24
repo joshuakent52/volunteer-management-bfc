@@ -406,7 +406,7 @@ export default function VolunteerPage() {
               padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500,
               cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
               background: tab === key ? 'var(--accent)' : 'var(--surface)',
-              color: tab === key ? '#0a0f0a' : 'var(--muted)',
+              color: tab === key ? '#fff' : 'var(--muted)',
               border: tab === key ? 'none' : '1px solid var(--border)',
             }}>{label}</button>
           ))}
@@ -421,7 +421,7 @@ export default function VolunteerPage() {
                 {clockLoading ? 'Processing...' : 'Clock Out'}
               </button>
             ) : (
-              <button onClick={handleClockIn} disabled={clockLoading} style={{ width: '100%', padding: '1rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+              <button onClick={handleClockIn} disabled={clockLoading} style={{ width: '100%', padding: '1rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                 {clockLoading ? 'Processing...' : 'Clock In'}
               </button>
             )}
