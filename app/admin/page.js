@@ -217,6 +217,20 @@ export default function AdminPage() {
     setCallouts(normalised)
   }
 
+  function openVolunteer(v) {
+    setSelectedVolunteer(v)
+    setEditForm({
+      full_name: v.full_name||'', email: v.email||'', phone: v.phone||'',
+      affiliation: v.affiliation||'', credentials: v.credentials||'',
+      languages: v.languages||'', role: v.role||'volunteer',
+      sma_name: v.sma_name||'', sma_contact: v.sma_contact||'', school: v.school||'',
+      default_role: v.default_role||'',
+      birthday: v.birthday||'',
+    })
+    setStatusForm({ status: v.status || 'active', status_reason: v.status_reason || '' })
+    setEditing(false)
+  }
+  
   async function loadSchedule() {
     const { data } = await supabase.from('schedule').select('*, profiles(id, full_name)').order('role')
     setSchedule(data || [])
