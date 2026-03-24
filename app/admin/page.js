@@ -738,7 +738,7 @@ export default function AdminPage() {
             }} style={{
               padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
               background: tab === key ? 'var(--accent)' : 'var(--surface)',
-              color: tab === key ? '#0a0f0a' : 'var(--muted)',
+              color: tab === key ? '#fff' : 'var(--muted)',
               border: tab === key ? 'none' : '1px solid var(--border)',
             }}>{label}</button>
           ))}
