@@ -485,49 +485,55 @@ export default function AdminPage() {
   async function handleAddEntry() {
     if (!addVolId) return
     setAddingEntry(true)
+
+    const currentEntries = getEntries(scheduleDay, scheduleShift, addingRole)
+    const limit = ROLE_SUGGESTIONS[addingRole]
+
+    if (limit && currentEntries.length >= limit) {
+      showMessage(`Limit reached for ${addingRole} (${limit})`, 'error')
+      setAddingEntry(false)
+      return
+    }
+
     const exists = schedule.find(s =>
-      s.volunteer_id === addVolId && s.day_of_week === scheduleDay &&
-      s.shift_time === scheduleShift && s.role === addingRole
+      s.volunteer_id === addVolId &&
+      s.day_of_week === scheduleDay &&
+      s.shift_time === scheduleShift &&
+      s.role === addingRole
     )
-    if (exists) { showMessage('Volunteer already assigned to this slot', 'error'); setAddingEntry(false); return }
+
+    if (exists) {
+      showMessage('Volunteer already assigned to this slot', 'error')
+      setAddingEntry(false)
+      return
+    }
+
     const { error } = await supabase.from('schedule').insert({
-      volunteer_id: addVolId, day_of_week: scheduleDay, shift_time: scheduleShift, role: addingRole,
+      volunteer_id: addVolId,
+      day_of_week: scheduleDay,
+      shift_time: scheduleShift,
+      role: addingRole,
       start_date: addStartDate || null,
       end_date: addEndDate || null,
       week_pattern: addWeekPattern || 'every',
       notes: addNotes || null,
     })
+
     if (error) showMessage(error.message, 'error')
     else {
       showMessage('Volunteer assigned!', 'success')
-      setAddingRole(null); setAddVolId('')
-      setAddStartDate(''); setAddEndDate(''); setAddWeekPattern('every'); setAddNotes('')
+      setAddingRole(null)
+      setAddVolId('')
+      setAddStartDate('')
+      setAddEndDate('')
+      setAddWeekPattern('every')
+      setAddNotes('')
       await loadSchedule()
     }
+
     setAddingEntry(false)
   }
-
-  async function handleRemoveEntry(id) {
-    const { error } = await supabase.from('schedule').delete().eq('id', id)
-    if (error) showMessage(error.message, 'error')
-    else { showMessage('Removed from schedule', 'success'); await loadSchedule() }
-  }
-
-  function openVolunteer(v) {
-    setSelectedVolunteer(v)
-    setEditForm({
-      full_name: v.full_name||'', email: v.email||'', phone: v.phone||'',
-      affiliation: v.affiliation||'', credentials: v.credentials||'',
-      languages: v.languages||'', role: v.role||'volunteer',
-      sma_name: v.sma_name||'', sma_contact: v.sma_contact||'', school: v.school||'',
-      default_role: v.default_role||'',
-      birthday: v.birthday||'',
-      major: v.major||'',
-    })
-    setStatusForm({ status: v.status || 'active', status_reason: v.status_reason || '' })
-    setEditing(false)
-  }
-
+  
   async function handleStatusChange(newStatus, reason) {
     setChangingStatus(true)
     const isDeactivating = newStatus === 'inactive'
