@@ -533,7 +533,7 @@ export default function AdminPage() {
 
     setAddingEntry(false)
   }
-  
+
   async function handleStatusChange(newStatus, reason) {
     setChangingStatus(true)
     const isDeactivating = newStatus === 'inactive'
@@ -609,6 +609,19 @@ export default function AdminPage() {
       return acc + (asUTC(s.clock_out) - asUTC(s.clock_in)) / 3600000
     }, 0).toFixed(1) || '0.0'
   }
+
+  async function handleRemoveEntry(id) {
+  const { error } = await supabase
+    .from('schedule')
+    .delete()
+    .eq('id', id)
+
+  if (error) showMessage(error.message, 'error')
+  else {
+    showMessage('Removed from schedule', 'success')
+    await loadSchedule()
+  }
+}
 
   function calcShiftHours(clock_in, clock_out) {
     if (!clock_out) return null
