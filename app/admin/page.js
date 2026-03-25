@@ -1663,7 +1663,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* AUDIT LOG TAB 
+        {/* AUDIT LOG TAB */}
         {tab === 'audit' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {/* Filters */}
@@ -1768,7 +1768,7 @@ export default function AdminPage() {
               )}
             </div>
           </div>
-        )} */}
+        )}
 
         {/* MESSAGES TAB */}
         {tab === 'messages' && (
