@@ -91,13 +91,21 @@ function fromMountainInputValue(val) {
   const [datePart, timePart] = val.split('T')
   const [year, month, day] = datePart.split('-').map(Number)
   const [hour, minute] = timePart.split(':').map(Number)
-  const candidate = new Date(Date.UTC(year, month - 1, day, hour + 7, minute))
-  const check = toMountainInputValue(candidate.toISOString())
-  if (check === val) return candidate.toISOString()
-  const checkDate = new Date(check.replace('T', ' ') + ':00')
-  const inputDate = new Date(val.replace('T', ' ') + ':00')
-  const diffMs = inputDate - checkDate
-  return new Date(candidate.getTime() - diffMs).toISOString()
+
+  // Binary search for the UTC time whose Mountain wall-clock matches `val`.
+  // Start with a UTC-7 guess, then correct using the actual Intl offset.
+  let utcMs = Date.UTC(year, month - 1, day, hour + 7, minute)
+  for (let i = 0; i < 3; i++) {
+    const check = toMountainInputValue(new Date(utcMs).toISOString())
+    const [cd, ct] = check.split('T')
+    const [cy, cm, cday] = cd.split('-').map(Number)
+    const [ch, cmin] = ct.split(':').map(Number)
+    const checkMs = Date.UTC(cy, cm - 1, cday, ch, cmin)
+    const inputMs = Date.UTC(year, month - 1, day, hour, minute)
+    utcMs += (inputMs - checkMs) // shift by the error
+    if (inputMs === checkMs) break
+  }
+  return new Date(utcMs).toISOString()
 }
 
 export default function AdminPage() {
