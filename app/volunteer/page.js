@@ -526,6 +526,11 @@ export default function VolunteerPage() {
                                     {entry.week_pattern === 'odd' ? '1st & 3rd week of month' : '2nd & 4th week of month'}
                                   </span>
                                 )}
+                                {entry.notes && (
+                                  <span style={{ marginLeft: '0.4rem', fontSize: '0.72rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>
+                                    {entry.notes}
+                                  </span>
+                                )}
                                 {(entry.start_date || entry.end_date) && (
                                   <p style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: '0.15rem' }}>
                                     {entry.start_date && `From ${entry.start_date}`}{entry.start_date && entry.end_date && ' · '}{entry.end_date && `Until ${entry.end_date}`}
