@@ -26,7 +26,45 @@ const ROLE_SUGGESTIONS = {
   'Clinical Staff': 4,
 }
 const SCHOOLS = ['BYU', 'UVU', 'Norda', 'SLCC', 'U of U', 'Other']
-const MAJORS = ['Pre-Med', 'Pre-Nursing', 'Pre-PA', 'Pre-Dental', 'Pre-Pharmacy', 'Pre-PT', 'Other Pre-Health', 'Biology', 'Chemistry', 'Biochemistry', 'Neuroscience', 'Public Health', 'Health Administration', 'Nutrition / Dietetics', 'Psychology', 'Social Work', 'Computer Science', 'Data Science','Biomedical Engineering', 'Other STEM', 'Business', 'Finance', 'Marketing', 'Management','English', 'Political Science', 'Sociology', 'Communications','Other']
+const MAJORS = ['Pre-Med', 'Other']
+
+const ACTION_LABELS = {
+  approved_callout: 'Approved callout',
+  denied_callout: 'Denied callout',
+  approved_cover: 'Approved cover',
+  denied_cover: 'Denied cover',
+  approved_hours: 'Approved hours',
+  rejected_hours: 'Rejected hours',
+  deleted_shift: 'Deleted shift',
+  edited_shift: 'Edited shift',
+  created_shift: 'Created shift',
+  edited_volunteer: 'Edited volunteer',
+  deactivated_volunteer: 'Deactivated volunteer',
+  reactivated_volunteer: 'Reactivated volunteer',
+  assigned_schedule: 'Assigned to schedule',
+  removed_schedule: 'Removed from schedule',
+  sent_message: 'Sent message',
+  created_volunteer: 'Created volunteer',
+}
+
+const ACTION_COLORS = {
+  approved_callout: '#4ade80',
+  denied_callout: '#ef4444',
+  approved_cover: '#4ade80',
+  denied_cover: '#ef4444',
+  approved_hours: '#4ade80',
+  rejected_hours: '#ef4444',
+  deleted_shift: '#ef4444',
+  edited_shift: '#60a5fa',
+  created_shift: '#60a5fa',
+  edited_volunteer: '#60a5fa',
+  deactivated_volunteer: '#f87171',
+  reactivated_volunteer: '#4ade80',
+  assigned_schedule: '#a78bfa',
+  removed_schedule: '#f87171',
+  sent_message: '#94a3b8',
+  created_volunteer: '#a78bfa',
+}
 
 function getMountainNow() {
   const str = new Date().toLocaleString('en-US', { timeZone: 'America/Denver' })
@@ -53,7 +91,6 @@ function getCurrentDayAndShift() {
   return { day: dayName, shift, isShiftTime: !!shift }
 }
 
-// Ensure Supabase timestamps (which may lack 'Z') are always parsed as UTC
 function asUTC(ts) {
   if (!ts) return null
   return /Z|[+-]\d{2}:\d{2}$/.test(ts) ? new Date(ts) : new Date(ts + 'Z')
@@ -74,7 +111,6 @@ function formatDateTime(ts) {
   return asUTC(ts).toLocaleString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-// Convert a UTC ISO timestamp → "YYYY-MM-DDTHH:MM" in Mountain time for datetime-local inputs
 function toMountainInputValue(ts) {
   if (!ts) return ''
   const d = asUTC(ts)
@@ -88,24 +124,15 @@ function toMountainInputValue(ts) {
   return `${get('year')}-${get('month')}-${get('day')}T${hour}:${get('minute')}`
 }
 
-// Convert a "YYYY-MM-DDTHH:MM" Mountain time string → UTC ISO string.
-// Uses Intl to find the exact UTC offset for America/Denver at that wall-clock
-// moment, so DST is handled correctly and browser timezone is irrelevant.
 function fromMountainInputValue(val) {
   if (!val) return null
   const [datePart, timePart] = val.split('T')
   const [year, month, day] = datePart.split('-').map(Number)
   const [hour, minute] = timePart.split(':').map(Number)
-
-  // Start with a UTC-7 guess (MST), then iterate to correct for DST.
-  // toMountainInputValue is used as the truth oracle — it always returns the
-  // correct Mountain wall-clock for a given UTC moment via Intl, with no
-  // reference to the browser's local timezone.
   let utcMs = Date.UTC(year, month - 1, day, hour + 7, minute)
   for (let i = 0; i < 4; i++) {
     const displayed = toMountainInputValue(new Date(utcMs).toISOString())
     if (displayed === val) break
-    // Parse displayed as pure UTC-offset numbers (no timezone inference)
     const [dDate, dTime] = displayed.split('T')
     const [dy, dm, dd] = dDate.split('-').map(Number)
     const [dh, dmin] = dTime.split(':').map(Number)
@@ -185,9 +212,6 @@ export default function AdminPage() {
   const [allShifts, setAllShifts] = useState([])
   const [shiftsLoading, setShiftsLoading] = useState(false)
   const [editingShiftId, setEditingShiftId] = useState(null)
-  // shiftEditForm now carries both Mountain display strings AND the original UTC values.
-  // On save, we only call fromMountainInputValue if the user actually changed the time;
-  // otherwise we write back the original UTC directly — no conversion, no drift.
   const [shiftEditForm, setShiftEditForm] = useState({
     clock_in: '', clock_out: '', role: '',
     clock_in_utc: '', clock_out_utc: '',
@@ -197,6 +221,14 @@ export default function AdminPage() {
   const [newShiftForm, setNewShiftForm] = useState({ volunteer_id: '', clock_in: '', clock_out: '', role: '' })
   const [creatingShift, setCreatingShift] = useState(false)
   const [shiftFilterVolId, setShiftFilterVolId] = useState('')
+
+  // Audit log state
+  const [auditLogs, setAuditLogs] = useState([])
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditFilterAdmin, setAuditFilterAdmin] = useState('')
+  const [auditFilterAction, setAuditFilterAction] = useState('')
+  const [auditFilterFrom, setAuditFilterFrom] = useState('')
+  const [auditFilterTo, setAuditFilterTo] = useState('')
 
   useEffect(() => {
     init()
@@ -270,20 +302,66 @@ export default function AdminPage() {
     setDateCoverShifts(data || [])
   }
 
+  async function loadAuditLogs() {
+    setAuditLoading(true)
+    // Default: last 2 weeks
+    const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
+    let query = supabase
+      .from('audit_logs')
+      .select('*, admin:profiles!audit_logs_admin_id_fkey(full_name)')
+      .order('created_at', { ascending: false })
+      .limit(500)
+      .gte('created_at', twoWeeksAgo)
+
+    if (auditFilterAdmin) query = query.eq('admin_id', auditFilterAdmin)
+    if (auditFilterAction) query = query.eq('action', auditFilterAction)
+    if (auditFilterFrom) query = query.gte('created_at', auditFilterFrom + 'T00:00:00Z')
+    if (auditFilterTo) query = query.lte('created_at', auditFilterTo + 'T23:59:59Z')
+
+    const { data } = await query
+    setAuditLogs(data || [])
+    setAuditLoading(false)
+  }
+
+  // Central audit helper — fire and forget, never blocks UI
+  async function audit(action, target_type, target_id, target_name, details) {
+    try {
+      await supabase.from('audit_logs').insert({
+        admin_id: profile.id,
+        action,
+        target_type,
+        target_id: target_id ? String(target_id) : null,
+        target_name: target_name || null,
+        details: details || null,
+      })
+    } catch (e) {
+      console.error('audit log failed:', e)
+    }
+  }
+
   async function approveCallout(callout) {
     const { error } = await supabase.from('callouts')
       .update({ status: 'approved', is_read: true })
       .eq('id', callout.id)
     if (error) showMessage(error.message, 'error')
-    else { showMessage('Callout approved — shift is now open for coverage', 'success'); await loadCallouts() }
+    else {
+      showMessage('Callout approved — shift is now open for coverage', 'success')
+      await audit('approved_callout', 'callout', callout.id, callout.profiles?.full_name, `${callout.callout_date} ${callout.shift_time}`)
+      await loadCallouts()
+    }
   }
 
   async function denyCallout(id) {
+    const callout = callouts.find(c => c.id === id)
     const { error } = await supabase.from('callouts')
       .update({ status: 'denied', is_read: true })
       .eq('id', id)
     if (error) showMessage(error.message, 'error')
-    else { showMessage('Callout denied.', 'success'); await loadCallouts() }
+    else {
+      showMessage('Callout denied.', 'success')
+      await audit('denied_callout', 'callout', id, callout?.profiles?.full_name, `${callout?.callout_date} ${callout?.shift_time}`)
+      await loadCallouts()
+    }
   }
 
   async function approveCover(req) {
@@ -302,6 +380,7 @@ export default function AdminPage() {
       .eq('callout_id', req.callout_id)
       .neq('id', req.id)
     showMessage(`${req.profiles?.full_name} approved to cover shift!`, 'success')
+    await audit('approved_cover', 'callout', req.callout_id, req.profiles?.full_name, `covering ${callout.callout_date} ${callout.shift_time}`)
     await loadCallouts()
     await loadCoverRequests()
     setApprovingCoverId(null)
@@ -309,11 +388,16 @@ export default function AdminPage() {
 
   async function denyCover(id) {
     setApprovingCoverId(id)
+    const req = coverRequests.find(r => r.id === id)
     const { error } = await supabase.from('shift_cover_requests')
       .update({ status: 'denied', reviewed_at: new Date().toISOString() })
       .eq('id', id)
     if (error) showMessage(error.message, 'error')
-    else { showMessage('Cover request denied.', 'success'); await loadCoverRequests() }
+    else {
+      showMessage('Cover request denied.', 'success')
+      await audit('denied_cover', 'callout', req?.callout_id, req?.profiles?.full_name)
+      await loadCoverRequests()
+    }
     setApprovingCoverId(null)
   }
 
@@ -330,30 +414,25 @@ export default function AdminPage() {
 
   async function handleShiftEditSave(shiftId) {
     setSavingShift(true)
-
-    // Only call fromMountainInputValue if the admin actually changed the displayed time.
-    // Otherwise write back the original UTC string — zero conversion, zero drift.
     const origClockIn  = toMountainInputValue(shiftEditForm.clock_in_utc)
     const origClockOut = toMountainInputValue(shiftEditForm.clock_out_utc)
-
     const clockIn  = shiftEditForm.clock_in  !== origClockIn
       ? fromMountainInputValue(shiftEditForm.clock_in)
       : shiftEditForm.clock_in_utc
-
     const clockOut = shiftEditForm.clock_out
       ? (shiftEditForm.clock_out !== origClockOut
           ? fromMountainInputValue(shiftEditForm.clock_out)
           : shiftEditForm.clock_out_utc)
       : null
-
+    const shift = allShifts.find(s => s.id === shiftId)
     const { error } = await supabase
       .from('shifts')
       .update({ clock_in: clockIn, clock_out: clockOut, role: shiftEditForm.role || null })
       .eq('id', shiftId)
-
     if (error) showMessage(error.message, 'error')
     else {
       showMessage('Shift updated!', 'success')
+      await audit('edited_shift', 'shift', shiftId, shift?.profiles?.full_name, `${formatDateTime(clockIn)} → ${clockOut ? formatDateTime(clockOut) : 'active'}`)
       setEditingShiftId(null)
       await loadAllShifts()
       await loadActiveShifts()
@@ -363,10 +442,12 @@ export default function AdminPage() {
 
   async function handleShiftDelete(shiftId) {
     if (!confirm('Delete this shift entry? This cannot be undone.')) return
+    const shift = allShifts.find(s => s.id === shiftId)
     const { error } = await supabase.from('shifts').delete().eq('id', shiftId)
     if (error) showMessage(error.message, 'error')
     else {
       showMessage('Shift deleted.', 'success')
+      await audit('deleted_shift', 'shift', shiftId, shift?.profiles?.full_name, `${formatDateTime(shift?.clock_in)}`)
       await loadAllShifts()
       await loadActiveShifts()
     }
@@ -376,7 +457,7 @@ export default function AdminPage() {
     setHoursLoading(true)
     const { data } = await supabase
       .from('hours_submissions')
-      .select('*, profiles(full_name)')
+      .select('*, profiles(full_name, role)')
       .order('submitted_at', { ascending: false })
       .limit(100)
     setHoursSubmissions(data || [])
@@ -399,17 +480,26 @@ export default function AdminPage() {
       .update({ status: 'approved', reviewed_at: new Date().toISOString() })
       .eq('id', sub.id)
     if (statusErr) showMessage(statusErr.message, 'error')
-    else { showMessage('Hours approved and shift created!', 'success'); await loadHoursSubmissions() }
+    else {
+      showMessage('Hours approved and shift created!', 'success')
+      await audit('approved_hours', 'hours', sub.id, sub.profiles?.full_name, `${sub.hours}h on ${sub.work_date} (${sub.role})`)
+      await loadHoursSubmissions()
+    }
     setApprovingHoursId(null)
   }
 
   async function rejectHours(id) {
     setApprovingHoursId(id)
+    const sub = hoursSubmissions.find(h => h.id === id)
     const { error } = await supabase.from('hours_submissions')
       .update({ status: 'rejected', reviewed_at: new Date().toISOString() })
       .eq('id', id)
     if (error) showMessage(error.message, 'error')
-    else { showMessage('Submission rejected.', 'success'); await loadHoursSubmissions() }
+    else {
+      showMessage('Submission rejected.', 'success')
+      await audit('rejected_hours', 'hours', id, sub?.profiles?.full_name, `${sub?.hours}h on ${sub?.work_date}`)
+      await loadHoursSubmissions()
+    }
     setApprovingHoursId(null)
   }
 
@@ -419,6 +509,7 @@ export default function AdminPage() {
     setCreatingShift(true)
     const clockIn = fromMountainInputValue(newShiftForm.clock_in)
     const clockOut = newShiftForm.clock_out ? fromMountainInputValue(newShiftForm.clock_out) : null
+    const vol = volunteers.find(v => v.id === newShiftForm.volunteer_id)
     const { error } = await supabase.from('shifts').insert({
       volunteer_id: newShiftForm.volunteer_id,
       clock_in: clockIn,
@@ -428,6 +519,7 @@ export default function AdminPage() {
     if (error) showMessage(error.message, 'error')
     else {
       showMessage('Shift entry created!', 'success')
+      await audit('created_shift', 'shift', null, vol?.full_name, `${formatDateTime(clockIn)}${clockOut ? ' → ' + formatDateTime(clockOut) : ''}`)
       setNewShiftForm({ volunteer_id: '', clock_in: '', clock_out: '', role: '' })
       setShowNewShiftForm(false)
       await loadAllShifts()
@@ -454,6 +546,7 @@ export default function AdminPage() {
     if (error) showMessage(error.message, 'error')
     else {
       showMessage('Message sent!', 'success')
+      await audit('sent_message', 'message', null, null, `To: ${msgRecipientType}`)
       setMsgBody('')
       setMsgView('inbox')
       await loadAdminMessages()
@@ -521,29 +614,25 @@ export default function AdminPage() {
   async function handleAddEntry() {
     if (!addVolId) return
     setAddingEntry(true)
-
     const currentEntries = getEntries(scheduleDay, scheduleShift, addingRole)
     const limit = ROLE_SUGGESTIONS[addingRole]
-
     if (limit && currentEntries.length >= limit) {
       showMessage(`Limit reached for ${addingRole} (${limit})`, 'error')
       setAddingEntry(false)
       return
     }
-
     const exists = schedule.find(s =>
       s.volunteer_id === addVolId &&
       s.day_of_week === scheduleDay &&
       s.shift_time === scheduleShift &&
       s.role === addingRole
     )
-
     if (exists) {
       showMessage('Volunteer already assigned to this slot', 'error')
       setAddingEntry(false)
       return
     }
-
+    const vol = volunteers.find(v => v.id === addVolId)
     const { error } = await supabase.from('schedule').insert({
       volunteer_id: addVolId,
       day_of_week: scheduleDay,
@@ -554,10 +643,10 @@ export default function AdminPage() {
       week_pattern: addWeekPattern || 'every',
       notes: addNotes || null,
     })
-
     if (error) showMessage(error.message, 'error')
     else {
       showMessage('Volunteer assigned!', 'success')
+      await audit('assigned_schedule', 'schedule', null, vol?.full_name, `${scheduleDay} ${scheduleShift} — ${addingRole}`)
       setAddingRole(null)
       setAddVolId('')
       setAddStartDate('')
@@ -566,14 +655,18 @@ export default function AdminPage() {
       setAddNotes('')
       await loadSchedule()
     }
-
     setAddingEntry(false)
   }
 
   async function handleRemoveEntry(id) {
+    const entry = schedule.find(s => s.id === id)
     const { error } = await supabase.from('schedule').delete().eq('id', id)
     if (error) showMessage(error.message, 'error')
-    else { showMessage('Removed from schedule', 'success'); await loadSchedule() }
+    else {
+      showMessage('Removed from schedule', 'success')
+      await audit('removed_schedule', 'schedule', id, entry?.profiles?.full_name, `${entry?.day_of_week} ${entry?.shift_time} — ${entry?.role}`)
+      await loadSchedule()
+    }
   }
 
   function openVolunteer(v) {
@@ -603,6 +696,10 @@ export default function AdminPage() {
     const { data: fresh } = await supabase
       .from('profiles').select('*, shifts(*)').eq('id', selectedVolunteer.id).single()
     showMessage(isDeactivating ? 'Volunteer deactivated.' : 'Volunteer reactivated!', 'success')
+    await audit(
+      isDeactivating ? 'deactivated_volunteer' : 'reactivated_volunteer',
+      'volunteer', selectedVolunteer.id, selectedVolunteer.full_name, reason || null
+    )
     setSelectedVolunteer(fresh)
     await loadVolunteers()
     setChangingStatus(false)
@@ -626,6 +723,7 @@ export default function AdminPage() {
     const { data: fresh } = await supabase
       .from('profiles').select('*, shifts(*)').eq('id', selectedVolunteer.id).single()
     showMessage('Profile updated!', 'success')
+    await audit('edited_volunteer', 'volunteer', selectedVolunteer.id, selectedVolunteer.full_name)
     setEditing(false)
     setSelectedVolunteer(fresh)
     await loadVolunteers()
@@ -651,6 +749,7 @@ export default function AdminPage() {
     if (pe) showMessage(pe.message, 'error')
     else {
       showMessage(`Account created for ${newName}!`, 'success')
+      await audit('created_volunteer', 'volunteer', data.user.id, newName, newRole)
       setNewName(''); setNewEmail(''); setNewPassword(''); setNewRole('volunteer')
       setNewAffiliation(''); setNewCredentials(''); setNewPhone(''); setNewLanguages('')
       setNewSmaName(''); setNewSmaContact(''); setNewSchool(''); setNewMajor(''); setNewBirthday('')
@@ -712,8 +811,6 @@ export default function AdminPage() {
     border: active ? 'none' : '1px solid var(--border)',
   })
 
-  const unreadCallouts = callouts.filter(c => !c.is_read)
-  const readCallouts = callouts.filter(c => c.is_read)
   const tzLabel = getMountainLabel()
   const volunteerList = volunteers
     .filter(v => v.role === 'volunteer' && (showInactive ? true : (v.status || 'active') === 'active'))
@@ -721,6 +818,7 @@ export default function AdminPage() {
       const lastName = n => (n?.full_name?.split(' ').slice(-1)[0] || '').toLowerCase()
       return lastName(a).localeCompare(lastName(b))
     })
+  const adminList = volunteers.filter(v => v.role === 'admin')
   const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
   const messages24h = adminMessages.filter(m => m.created_at >= cutoff24h && m.sender_id !== profile?.id).length
   const dayShiftCombos = DAYS.flatMap(d => SHIFTS.map(s => ({ day: d, shift: s, label: `${d.charAt(0).toUpperCase() + d.slice(1,3)} ${s}` })))
@@ -771,6 +869,7 @@ export default function AdminPage() {
             ['callouts','Call-Outs'],
             ['messages','Messages'],
             ['hours','Hours'],
+            ['audit','Audit Log'],
             ['create','Add Volunteer'],
           ].map(([key, label]) => (
             <button key={key} onClick={() => {
@@ -779,6 +878,7 @@ export default function AdminPage() {
               setAddingRole(null)
               if (key === 'shifts' && allShifts.length === 0) loadAllShifts()
               if (key === 'hours') loadHoursSubmissions()
+              if (key === 'audit') loadAuditLogs()
             }} style={{
               padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
               background: tab === key ? 'var(--accent)' : 'var(--surface)',
@@ -1513,16 +1613,16 @@ export default function AdminPage() {
               <div style={card}><p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No hours submissions yet.</p></div>
             ) : (
               <>
-                {hoursSubmissions.filter(h => h.status === 'pending').length > 0 && (
+                {hoursSubmissions.filter(h => h.status === 'pending' && h.profiles?.role !== 'admin').length > 0 && (
                   <div style={card}>
                     <h2 style={{ fontWeight: 600, marginBottom: '1rem' }}>
                       Pending Approval
                       <span style={{ marginLeft: '0.5rem', padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>
-                        {hoursSubmissions.filter(h => h.status === 'pending').length}
+                        {hoursSubmissions.filter(h => h.status === 'pending' && h.profiles?.role !== 'admin').length}
                       </span>
                     </h2>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                      {hoursSubmissions.filter(h => h.status === 'pending').map(h => (
+                      {hoursSubmissions.filter(h => h.status === 'pending' && h.profiles?.role !== 'admin').map(h => (
                         <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', flexWrap: 'wrap', gap: '0.75rem' }}>
                           <div>
                             <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{h.profiles?.full_name}</p>
@@ -1542,11 +1642,11 @@ export default function AdminPage() {
                     </div>
                   </div>
                 )}
-                {hoursSubmissions.filter(h => h.status !== 'pending').length > 0 && (
+                {hoursSubmissions.filter(h => h.status !== 'pending' && h.profiles?.role !== 'admin').length > 0 && (
                   <div style={card}>
                     <h2 style={{ fontWeight: 600, marginBottom: '1rem', color: 'var(--muted)' }}>Previously Reviewed</h2>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {hoursSubmissions.filter(h => h.status !== 'pending').map(h => (
+                      {hoursSubmissions.filter(h => h.status !== 'pending' && h.profiles?.role !== 'admin').map(h => (
                         <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', opacity: 0.75 }}>
                           <div>
                             <span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{h.profiles?.full_name}</span>
@@ -1560,6 +1660,113 @@ export default function AdminPage() {
                 )}
               </>
             )}
+          </div>
+        )}
+
+        {/* AUDIT LOG TAB */}
+        {tab === 'audit' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {/* Filters */}
+            <div style={card}>
+              <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Filters</h2>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div>
+                  <label style={labelStyle}>Admin</label>
+                  <select value={auditFilterAdmin} onChange={e => setAuditFilterAdmin(e.target.value)} style={inputStyle}>
+                    <option value="">All admins</option>
+                    {adminList.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Action type</label>
+                  <select value={auditFilterAction} onChange={e => setAuditFilterAction(e.target.value)} style={inputStyle}>
+                    <option value="">All actions</option>
+                    {Object.entries(ACTION_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>From date</label>
+                  <input type="date" value={auditFilterFrom} onChange={e => setAuditFilterFrom(e.target.value)} style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>To date</label>
+                  <input type="date" value={auditFilterTo} onChange={e => setAuditFilterTo(e.target.value)} style={inputStyle} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
+                <button onClick={loadAuditLogs} disabled={auditLoading} style={{ padding: '0.75rem 1.5rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: auditLoading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                  {auditLoading ? 'Loading...' : 'Apply Filters'}
+                </button>
+                <button onClick={() => {
+                  setAuditFilterAdmin('')
+                  setAuditFilterAction('')
+                  setAuditFilterFrom('')
+                  setAuditFilterTo('')
+                  setTimeout(loadAuditLogs, 50)
+                }} style={{ padding: '0.75rem 1rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '8px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                  Reset
+                </button>
+              </div>
+            </div>
+
+            {/* Log entries */}
+            <div style={card}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                <h2 style={{ fontWeight: 600 }}>
+                  Activity Log
+                  {auditLogs.length > 0 && (
+                    <span style={{ marginLeft: '0.5rem', color: 'var(--muted)', fontWeight: 400, fontSize: '0.85rem' }}>— {auditLogs.length} entries</span>
+                  )}
+                </h2>
+                <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>Last 2 weeks by default</span>
+              </div>
+              {auditLoading ? (
+                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading...</p>
+              ) : auditLogs.length === 0 ? (
+                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No activity found for the selected filters.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {auditLogs.map(log => {
+                    const color = ACTION_COLORS[log.action] || '#94a3b8'
+                    const label = ACTION_LABELS[log.action] || log.action
+                    return (
+                      <div key={log.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        {/* Color dot */}
+                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: color, flexShrink: 0, marginTop: '0.35rem' }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.4rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', fontWeight: 600, background: color + '18', color, border: `1px solid ${color}44` }}>
+                                {label}
+                              </span>
+                              {log.target_name && (
+                                <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{log.target_name}</span>
+                              )}
+                            </div>
+                            <span style={{ color: 'var(--muted)', fontSize: '0.78rem', fontFamily: 'DM Mono, monospace', whiteSpace: 'nowrap' }}>
+                              {formatDateTime(log.created_at)}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+                              by {log.admin?.full_name || 'Unknown'}
+                            </span>
+                            {log.details && (
+                              <>
+                                <span style={{ color: 'var(--border)' }}>·</span>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic' }}>{log.details}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
