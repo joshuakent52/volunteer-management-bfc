@@ -88,24 +88,34 @@ function toMountainInputValue(ts) {
 
 function fromMountainInputValue(val) {
   if (!val) return null
+  // val is "YYYY-MM-DDTHH:MM" in Mountain time
+  // Use Intl to find the UTC offset for America/Denver at this moment,
+  // then apply it precisely
   const [datePart, timePart] = val.split('T')
   const [year, month, day] = datePart.split('-').map(Number)
   const [hour, minute] = timePart.split(':').map(Number)
 
-  // Binary search for the UTC time whose Mountain wall-clock matches `val`.
-  // Start with a UTC-7 guess, then correct using the actual Intl offset.
-  let utcMs = Date.UTC(year, month - 1, day, hour + 7, minute)
-  for (let i = 0; i < 3; i++) {
-    const check = toMountainInputValue(new Date(utcMs).toISOString())
-    const [cd, ct] = check.split('T')
-    const [cy, cm, cday] = cd.split('-').map(Number)
-    const [ch, cmin] = ct.split(':').map(Number)
-    const checkMs = Date.UTC(cy, cm - 1, cday, ch, cmin)
-    const inputMs = Date.UTC(year, month - 1, day, hour, minute)
-    utcMs += (inputMs - checkMs) // shift by the error
-    if (inputMs === checkMs) break
-  }
-  return new Date(utcMs).toISOString()
+  // Get the UTC offset for America/Denver at this wall-clock time
+  // by formatting a UTC date and comparing
+  const probe = new Date(Date.UTC(year, month - 1, day, hour, minute))
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Denver',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(probe)
+  const get = t => parts.find(p => p.type === t).value
+  const mtnHour = parseInt(get('hour') === '24' ? '0' : get('hour'))
+  const mtnMin = parseInt(get('minute'))
+
+  // Calculate the offset in minutes between UTC probe and what Mountain shows
+  const probeMinutes = hour * 60 + minute
+  const mtnMinutes = mtnHour * 60 + mtnMin
+  let offsetMinutes = probeMinutes - mtnMinutes
+  // Handle day boundary wraparound
+  if (offsetMinutes > 720) offsetMinutes -= 1440
+  if (offsetMinutes < -720) offsetMinutes += 1440
+
+  return new Date(Date.UTC(year, month - 1, day, hour, minute) - offsetMinutes * 60000).toISOString()
 }
 
 export default function AdminPage() {
