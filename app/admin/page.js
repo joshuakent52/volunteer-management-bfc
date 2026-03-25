@@ -1246,7 +1246,7 @@ export default function AdminPage() {
                     <label style={labelStyle}>Volunteer</label>
                     <select value={newShiftForm.volunteer_id} onChange={e => setNewShiftForm({ ...newShiftForm, volunteer_id: e.target.value })} required style={inputStyle}>
                       <option value="">— Select volunteer —</option>
-                      {volunteers.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}
+                      {volunteerList.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}
                     </select>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
