@@ -577,6 +577,7 @@ export default function AdminPage() {
   }
 
   function openVolunteer(v) {
+    setTab('volunteers')
     setSelectedVolunteer(v)
     setEditForm({
       full_name: v.full_name||'', email: v.email||'', phone: v.phone||'',
@@ -863,7 +864,7 @@ export default function AdminPage() {
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                     {activeShifts.map(s => (
-                      <div key={s.id} onClick={() => s.profiles && openVolunteer(s.profiles)}
+                      <div key={s.id} onClick={() => { const full = volunteers.find(v => v.id === s.profiles?.id); if (full) openVolunteer(full) }}
                         style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(2,65,107,0.05)', borderRadius: '8px', border: '1px solid var(--accent)', cursor: 'pointer' }}
                         onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
                         onMouseLeave={e => e.currentTarget.style.opacity = '1'}
