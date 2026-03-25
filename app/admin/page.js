@@ -26,7 +26,7 @@ const ROLE_SUGGESTIONS = {
   'Clinical Staff': 4,
 }
 const SCHOOLS = ['BYU', 'UVU', 'Norda', 'SLCC', 'U of U', 'Other']
-const MAJORS = ['Pre-Med', 'Other']
+const MAJORS = ['Pre-Med', 'Pre-Nursing', 'Pre-PA', 'Pre-Dental', 'Pre-Pharmacy', 'Pre-PT', 'Other Pre-Health', 'Biology', 'Chemistry', 'Biochemistry', 'Neuroscience', 'Public Health', 'Health Administration', 'Nutrition / Dietetics', 'Psychology', 'Social Work', 'Computer Science', 'Data Science','Biomedical Engineering', 'Other STEM', 'Business', 'Finance', 'Marketing', 'Management','English', 'Political Science', 'Sociology', 'Communications','Other']
 
 function getMountainNow() {
   const str = new Date().toLocaleString('en-US', { timeZone: 'America/Denver' })
