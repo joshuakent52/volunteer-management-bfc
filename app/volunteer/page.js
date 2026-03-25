@@ -23,6 +23,9 @@ export default function VolunteerPage() {
   const [calloutShift, setCalloutShift] = useState('')
   const [calloutReason, setCalloutReason] = useState('')
   const [calloutRole, setCalloutRole] = useState('')
+  const [calloutMode, setCalloutMode] = useState('single')
+  const [calloutStartDate, setCalloutStartDate] = useState('')
+  const [calloutEndDate, setCalloutEndDate] = useState('')
   const [toast, setToast] = useState(null)
   const [loading, setLoading] = useState(true)
   const [clockLoading, setClockLoading] = useState(false)
@@ -32,7 +35,7 @@ export default function VolunteerPage() {
   const [messages, setMessages] = useState([])
   const [msgBody, setMsgBody] = useState('')
   const [msgRecipientType, setMsgRecipientType] = useState('admin')
-  const [msgSelectedShift, setMsgSelectedShift] = useState(null)  // { day, shift_time }
+  const [msgSelectedShift, setMsgSelectedShift] = useState(null)
   const [msgSelectedRole, setMsgSelectedRole] = useState(null)
   const [sendingMsg, setSendingMsg] = useState(false)
   const [msgView, setMsgView] = useState('inbox')
@@ -155,12 +158,10 @@ export default function VolunteerPage() {
       if (matches.length === 1) {
         resolvedRole = matches[0].role
       } else if (matches.length > 1) {
-        // Prefer the entry matching default_role
         const preferred = matches.find(s => s.role === profile?.default_role)
         resolvedRole = preferred ? preferred.role : matches[0].role
       }
     }
-    // Fall back to profile default_role if schedule had no match
     if (!resolvedRole && profile?.default_role) resolvedRole = profile.default_role
 
     const { data, error } = await supabase
@@ -186,19 +187,68 @@ export default function VolunteerPage() {
   async function handleCallout(e) {
     e.preventDefault()
     const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
-    const derivedDay = calloutDate ? dayNames[new Date(calloutDate + 'T12:00:00').getDay()] : null
-    const { error } = await supabase.from('callouts').insert({
-      volunteer_id: user.id,
-      callout_date: calloutDate,
-      day_of_week: derivedDay,
-      shift_time: calloutShift || null,
-      reason: calloutReason,
-      role: calloutRole || null,
-    })
+
+    if (calloutMode === 'single') {
+      const derivedDay = calloutDate ? dayNames[new Date(calloutDate + 'T12:00:00').getDay()] : null
+      const { error } = await supabase.from('callouts').insert({
+        volunteer_id: user.id,
+        callout_date: calloutDate,
+        day_of_week: derivedDay,
+        shift_time: calloutShift || null,
+        reason: calloutReason,
+        role: calloutRole || null,
+      })
+      if (error) showToast(error.message, 'error')
+      else {
+        showToast('Call-out submitted!', 'success')
+        setCalloutDate(''); setCalloutShift(''); setCalloutReason(''); setCalloutRole('')
+      }
+      return
+    }
+
+    // Range mode: iterate over every date in range and insert for each scheduled shift
+    if (!calloutStartDate || !calloutEndDate) return
+
+    const start = new Date(calloutStartDate + 'T12:00:00')
+    const end = new Date(calloutEndDate + 'T12:00:00')
+    const rows = []
+
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const dayName = dayNames[d.getDay()]
+      if (dayName === 'sunday' || dayName === 'saturday') continue
+
+      const dateStr = d.toLocaleDateString('en-CA') // YYYY-MM-DD
+      const matchingShifts = schedule.filter(s => s.day_of_week === dayName)
+
+      if (matchingShifts.length === 0) continue
+
+      // Deduplicate by shift_time — one callout per shift window per day
+      const seen = new Set()
+      for (const s of matchingShifts) {
+        const key = `${dateStr}|${s.shift_time}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        rows.push({
+          volunteer_id: user.id,
+          callout_date: dateStr,
+          day_of_week: dayName,
+          shift_time: s.shift_time,
+          reason: calloutReason || null,
+          role: s.role || null,
+        })
+      }
+    }
+
+    if (rows.length === 0) {
+      showToast('No scheduled shifts found in that date range.', 'error')
+      return
+    }
+
+    const { error } = await supabase.from('callouts').insert(rows)
     if (error) showToast(error.message, 'error')
     else {
-      showToast('Call-out submitted!', 'success')
-      setCalloutDate(''); setCalloutShift(''); setCalloutReason(''); setCalloutRole('')
+      showToast(`${rows.length} call-out${rows.length !== 1 ? 's' : ''} submitted!`, 'success')
+      setCalloutStartDate(''); setCalloutEndDate(''); setCalloutReason('')
     }
   }
 
@@ -294,7 +344,6 @@ export default function VolunteerPage() {
     setTimeout(() => setToast(null), 3500)
   }
 
-  // Ensure Supabase timestamps (which may lack 'Z') are always parsed as UTC
   function asUTC(ts) {
     if (!ts) return null
     return /Z|[+-]\d{2}:\d{2}$/.test(ts) ? new Date(ts) : new Date(ts + 'Z')
@@ -358,7 +407,6 @@ export default function VolunteerPage() {
   })
   const sentMessages = messages.filter(m => m.sender_id === user?.id)
 
-  // Unique day+shift combos the volunteer is scheduled for
   const myShiftCombos = schedule.reduce((acc, s) => {
     const key = `${s.day_of_week}|${s.shift_time}`
     if (!acc.find(x => x.key === key)) {
@@ -367,8 +415,12 @@ export default function VolunteerPage() {
     return acc
   }, [])
 
-  // Unique roles the volunteer is scheduled for
   const myRoles = [...new Set(schedule.map(s => s.role))]
+
+  // Determine if the submit button should be disabled
+  const calloutSubmitDisabled = calloutMode === 'single'
+    ? (!calloutDate || !calloutShift || !calloutRole)
+    : (!calloutStartDate || !calloutEndDate)
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
@@ -438,7 +490,6 @@ export default function VolunteerPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {DAYS.map(day => {
                   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
-                  // Week-of-month: count occurrences of this weekday in the month up to today
                   const wom = (() => {
                     const d = new Date(today + 'T12:00:00')
                     let count = 0
@@ -497,93 +548,177 @@ export default function VolunteerPage() {
         {/* CALLOUT TAB */}
         {tab === 'callout' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div style={card}>
-            <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Submit a Call-Out</h2>
-            <form onSubmit={handleCallout} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div>
-                <label style={labelStyle}>Date you can't make it</label>
-                <input type="date" value={calloutDate} onChange={e => setCalloutDate(e.target.value)} required style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>Shift</label>
-                <select value={calloutShift} onChange={e => {
-                  const shift = e.target.value
-                  setCalloutShift(shift)
-                  // Auto-populate role from schedule for this day+shift
-                  if (calloutDate && shift) {
-                    const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
-                    const derivedDay = dayNames[new Date(calloutDate + 'T12:00:00').getDay()]
-                    const matched = schedule.find(s => s.day_of_week === derivedDay && s.shift_time === shift)
-                    if (matched?.role) setCalloutRole(matched.role)
-                  }
-                }} style={inputStyle}>
-                  <option value="">— Select —</option>
-                  {SHIFTS.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>Role</label>
-                <select value={calloutRole} onChange={e => setCalloutRole(e.target.value)} required style={inputStyle}>
-                  <option value="">— Select role —</option>
-                  {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>Reason (optional)</label>
-                <textarea value={calloutReason} onChange={e => setCalloutReason(e.target.value)} rows={3} placeholder="Let the team know why..." style={{ ...inputStyle, resize: 'vertical' }} />
-              </div>
-              <button type="submit" disabled={!calloutDate || !calloutShift || !calloutRole}
-                style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', opacity: (!calloutDate || !calloutShift || !calloutRole) ? 0.5 : 1 }}>
-                Submit Call-Out
-              </button>
-            </form>
-          </div>
+            <div style={card}>
+              <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Submit a Call-Out</h2>
+              <form onSubmit={handleCallout} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-          {/* Open shifts available to cover */}
-          <div style={card}>
-            <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Open Shifts</h2>
-            <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Shifts that need coverage — tap to volunteer.</p>
-            {openShifts.length === 0 ? (
-              <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No open shifts right now.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {openShifts.map(c => {
-                  const myReq = myCoverRequests.find(r => r.callout_id === c.id)
-                  const alreadyRequested = !!myReq
-                  const isApproved = myReq?.status === 'approved'
-                  return (
-                    <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: `1px solid ${isApproved ? 'rgba(74,222,128,0.4)' : 'var(--border)'}`, flexWrap: 'wrap', gap: '0.75rem' }}>
-                      <div>
-                        <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>
-                          {c.callout_date}
-                          <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.82rem', color: 'var(--muted)' }}>{c.shift_time}</span>
-                        </p>
-                        <p style={{ color: 'var(--muted)', fontSize: '0.82rem', textTransform: 'capitalize' }}>
-                          {c.day_of_week}{c.role ? ` · ${c.role}` : ''}{c.profiles?.full_name ? ` · ${c.profiles.full_name} calling out` : ''}
-                        </p>
-                      </div>
-                      {isApproved ? (
-                        <span style={{ fontSize: '0.8rem', padding: '0.25rem 0.7rem', borderRadius: '100px', background: 'rgba(74,222,128,0.12)', color: 'var(--accent)', border: '1px solid rgba(74,222,128,0.3)', fontWeight: 600 }}>✓ You're covering</span>
-                      ) : alreadyRequested ? (
-                        <span style={{ fontSize: '0.8rem', padding: '0.25rem 0.7rem', borderRadius: '100px', background: 'rgba(96,165,250,0.1)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)', fontWeight: 500 }}>Requested</span>
-                      ) : (
-                        <button
-                          onClick={() => handleRequestCover(c.id)}
-                          disabled={requestingCoverId === c.id}
-                          style={{ padding: '0.35rem 0.9rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
-                          {requestingCoverId === c.id ? '...' : 'I can cover'}
-                        </button>
-                      )}
+                {/* Mode toggle */}
+                <div>
+                  <label style={labelStyle}>Type</label>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    {[['single', 'Single Shift'], ['range', 'Date Range']].map(([val, label]) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => {
+                          setCalloutMode(val)
+                          setCalloutDate(''); setCalloutShift(''); setCalloutRole('')
+                          setCalloutStartDate(''); setCalloutEndDate('')
+                        }}
+                        style={{
+                          padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
+                          cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                          background: calloutMode === val ? 'var(--accent)' : 'var(--surface)',
+                          color: calloutMode === val ? '#0a0f0a' : 'var(--muted)',
+                          border: calloutMode === val ? 'none' : '1px solid var(--border)',
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Single shift fields */}
+                {calloutMode === 'single' && (
+                  <>
+                    <div>
+                      <label style={labelStyle}>Date you can't make it</label>
+                      <input type="date" value={calloutDate} onChange={e => setCalloutDate(e.target.value)} required style={inputStyle} />
                     </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+                    <div>
+                      <label style={labelStyle}>Shift</label>
+                      <select value={calloutShift} onChange={e => {
+                        const shift = e.target.value
+                        setCalloutShift(shift)
+                        if (calloutDate && shift) {
+                          const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
+                          const derivedDay = dayNames[new Date(calloutDate + 'T12:00:00').getDay()]
+                          const matched = schedule.find(s => s.day_of_week === derivedDay && s.shift_time === shift)
+                          if (matched?.role) setCalloutRole(matched.role)
+                        }
+                      }} style={inputStyle}>
+                        <option value="">— Select —</option>
+                        {SHIFTS.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Role</label>
+                      <select value={calloutRole} onChange={e => setCalloutRole(e.target.value)} required style={inputStyle}>
+                        <option value="">— Select role —</option>
+                        {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </div>
+                  </>
+                )}
+
+                {/* Date range fields */}
+                {calloutMode === 'range' && (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                      <div>
+                        <label style={labelStyle}>From</label>
+                        <input
+                          type="date"
+                          value={calloutStartDate}
+                          onChange={e => setCalloutStartDate(e.target.value)}
+                          required
+                          style={inputStyle}
+                        />
+                      </div>
+                      <div>
+                        <label style={labelStyle}>To</label>
+                        <input
+                          type="date"
+                          value={calloutEndDate}
+                          onChange={e => setCalloutEndDate(e.target.value)}
+                          required
+                          style={inputStyle}
+                        />
+                      </div>
+                    </div>
+                    <p style={{ fontSize: '0.82rem', color: 'var(--muted)', marginTop: '-0.25rem', lineHeight: 1.5 }}>
+                      A call-out will be submitted for each of your scheduled shifts within this range. Weekends are skipped automatically.
+                    </p>
+                  </>
+                )}
+
+                {/* Reason — shown in both modes */}
+                <div>
+                  <label style={labelStyle}>Reason (optional)</label>
+                  <textarea
+                    value={calloutReason}
+                    onChange={e => setCalloutReason(e.target.value)}
+                    rows={3}
+                    placeholder="Let the team know why..."
+                    style={{ ...inputStyle, resize: 'vertical' }}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={calloutSubmitDisabled}
+                  style={{
+                    padding: '0.85rem',
+                    background: 'var(--accent)',
+                    color: '#0a0f0a',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontWeight: 600,
+                    cursor: calloutSubmitDisabled ? 'not-allowed' : 'pointer',
+                    fontFamily: 'DM Sans, sans-serif',
+                    opacity: calloutSubmitDisabled ? 0.5 : 1,
+                  }}
+                >
+                  Submit Call-Out
+                </button>
+              </form>
+            </div>
+
+            {/* Open shifts available to cover */}
+            <div style={card}>
+              <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Open Shifts</h2>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Shifts that need coverage — tap to volunteer.</p>
+              {openShifts.length === 0 ? (
+                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No open shifts right now.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {openShifts.map(c => {
+                    const myReq = myCoverRequests.find(r => r.callout_id === c.id)
+                    const alreadyRequested = !!myReq
+                    const isApproved = myReq?.status === 'approved'
+                    return (
+                      <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: `1px solid ${isApproved ? 'rgba(74,222,128,0.4)' : 'var(--border)'}`, flexWrap: 'wrap', gap: '0.75rem' }}>
+                        <div>
+                          <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                            {c.callout_date}
+                            <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.82rem', color: 'var(--muted)' }}>{c.shift_time}</span>
+                          </p>
+                          <p style={{ color: 'var(--muted)', fontSize: '0.82rem', textTransform: 'capitalize' }}>
+                            {c.day_of_week}{c.role ? ` · ${c.role}` : ''}{c.profiles?.full_name ? ` · ${c.profiles.full_name} calling out` : ''}
+                          </p>
+                        </div>
+                        {isApproved ? (
+                          <span style={{ fontSize: '0.8rem', padding: '0.25rem 0.7rem', borderRadius: '100px', background: 'rgba(74,222,128,0.12)', color: 'var(--accent)', border: '1px solid rgba(74,222,128,0.3)', fontWeight: 600 }}>✓ You're covering</span>
+                        ) : alreadyRequested ? (
+                          <span style={{ fontSize: '0.8rem', padding: '0.25rem 0.7rem', borderRadius: '100px', background: 'rgba(96,165,250,0.1)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)', fontWeight: 500 }}>Requested</span>
+                        ) : (
+                          <button
+                            onClick={() => handleRequestCover(c.id)}
+                            disabled={requestingCoverId === c.id}
+                            style={{ padding: '0.35rem 0.9rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                            {requestingCoverId === c.id ? '...' : 'I can cover'}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
-        {/* HISTORY TAB */}
         {/* MESSAGES TAB */}
         {tab === 'messages' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -673,7 +808,6 @@ export default function VolunteerPage() {
                       ))}
                     </div>
 
-                    {/* Shift picker — only shown when 'shift' selected */}
                     {msgRecipientType === 'shift' && myShiftCombos.length > 0 && (
                       <div style={{ marginTop: '0.75rem' }}>
                         <label style={labelStyle}>Which shift</label>
@@ -697,7 +831,6 @@ export default function VolunteerPage() {
                       </div>
                     )}
 
-                    {/* Role picker — only shown when 'role' selected */}
                     {msgRecipientType === 'role' && myRoles.length > 0 && (
                       <div style={{ marginTop: '0.75rem' }}>
                         <label style={labelStyle}>Which role</label>
