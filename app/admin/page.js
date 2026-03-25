@@ -869,7 +869,7 @@ export default function AdminPage() {
             ['callouts','Call-Outs'],
             ['messages','Messages'],
             ['hours','Hours'],
-            ['audit','Audit Log'],
+            ['audit','Recent Activity'],
             ['create','Add Volunteer'],
           ].map(([key, label]) => (
             <button key={key} onClick={() => {
