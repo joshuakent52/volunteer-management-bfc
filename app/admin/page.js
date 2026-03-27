@@ -10,7 +10,7 @@ const ROLES = [
   'Clinical Staff','Scribe','Receptionist','Lab','Pharmacy',
   'Clinical Supervisor','Patient Nav.','Mental Health','Support Center',
   'Young Support','Float','OSSM','Information Systems',
-  'Credentialing','Media','Provider', 'Director'
+  'Credentialing','Media','Provider', 'Director', 'Dental'
 ]
 const ROLE_SUGGESTIONS = {
   'Clinical Supervisor': 1,
