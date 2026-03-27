@@ -1666,6 +1666,17 @@ export default function AdminPage() {
         {/* AUDIT LOG TAB */}
         {tab === 'audit' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={card}>
+              <p style={{ 
+                fontSize: '0.9rem', 
+                color: 'var(--muted)', 
+                lineHeight: 1.5,
+                maxWidth: '600px'
+              }}>
+                This tool helps maintain consistency across shifts by tracking administrative actions and providing clear visibility into changes.
+              </p>
+            </div>
+
             {/* Filters */}
             <div style={card}>
               <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Filters</h2>
@@ -1751,7 +1762,7 @@ export default function AdminPage() {
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
                             <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
-                              by {log.admin?.full_name || 'Unknown'}
+                              by Admin
                             </span>
                             {log.details && (
                               <>
