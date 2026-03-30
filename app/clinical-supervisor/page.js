@@ -102,6 +102,9 @@ export default function CSPage() {
     }))
     setCallouts(normalised)
     setMySchedule(mySchedRes.data || [])
+
+    console.log('profiles:', data)
+    console.log('ERROR:', error)
   }
 
   // ── Derived state ──────────────────────────────────────────
