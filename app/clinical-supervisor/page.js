@@ -1,10 +1,12 @@
 'use client'
+
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 
 export default function CSPage() {
   const [activeShifts, setActiveShifts] = useState([])
   const [schedule, setSchedule] = useState([])
+  const [volunteers, setVolunteers] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -14,19 +16,28 @@ export default function CSPage() {
   async function loadData() {
     setLoading(true)
 
+    // RAW DATA ONLY (no joins)
     const { data: shifts } = await supabase
       .from('active_shifts')
-      .select('*, profiles(*)')
+      .select('*')
 
     const { data: sched } = await supabase
       .from('schedule')
-      .select('*, profiles(*)')
+      .select('*')
+
+    const { data: vols } = await supabase
+      .from('profiles')
+      .select('*')
 
     setActiveShifts(shifts || [])
     setSchedule(sched || [])
+    setVolunteers(vols || [])
 
     setLoading(false)
   }
+
+  const getVolunteer = (id) =>
+    volunteers.find(v => v.id === id)
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
@@ -61,25 +72,30 @@ export default function CSPage() {
                 <p style={{ color: 'var(--muted)' }}>No one clocked in</p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {activeShifts.map(s => (
-                    <div
-                      key={s.id}
-                      style={{
-                        padding: '0.75rem',
-                        border: '1px solid var(--border)',
-                        borderRadius: '8px',
-                        display: 'flex',
-                        justifyContent: 'space-between'
-                      }}
-                    >
-                      <span style={{ fontWeight: 500 }}>
-                        {s.profiles?.full_name || 'Unknown'}
-                      </span>
-                      <span style={{ color: 'var(--muted)' }}>
-                        since {new Date(s.clock_in).toLocaleTimeString()}
-                      </span>
-                    </div>
-                  ))}
+                  {activeShifts.map(s => {
+                    const vol = getVolunteer(s.volunteer_id)
+
+                    return (
+                      <div
+                        key={s.id}
+                        style={{
+                          padding: '0.75rem',
+                          border: '1px solid var(--border)',
+                          borderRadius: '8px',
+                          display: 'flex',
+                          justifyContent: 'space-between'
+                        }}
+                      >
+                        <span style={{ fontWeight: 500 }}>
+                          {vol?.full_name || 'Unknown'}
+                        </span>
+
+                        <span style={{ color: 'var(--muted)' }}>
+                          since {new Date(s.clock_in).toLocaleTimeString()}
+                        </span>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -98,28 +114,34 @@ export default function CSPage() {
                 <p style={{ color: 'var(--muted)' }}>No schedule data</p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {schedule.map(s => (
-                    <div
-                      key={s.id}
-                      style={{
-                        padding: '0.75rem',
-                        border: '1px solid var(--border)',
-                        borderRadius: '8px',
-                        display: 'flex',
-                        justifyContent: 'space-between'
-                      }}
-                    >
-                      <span style={{ fontWeight: 500 }}>
-                        {s.profiles?.full_name || 'Unknown'}
-                      </span>
-                      <span style={{ color: 'var(--muted)' }}>
-                        {s.day_of_week} · {s.shift_time} · {s.role}
-                      </span>
-                    </div>
-                  ))}
+                  {schedule.map(s => {
+                    const vol = getVolunteer(s.volunteer_id)
+
+                    return (
+                      <div
+                        key={s.id}
+                        style={{
+                          padding: '0.75rem',
+                          border: '1px solid var(--border)',
+                          borderRadius: '8px',
+                          display: 'flex',
+                          justifyContent: 'space-between'
+                        }}
+                      >
+                        <span style={{ fontWeight: 500 }}>
+                          {vol?.full_name || 'Unassigned'}
+                        </span>
+
+                        <span style={{ color: 'var(--muted)' }}>
+                          {s.day_of_week} · {s.shift_time} · {s.role}
+                        </span>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>
+
           </>
         )}
 
