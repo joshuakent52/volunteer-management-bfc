@@ -2,21 +2,50 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { useRouter } from 'next/navigation'
 
 export default function CSPage() {
+  const router = useRouter()
+
+  const [loading, setLoading] = useState(true)
+  const [authorized, setAuthorized] = useState(false)
+
   const [activeShifts, setActiveShifts] = useState([])
   const [schedule, setSchedule] = useState([])
   const [volunteers, setVolunteers] = useState([])
-  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    loadData()
+    checkAccess()
   }, [])
 
-  async function loadData() {
+  async function checkAccess() {
     setLoading(true)
 
-    // RAW DATA ONLY (no joins)
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+      router.push('/')
+      return
+    }
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('default_role')
+      .eq('id', user.id)
+      .single()
+
+    if (profile?.default_role !== 'Information Systems') {
+      router.push('/volunteer')
+      return
+    }
+
+    setAuthorized(true)
+
+    await loadData()
+    setLoading(false)
+  }
+
+  async function loadData() {
     const { data: shifts } = await supabase
       .from('active_shifts')
       .select('*')
@@ -32,120 +61,56 @@ export default function CSPage() {
     setActiveShifts(shifts || [])
     setSchedule(sched || [])
     setVolunteers(vols || [])
-
-    setLoading(false)
   }
 
   const getVolunteer = (id) =>
     volunteers.find(v => v.id === id)
 
-  return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
-      <div style={{ maxWidth: '960px', margin: '0 auto' }}>
-
-        {/* HEADER */}
-        <div style={{ marginBottom: '1.5rem' }}>
-          <h1 style={{ fontSize: '1.4rem', fontWeight: 600 }}>
-            Command View (Clinical Supervisor)
-          </h1>
-          <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
-            Live clock-in + schedule overview (read-only)
-          </p>
-        </div>
-
-        {loading ? (
-          <p style={{ color: 'var(--muted)' }}>Loading...</p>
-        ) : (
-          <>
-            {/* ACTIVE SHIFTS */}
-            <div style={{
-              padding: '1rem',
-              border: '1px solid var(--border)',
-              borderRadius: '10px',
-              marginBottom: '1rem'
-            }}>
-              <h2 style={{ fontWeight: 600, marginBottom: '0.75rem' }}>
-                Currently Clocked In
-              </h2>
-
-              {activeShifts.length === 0 ? (
-                <p style={{ color: 'var(--muted)' }}>No one clocked in</p>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {activeShifts.map(s => {
-                    const vol = getVolunteer(s.volunteer_id)
-
-                    return (
-                      <div
-                        key={s.id}
-                        style={{
-                          padding: '0.75rem',
-                          border: '1px solid var(--border)',
-                          borderRadius: '8px',
-                          display: 'flex',
-                          justifyContent: 'space-between'
-                        }}
-                      >
-                        <span style={{ fontWeight: 500 }}>
-                          {vol?.full_name || 'Unknown'}
-                        </span>
-
-                        <span style={{ color: 'var(--muted)' }}>
-                          since {new Date(s.clock_in).toLocaleTimeString()}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* SCHEDULE */}
-            <div style={{
-              padding: '1rem',
-              border: '1px solid var(--border)',
-              borderRadius: '10px'
-            }}>
-              <h2 style={{ fontWeight: 600, marginBottom: '0.75rem' }}>
-                Scheduled Volunteers
-              </h2>
-
-              {schedule.length === 0 ? (
-                <p style={{ color: 'var(--muted)' }}>No schedule data</p>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {schedule.map(s => {
-                    const vol = getVolunteer(s.volunteer_id)
-
-                    return (
-                      <div
-                        key={s.id}
-                        style={{
-                          padding: '0.75rem',
-                          border: '1px solid var(--border)',
-                          borderRadius: '8px',
-                          display: 'flex',
-                          justifyContent: 'space-between'
-                        }}
-                      >
-                        <span style={{ fontWeight: 500 }}>
-                          {vol?.full_name || 'Unassigned'}
-                        </span>
-
-                        <span style={{ color: 'var(--muted)' }}>
-                          {s.day_of_week} · {s.shift_time} · {s.role}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-
-          </>
-        )}
-
+  if (loading) {
+    return (
+      <div style={{ padding: '2rem', color: 'gray' }}>
+        Checking access...
       </div>
+    )
+  }
+
+  if (!authorized) {
+    return null
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', padding: '1.5rem' }}>
+
+      <h1 style={{ fontSize: '1.4rem', fontWeight: 600 }}>
+        Information Systems Dashboard
+      </h1>
+
+      {/* ACTIVE SHIFTS */}
+      <h2 style={{ marginTop: '1.5rem' }}>Clocked In</h2>
+
+      {activeShifts.map(s => {
+        const vol = getVolunteer(s.volunteer_id)
+
+        return (
+          <div key={s.id}>
+            {vol?.full_name} — since {new Date(s.clock_in).toLocaleTimeString()}
+          </div>
+        )
+      })}
+
+      {/* SCHEDULE */}
+      <h2 style={{ marginTop: '1.5rem' }}>Schedule</h2>
+
+      {schedule.map(s => {
+        const vol = getVolunteer(s.volunteer_id)
+
+        return (
+          <div key={s.id}>
+            {vol?.full_name} — {s.day_of_week} {s.shift_time}
+          </div>
+        )
+      })}
+
     </div>
   )
 }
