@@ -103,7 +103,7 @@ export default function CSPage() {
     setCallouts(normalised)
     setMySchedule(mySchedRes.data || [])
 
-    console.log('profiles:', data)
+    console.log('shiftRes.data', data)
     console.log('ERROR:', error)
   }
 
