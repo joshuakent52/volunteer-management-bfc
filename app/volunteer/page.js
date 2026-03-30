@@ -76,6 +76,8 @@ export default function VolunteerPage() {
   useEffect(() => { init() }, [])
 
   const isAdmin = profile?.role === 'admin'
+  const isClinicalSupervisor = profile?.default_role === 'Clinical Supervisor'
+
 
   async function init() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -431,6 +433,11 @@ export default function VolunteerPage() {
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
               <button
                 onClick={() => {
+                  if (profile?.default_role === 'Clinical Supervisor') {
+                    window.location.href = '/clinical-supervisor'
+                    return
+                  }
+
                   if (window.location.pathname.includes('admin')) {
                     window.location.href = '/volunteer'
                   } else {
