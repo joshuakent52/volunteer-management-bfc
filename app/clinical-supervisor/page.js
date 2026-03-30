@@ -82,21 +82,8 @@ export default function CSPage() {
     <div style={{ minHeight: '100vh', padding: '1.5rem' }}>
 
       <h1 style={{ fontSize: '1.4rem', fontWeight: 600 }}>
-        Information Systems Dashboard
+        Clinical Supervisor Dashboard
       </h1>
-
-      {/* ACTIVE SHIFTS */}
-      <h2 style={{ marginTop: '1.5rem' }}>Clocked In</h2>
-
-      {activeShifts.map(s => {
-        const vol = getVolunteer(s.volunteer_id)
-
-        return (
-          <div key={s.id}>
-            {vol?.full_name} — since {new Date(s.clock_in).toLocaleTimeString()}
-          </div>
-        )
-      })}
 
       {/* SCHEDULE */}
       <h2 style={{ marginTop: '1.5rem' }}>Schedule</h2>
