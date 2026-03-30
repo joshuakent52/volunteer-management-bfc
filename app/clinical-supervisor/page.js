@@ -44,11 +44,11 @@ export default function CSPage() {
   const [schedule, setSchedule]         = useState([])
   const [volunteers, setVolunteers]     = useState([])
   const [callouts, setCallouts]         = useState([])
-  const [mySchedule, setMySchedule]     = useState([]) // CS user's own schedule entries
+  const [mySchedule, setMySchedule]     = useState([])
 
   const [tab, setTab]                   = useState('live')
   const [selectedContact, setSelectedContact] = useState(null)
-  const [langModal, setLangModal]       = useState(null) // language string or null
+  const [langModal, setLangModal]       = useState(null) // { lang, day, shift } or null
 
   useEffect(() => {
     checkAccess()
@@ -66,7 +66,7 @@ export default function CSPage() {
       .eq('id', user.id)
       .single()
 
-    if (profile?.default_role !== 'Information Systems') {
+    if (profile?.default_role !== 'Clinical Supervisor' && profile?.role !== 'admin') {
       router.push('/volunteer')
       return
     }
@@ -83,7 +83,7 @@ export default function CSPage() {
     const [shiftsRes, schedRes, volsRes, calloutsRes, mySchedRes] = await Promise.all([
       supabase.from('shifts').select('*, profiles(id, full_name)').is('clock_out', null),
       supabase.from('schedule').select('*, profiles(id, full_name)').order('role'),
-      supabase.from('profiles').select('id, full_name, phone, languages, role, default_role, affiliation, email, status'),
+      supabase.from('profiles').select('id, full_name, phone, languages, role, default_role, affiliation, email, status, birthday'),
       supabase.from('callouts')
         .select('*, volunteer:profiles!callouts_volunteer_id_fkey(full_name)')
         .order('submitted_at', { ascending: false })
@@ -95,7 +95,6 @@ export default function CSPage() {
     setSchedule(schedRes.data || [])
     setVolunteers(volsRes.data || [])
 
-    // Normalise callouts same way as admin page
     const normalised = (calloutsRes.data || []).map(c => ({
       ...c,
       profiles: c.volunteer,
@@ -119,7 +118,7 @@ export default function CSPage() {
 
   const clockedInIds = new Set(activeShifts.map(s => s.volunteer_id))
 
-  // ── My shifts: the day/shift combos the CS user is personally scheduled for ──
+  // The day+shift combos the CS user is personally scheduled for
   const myShiftCombos = mySchedule.reduce((acc, s) => {
     const key = `${s.day_of_week}|${s.shift_time}`
     if (!acc.find(x => x.key === key)) {
@@ -135,14 +134,18 @@ export default function CSPage() {
       .map(s => s.volunteer_id)
   )
 
-  // Volunteers on my shifts (for contacts + schedule tabs)
+  // Volunteers on my shifts (for contacts tab)
   const myShiftVolunteers = volunteers.filter(v =>
     myShiftVolunteerIds.has(v.id) && (v.status || 'active') === 'active'
   )
 
-  // ── LIVE TAB: exact replica of admin live tab ──────────────
+  // Schedule entries for a specific day+shift
+  function getEntriesForShift(day, shift) {
+    return schedule.filter(s => s.day_of_week === day && s.shift_time === shift)
+  }
 
-  // Expected but not clocked in (admin logic)
+  // ── LIVE TAB: expected not clocked in (admin logic) ────────
+
   const expectedVolunteers = isWeekday && currentShift ? (() => {
     const calledOutIds = new Set(
       callouts
@@ -163,11 +166,11 @@ export default function CSPage() {
       ...scheduled.filter(s => !calledOutIds.has(s.volunteer_id)).map(s => s.volunteer_id),
       ...coverIds,
     ])
-    const clockedInIdsFromProfiles = new Set(activeShifts.map(s => s.profiles?.id).filter(Boolean))
+    const clockedInFromProfiles = new Set(activeShifts.map(s => s.profiles?.id).filter(Boolean))
     return [...expectedIds]
-      .filter(id => !clockedInIdsFromProfiles.has(id))
+      .filter(id => !clockedInFromProfiles.has(id))
       .map(id => {
-        const vol = volunteers.find(v => v.id === id)
+        const vol   = volunteers.find(v => v.id === id)
         const entry = scheduled.find(s => s.volunteer_id === id)
         if (!vol) return null
         return { ...vol, role: entry?.role || '—', notes: entry?.notes || null }
@@ -175,35 +178,26 @@ export default function CSPage() {
       .filter(Boolean)
   })() : []
 
-  // ── Schedule tab: only my shift combos ─────────────────────
-  function getEntriesForMyShift(day, shift) {
-    return schedule.filter(s => s.day_of_week === day && s.shift_time === shift)
-  }
-
   // ── Language coverage ──────────────────────────────────────
-  // Build per-day/shift lang map scoped to MY shifts only
-  function getLanguageCoverage() {
-    const combos = {}
-    myShiftCombos.forEach(({ day, shift }) => {
-      const entries = getEntriesForMyShift(day, shift)
-      const langs = new Set()
-      entries.forEach(e => {
-        const vol = getVol(e.volunteer_id)
-        if (vol?.languages) {
-          vol.languages.split(',').map(l => l.trim()).filter(Boolean).forEach(l => langs.add(l))
-        }
-      })
-      if (!combos[day]) combos[day] = {}
-      combos[day][shift] = [...langs]
+  // Per shift: only people scheduled for THAT shift who speak the language
+
+  function getLangsForShift(day, shift) {
+    const entries = getEntriesForShift(day, shift)
+    const langs = new Set()
+    entries.forEach(e => {
+      const vol = getVol(e.volunteer_id)
+      if (vol?.languages) {
+        vol.languages.split(',').map(l => l.trim()).filter(Boolean).forEach(l => langs.add(l))
+      }
     })
-    return combos
+    return [...langs]
   }
 
-  const languageCoverage = getLanguageCoverage()
-
-  // Who speaks a given language (scoped to my shift volunteers)
-  function speakersOf(lang) {
-    return myShiftVolunteers.filter(v =>
+  // Speakers of a language scoped to a specific shift only
+  function speakersOf(lang, day, shift) {
+    const shiftVolIds = new Set(getEntriesForShift(day, shift).map(e => e.volunteer_id))
+    return volunteers.filter(v =>
+      shiftVolIds.has(v.id) &&
       v.languages?.split(',').map(l => l.trim()).includes(lang)
     )
   }
@@ -223,19 +217,19 @@ export default function CSPage() {
   const labelStyle = { display: 'block', fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '0.35rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
   const tzLabel    = getMountainLabel()
 
-  // Volunteer row (clickable for contact details)
+  // Volunteer row used in live tab
   function VolRow({ entry, status }) {
-    const vol   = getVol(entry.volunteer_id)
-    const shift = activeShifts.find(s => s.volunteer_id === entry.volunteer_id)
-    const mins  = shift ? minutesSince(shift.clock_in) : null
+    const vol    = getVol(entry.volunteer_id)
+    const shift  = activeShifts.find(s => s.volunteer_id === entry.volunteer_id)
+    const mins   = shift ? minutesSince(shift.clock_in) : null
     const isOpen = selectedContact?.id === entry.volunteer_id
 
-    const statusColors = {
+    const sc = {
       present: { bg: 'rgba(74,222,128,0.12)',  color: '#4ade80',  border: 'rgba(74,222,128,0.3)'  },
       excused: { bg: 'rgba(96,165,250,0.12)',  color: '#60a5fa',  border: 'rgba(96,165,250,0.3)'  },
       missing: { bg: 'rgba(239,68,68,0.10)',   color: '#ef4444',  border: 'rgba(239,68,68,0.25)'  },
-    }
-    const sc = statusColors[status] || statusColors.missing
+    }[status] || { bg: 'rgba(239,68,68,0.10)', color: '#ef4444', border: 'rgba(239,68,68,0.25)' }
+
     const badgeSty = { fontSize: '0.72rem', fontWeight: 600, padding: '0.15rem 0.55rem', borderRadius: '100px', background: sc.bg, color: sc.color, border: `1px solid ${sc.border}` }
 
     return (
@@ -291,19 +285,20 @@ export default function CSPage() {
     )
   }
 
-  // Lang bubble (clickable)
-  function LangBubble({ lang, highlighted }) {
+  // Clickable language bubble
+  function LangBubble({ lang, highlighted, day, shift }) {
+    const isOpen = langModal?.lang === lang && langModal?.day === day && langModal?.shift === shift
     return (
       <button
-        onClick={() => setLangModal(langModal === lang ? null : lang)}
+        onClick={() => setLangModal(isOpen ? null : { lang, day, shift })}
         style={{
           display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
           padding: '0.3rem 0.85rem', borderRadius: '100px', fontSize: '0.85rem', fontWeight: 500,
           cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
           background: highlighted ? 'rgba(74,222,128,0.12)' : 'rgba(96,165,250,0.1)',
-          color: highlighted ? '#4ade80' : '#60a5fa',
-          border: `1px solid ${highlighted ? 'rgba(74,222,128,0.3)' : 'rgba(96,165,250,0.3)'}`,
-          outline: langModal === lang ? `2px solid ${highlighted ? '#4ade80' : '#60a5fa'}` : 'none',
+          color:      highlighted ? '#4ade80'                : '#60a5fa',
+          border:     `1px solid ${highlighted ? 'rgba(74,222,128,0.3)' : 'rgba(96,165,250,0.3)'}`,
+          outline:    isOpen ? `2px solid ${highlighted ? '#4ade80' : '#60a5fa'}` : 'none',
           outlineOffset: '2px',
         }}
       >
@@ -316,9 +311,11 @@ export default function CSPage() {
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
       <div style={{ maxWidth: '720px', margin: '0 auto' }}>
 
-        {/* Language modal */}
+        {/* Language speaker modal */}
         {langModal && (() => {
-          const speakers = speakersOf(langModal)
+          const speakers = speakersOf(langModal.lang, langModal.day, langModal.shift)
+          // Of those speakers, which are currently clocked in
+          const speakersIn = speakers.filter(v => clockedInIds.has(v.id))
           return (
             <div
               onClick={() => setLangModal(null)}
@@ -326,35 +323,41 @@ export default function CSPage() {
             >
               <div
                 onClick={e => e.stopPropagation()}
-                style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', padding: '1.5rem', width: '100%', maxWidth: '380px', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}
+                style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', padding: '1.5rem', width: '100%', maxWidth: '400px', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                   <h3 style={{ fontWeight: 600, fontSize: '1rem', margin: 0 }}>
-                    {langModal} speakers
-                    <span style={{ marginLeft: '0.5rem', fontSize: '0.8rem', color: 'var(--muted)', fontWeight: 400 }}>({speakers.length})</span>
+                    {langModal.lang} speakers
                   </h3>
                   <button onClick={() => setLangModal(null)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1, padding: '0.2rem' }}>✕</button>
                 </div>
+                <p style={{ fontSize: '0.78rem', color: 'var(--muted)', marginBottom: '1rem', textTransform: 'capitalize' }}>
+                  {langModal.day} · {langModal.shift} &nbsp;·&nbsp; {speakers.length} scheduled, {speakersIn.length} currently in
+                </p>
+
                 {speakers.length === 0 ? (
-                  <p style={{ color: 'var(--muted)', fontSize: '0.88rem' }}>No one on your shifts speaks this language.</p>
+                  <p style={{ color: 'var(--muted)', fontSize: '0.88rem' }}>No one scheduled for this shift speaks this language.</p>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {speakers.map(vol => (
-                      <div key={vol.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.55rem 0.85rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                        <div>
-                          <p style={{ fontWeight: 500, fontSize: '0.88rem', margin: 0 }}>{vol.full_name}</p>
-                          {vol.default_role && <p style={{ color: 'var(--muted)', fontSize: '0.75rem', margin: 0 }}>{vol.default_role}</p>}
+                    {speakers.map(vol => {
+                      const isIn = clockedInIds.has(vol.id)
+                      return (
+                        <div key={vol.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.55rem 0.85rem', background: isIn ? 'rgba(74,222,128,0.04)' : 'var(--bg)', borderRadius: '8px', border: `1px solid ${isIn ? 'rgba(74,222,128,0.3)' : 'var(--border)'}` }}>
+                          <div>
+                            <p style={{ fontWeight: 500, fontSize: '0.88rem', margin: 0 }}>{vol.full_name}</p>
+                            {vol.default_role && <p style={{ color: 'var(--muted)', fontSize: '0.75rem', margin: 0 }}>{vol.default_role}</p>}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            {isIn && (
+                              <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: 'rgba(74,222,128,0.12)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.3)', fontWeight: 600 }}>in</span>
+                            )}
+                            {vol.phone && (
+                              <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', color: 'var(--muted)' }}>{vol.phone}</span>
+                            )}
+                          </div>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          {clockedInIds.has(vol.id) && (
-                            <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: 'rgba(74,222,128,0.12)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.3)', fontWeight: 600 }}>in</span>
-                          )}
-                          {vol.phone && (
-                            <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', color: 'var(--muted)' }}>{vol.phone}</span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -401,7 +404,7 @@ export default function CSPage() {
           ))}
         </div>
 
-        {/* ── LIVE TAB — exact match of admin live tab ───────── */}
+        {/* ── LIVE TAB ───────────────────────────────────────── */}
         {tab === 'live' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
@@ -490,9 +493,9 @@ export default function CSPage() {
 
             {/* Birthdays today */}
             {(() => {
-              const today  = getMountainNow()
+              const today   = getMountainNow()
               const todayMD = `${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
-              const bdays  = volunteers.filter(v => v.birthday && v.birthday.slice(5) === todayMD)
+              const bdays   = volunteers.filter(v => v.birthday && v.birthday.slice(5) === todayMD)
               return bdays.length > 0 && (
                 <div style={{ ...card, borderColor: 'rgba(129,140,248,0.5)', background: 'rgba(129,140,248,0.04)' }}>
                   <h2 style={{ fontWeight: 600, marginBottom: '0.75rem', fontSize: '1rem' }}>Birthdays Today</h2>
@@ -528,7 +531,7 @@ export default function CSPage() {
               <div style={card}><p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>You have no scheduled shifts on record.</p></div>
             ) : (
               myShiftCombos.map(({ key, day, shift }) => {
-                const entries = getEntriesForMyShift(day, shift)
+                const entries = getEntriesForShift(day, shift)
                 const isCurrentSlot = isWeekday && currentDay === day && currentShift === shift
                 return (
                   <div key={key} style={{ ...card, borderColor: isCurrentSlot ? 'var(--accent)' : 'var(--border)', background: isCurrentSlot ? 'rgba(2,65,107,0.03)' : 'var(--surface)' }}>
@@ -540,7 +543,7 @@ export default function CSPage() {
                     </h2>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       {entries.map(e => {
-                        const vol       = getVol(e.volunteer_id)
+                        const vol        = getVol(e.volunteer_id)
                         const isExpanded = selectedContact?.id === e.volunteer_id
                         const isClockedIn = clockedInIds.has(e.volunteer_id)
                         return (
@@ -595,7 +598,7 @@ export default function CSPage() {
           </div>
         )}
 
-        {/* ── CONTACTS TAB — only people on my shifts ────────── */}
+        {/* ── CONTACTS TAB ──────────────────────────────────── */}
         {tab === 'contacts' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <p style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>
@@ -655,21 +658,20 @@ export default function CSPage() {
         {tab === 'languages' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <p style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>
-              Language coverage for your scheduled shifts. Click a bubble to see who speaks it.
+              Language coverage for your scheduled shifts only. Click a bubble to see who speaks it.
             </p>
 
             {/* Current shift highlight */}
-            {isWeekday && currentShift && (
+            {isWeekday && currentShift && myShiftCombos.some(c => c.day === currentDay && c.shift === currentShift) && (
               <div style={{ ...card, borderColor: 'var(--accent)', background: 'rgba(2,65,107,0.04)' }}>
                 <h2 style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.85rem' }}>
                   Current Shift Coverage
                   <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', fontWeight: 400 }}>{currentDay} {currentShift}</span>
                 </h2>
                 {(() => {
-                  const langs = languageCoverage[currentDay]?.[currentShift] || []
-                  // Which of those are clocked-in right now
+                  const langs = getLangsForShift(currentDay, currentShift)
                   const presentLangs = {}
-                  getEntriesForMyShift(currentDay, currentShift).forEach(e => {
+                  getEntriesForShift(currentDay, currentShift).forEach(e => {
                     if (!clockedInIds.has(e.volunteer_id)) return
                     const vol = getVol(e.volunteer_id)
                     vol?.languages?.split(',').map(l => l.trim()).filter(Boolean).forEach(l => {
@@ -681,7 +683,7 @@ export default function CSPage() {
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                       {langs.map(lang => (
                         <div key={lang} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
-                          <LangBubble lang={lang} highlighted={presentLangs[lang] > 0} />
+                          <LangBubble lang={lang} highlighted={presentLangs[lang] > 0} day={currentDay} shift={currentShift} />
                           {presentLangs[lang] > 0 && (
                             <span style={{ fontSize: '0.65rem', color: '#4ade80' }}>{presentLangs[lang]} in</span>
                           )}
@@ -693,12 +695,12 @@ export default function CSPage() {
               </div>
             )}
 
-            {/* My shifts language grid */}
+            {/* Per-shift breakdown — my shifts only */}
             {myShiftCombos.length === 0 ? (
               <div style={card}><p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No scheduled shifts on record.</p></div>
             ) : (
               myShiftCombos.map(({ key, day, shift }) => {
-                const langs = languageCoverage[day]?.[shift] || []
+                const langs = getLangsForShift(day, shift)
                 const isCurrentSlot = isWeekday && currentDay === day && currentShift === shift
                 return (
                   <div key={key} style={{ ...card, borderColor: isCurrentSlot ? 'var(--accent)' : 'var(--border)' }}>
@@ -711,7 +713,9 @@ export default function CSPage() {
                       <p style={{ color: 'var(--muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>No language data for this shift.</p>
                     ) : (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                        {langs.map(lang => <LangBubble key={lang} lang={lang} highlighted={false} />)}
+                        {langs.map(lang => (
+                          <LangBubble key={lang} lang={lang} highlighted={false} day={day} shift={shift} />
+                        ))}
                       </div>
                     )}
                   </div>
@@ -719,26 +723,41 @@ export default function CSPage() {
               })
             )}
 
-            {/* Multilingual volunteers on my shifts */}
+            {/* Multilingual volunteers — scoped per shift, shown as plain tags */}
             <div style={card}>
-              <h2 style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.85rem' }}>Multilingual Volunteers on Your Shifts</h2>
-              {myShiftVolunteers.filter(v => v.languages).length === 0 ? (
-                <p style={{ color: 'var(--muted)', fontSize: '0.88rem' }}>No language data recorded yet.</p>
+              <h2 style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.85rem' }}>Multilingual Volunteers by Shift</h2>
+              {myShiftCombos.length === 0 ? (
+                <p style={{ color: 'var(--muted)', fontSize: '0.88rem' }}>No scheduled shifts on record.</p>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {myShiftVolunteers.filter(v => v.languages).map(vol => (
-                    <div key={vol.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.55rem 0.85rem', background: 'var(--bg)', borderRadius: '7px', border: '1px solid var(--border)', flexWrap: 'wrap', gap: '0.5rem' }}>
-                      <span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{vol.full_name}</span>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
-                        {vol.languages.split(',').map(l => l.trim()).filter(Boolean).map(l => (
-                          <LangBubble key={l} lang={l} highlighted={false} />
-                        ))}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {myShiftCombos.map(({ key, day, shift }) => {
+                    const shiftVolIds = new Set(getEntriesForShift(day, shift).map(e => e.volunteer_id))
+                    const multilingualVols = volunteers.filter(v => shiftVolIds.has(v.id) && v.languages)
+                    if (multilingualVols.length === 0) return null
+                    return (
+                      <div key={key}>
+                        <p style={{ fontSize: '0.78rem', color: 'var(--muted)', textTransform: 'capitalize', fontWeight: 500, marginBottom: '0.5rem' }}>
+                          {day} · {shift}
+                        </p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                          {multilingualVols.map(vol => (
+                            <div key={vol.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'var(--bg)', borderRadius: '7px', border: '1px solid var(--border)', flexWrap: 'wrap', gap: '0.5rem' }}>
+                              <span style={{ fontWeight: 500, fontSize: '0.85rem' }}>{vol.full_name}</span>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                                {vol.languages.split(',').map(l => l.trim()).filter(Boolean).map(l => (
+                                  <span key={l} style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: 'rgba(96,165,250,0.1)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)', fontWeight: 500 }}>{l}</span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
+
           </div>
         )}
 
