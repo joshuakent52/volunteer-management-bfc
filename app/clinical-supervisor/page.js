@@ -109,7 +109,26 @@ export default function CSPage() {
 
   function getVol(id) { return volunteers.find(v => v.id === id) }
 
-  const clockedInIds  = new Set(activeShifts.map(s => s.volunteer_id))
+  const clockedInIds = new Set(
+    activeShifts.map(s => s.volunteer_id)
+  )
+
+  // ALL people currently clocked in (NO schedule filtering)
+  const clockedInNow = activeShifts.map(s => ({
+    ...s,
+    volunteer: getVolunteer(s.volunteer_id)
+  }))
+
+  // ALL scheduled people (NO time/day filtering here)
+  const scheduled = schedule.map(s => ({
+    ...s,
+    volunteer: getVolunteer(s.volunteer_id)
+  }))
+
+  // scheduled but NOT clocked in
+  const scheduledNotClockedIn = scheduled.filter(
+    s => !clockedInIds.has(s.volunteer_id)
+  )
   const excusedIds    = new Set(callouts.map(c => c.volunteer_id))
 
   // Schedule entries for current shift (or all if not shift time)
@@ -232,7 +251,7 @@ export default function CSPage() {
               <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', color: 'var(--muted)' }}>
                 in {formatTime(shift.clock_in)}
                 {mins !== null && mins > 0 && (
-                  <span style={{ marginLeft: '0.35rem', color: mins > 20 ? '#f87171' : 'var(--muted)' }}>
+                  <span style={{ marginLeft: '0.35rem', color: mins > 20 ? '#02416b' : 'var(--muted)' }}>
                     ({mins}m ago)
                   </span>
                 )}
@@ -350,55 +369,97 @@ export default function CSPage() {
             ) : (
               <>
                 <p style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '-0.25rem' }}>
-                  Current shift: <strong style={{ color: 'var(--text)' }}>{currentDay} {currentShift}</strong> · Tap a name to see contact info
+                  Live view · Tap a name to see contact info
                 </p>
 
-                {/* Missing — shown first and prominently */}
-                {missingEntries.length > 0 && (
-                  <div style={{ ...card, borderColor: 'rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.03)' }}>
-                    <h2 style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.85rem', color: '#ef4444' }}>
-                      Not Clocked In · {missingEntries.length}
-                    </h2>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                      {missingEntries.map(e => <VolRow key={e.id} entry={e} status="missing" />)}
-                    </div>
-                  </div>
-                )}
-
-                {/* Present */}
-                {presentEntries.length > 0 && (
+                {/* ───────────────────────────── */}
+               {/* CLOCKED IN (ALL ACTIVE SHIFTS) */}
+                {/* ───────────────────────────── */}
+                {clockedInNow.length > 0 && (
                   <div style={card}>
                     <h2 style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.85rem' }}>
-                      Clocked In · {presentEntries.length}
+                      Clocked In · {clockedInNow.length}
                     </h2>
+
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                      {presentEntries.map(e => <VolRow key={e.id} entry={e} status="present" />)}
+                      {clockedInNow.map(e => (
+                        <VolRow
+                          key={e.id}
+                          entry={e}
+                          status="present"
+                        />
+                      ))}
                     </div>
                   </div>
                 )}
-
-                {/* Excused */}
+        
+                {/* ───────────────────────────── */}
+                {/* SCHEDULED BUT NOT CLOCKED IN */}
+                {/* ───────────────────────────── */}
+                {scheduledNotClockedIn.length > 0 && (
+                  <div style={{ ...card, borderColor: 'rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.03)' }}>
+                    <h2 style={{
+                      fontWeight: 600,
+                      fontSize: '0.95rem',
+                      marginBottom: '0.85rem',
+                      color: '#ef4444'
+                    }}>
+                      Not Clocked In · {scheduledNotClockedIn.length}
+                    </h2>
+        
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                      {scheduledNotClockedIn.map(e => (
+                        <VolRow
+                          key={e.id}
+                          entry={e}
+                          status="missing"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+        
+                {/* ───────────────────────────── */}
+                {/* EXCUSED (UNCHANGED) */}
+                {/* ───────────────────────────── */}
                 {excusedEntries.length > 0 && (
                   <div style={card}>
-                    <h2 style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.85rem', color: '#60a5fa' }}>
+                    <h2 style={{
+                      fontWeight: 600,
+                      fontSize: '0.95rem',
+                      marginBottom: '0.85rem',
+                      color: '#60a5fa'
+                    }}>
                       Called Out (Excused) · {excusedEntries.length}
                     </h2>
+        
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                      {excusedEntries.map(e => <VolRow key={e.id} entry={e} status="excused" />)}
+                      {excusedEntries.map(e => (
+                        <VolRow
+                          key={e.id}
+                          entry={e}
+                          status="excused"
+                        />
+                      ))}
                     </div>
                   </div>
                 )}
-
-                {currentScheduled.length === 0 && (
+        
+                {/* ───────────────────────────── */}
+                {/* EMPTY STATE */}
+                {/* ───────────────────────────── */}
+                {clockedInNow.length === 0 && scheduledNotClockedIn.length === 0 && (
                   <div style={card}>
-                    <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No one is scheduled for this shift.</p>
+                    <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>
+                      No active volunteers in this shift window.
+                    </p>
                   </div>
                 )}
               </>
             )}
           </div>
         )}
-
+        
         {/* ── FULL SCHEDULE ────────────────────────────────── */}
         {tab === 'schedule' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
