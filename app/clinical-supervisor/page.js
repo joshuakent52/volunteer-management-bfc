@@ -393,24 +393,22 @@ export default function CSPage() {
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
         
             {/* Switch to Volunteer View */}
-            {profile?.role === 'admin' && (
-              <button
-                onClick={() => {
-                  window.location.href = '/volunteer'
-                }}
-                style={{
-                  background: 'none',
-                  border: '1px solid var(--border)',
-                  borderRadius: '8px',
-                  color: 'var(--muted)',
-                  padding: '0.4rem 0.9rem',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem'
-                }}
-              >
-                Volunteer View
-              </button>
-            )}
+            <button
+              onClick={() => {
+                window.location.href = '/volunteer'
+              }}
+              style={{
+                background: 'none',
+                border: '1px solid var(--border)',
+                borderRadius: '8px',
+                color: 'var(--muted)',
+                padding: '0.4rem 0.9rem',
+                cursor: 'pointer',
+                fontSize: '0.85rem'
+              }}
+            >
+              Volunteer View
+            </button>
         
             {/* Sign out */}
             <button
@@ -432,6 +430,7 @@ export default function CSPage() {
             </button>
           </div>
         </div>
+  
 
         {/* ── LIVE TAB ───────────────────────────────────────── */}
         {tab === 'live' && (
