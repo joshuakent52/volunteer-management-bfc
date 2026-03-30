@@ -84,7 +84,7 @@ export default function CSPage() {
     const [shiftsRes, schedRes, volsRes, calloutsRes] = await Promise.all([
       supabase.from('shifts').select('*').is('clock_out', null),
       supabase.from('schedule').select('*'),
-      supabase.from('profiles').select('id, full_name, phone, languages, role, default_role, affiliation, email').eq('role', 'volunteer'),
+      supabase.from('profiles').select('id, full_name, phone, languages, role, default_role, affiliation, email'),
       supabase.from('callouts')
         .select('*')
         .eq('callout_date', todayMtn)
