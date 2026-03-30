@@ -425,19 +425,31 @@ export default function VolunteerPage() {
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
           <div>
-            <h1 style={{ fontSize: '1.4rem', fontWeight: 600, letterSpacing: '-0.02em' }}>Hey, {profile?.full_name?.split(' ')[0]}</h1>
-            <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{new Date().toLocaleDateString('en-US', { timeZone: 'America/Denver', weekday: 'long', month: 'long', day: 'numeric' })}</p>
+            <h1 style={{ fontSize: '1.4rem', fontWeight: 600, letterSpacing: '-0.02em' }}>
+              Hey, {profile?.full_name?.split(' ')[0]}
+            </h1>
+            <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
+              {new Date().toLocaleDateString('en-US', {
+                timeZone: 'America/Denver',
+                weekday: 'long',
+                month: 'long',
+                day: 'numeric'
+              })}
+            </p>
           </div>
 
-          {profile?.role === 'admin' && (
+          {(profile?.role === 'admin' || profile?.default_role === 'Clinical Supervisor') && (
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+      
               <button
                 onClick={() => {
+                  // Clinical Supervisor gets priority routing
                   if (profile?.default_role === 'Clinical Supervisor') {
                     window.location.href = '/clinical-supervisor'
                     return
                   }
-
+        
+                  // Admin toggle
                   if (window.location.pathname.includes('admin')) {
                     window.location.href = '/volunteer'
                   } else {
@@ -456,7 +468,7 @@ export default function VolunteerPage() {
               >
                 Switch View
               </button>
-  
+        
               <button
                 onClick={handleSignOut}
                 style={{
@@ -471,10 +483,11 @@ export default function VolunteerPage() {
               >
                 Sign out
               </button>
+        
             </div>
           )}
         </div>
-
+        
         {/* Status banner */}
         <div style={{ ...card, marginBottom: '1.5rem', borderColor: activeShift ? 'var(--accent)' : 'var(--border)', background: activeShift ? 'rgba(74,222,128,0.05)' : 'var(--surface)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
