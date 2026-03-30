@@ -79,14 +79,14 @@ export default function CSPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', padding: '1.5rem' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
 
       <h1 style={{ fontSize: '1.4rem', fontWeight: 600 }}>
         Clinical Supervisor Dashboard
       </h1>
 
       {/* SCHEDULE */}
-      <h2 style={{ marginTop: '1.5rem' }}>Schedule</h2>
+      <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>My Schedule</h2>
 
       {schedule.map(s => {
         const vol = getVolunteer(s.volunteer_id)
