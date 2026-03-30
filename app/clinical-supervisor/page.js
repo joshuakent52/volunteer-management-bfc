@@ -430,7 +430,12 @@ export default function CSPage() {
             </button>
           </div>
         </div>
-  
+        
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+          <button onClick={() => setTab('live')}>Live</button>
+          <button onClick={() => setTab('schedule')}>Schedule</button>
+          <button onClick={() => setTab('contacts')}>Contacts</button>
+        </div>
 
         {/* ── LIVE TAB ───────────────────────────────────────── */}
         {tab === 'live' && (
