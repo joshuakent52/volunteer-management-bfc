@@ -21,17 +21,8 @@ export default function LoginPage() {
       return
     }
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', data.user.id)
-      .single()
+    window.location.href = '/volunteer'
 
-    if (profile?.role === 'admin') {
-      window.location.href = '/admin'
-    } else {
-      window.location.href = '/volunteer'
-    }
   }
 
   return (
