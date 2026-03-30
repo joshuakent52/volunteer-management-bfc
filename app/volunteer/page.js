@@ -421,46 +421,51 @@ export default function VolunteerPage() {
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
 
         {/* Header */}
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-  
-          {profile?.role === 'admin' && (
-            <button
-              onClick={() => {
-                if (window.location.pathname.includes('admin')) {
-                  window.location.href = '/volunteer'
-                } else {
-                  window.location.href = '/admin'
-                }
-              }}
-              style={{
-                background: 'none',
-                border: '1px solid var(--border)',
-                borderRadius: '8px',
-                color: 'var(--muted)',
-                padding: '0.4rem 0.9rem',
-                cursor: 'pointer',
-                fontSize: '0.85rem'
-              }}
-            >
-              Switch View
-            </button>
-          )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+          <div>
+            <h1 style={{ fontSize: '1.4rem', fontWeight: 600, letterSpacing: '-0.02em' }}>Hey, {profile?.full_name?.split(' ')[0]}</h1>
+            <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{new Date().toLocaleDateString('en-US', { timeZone: 'America/Denver', weekday: 'long', month: 'long', day: 'numeric' })}</p>
+          </div>
 
-          <button
-            onClick={handleSignOut}
-            style={{
-              background: 'none',
-              border: '1px solid var(--border)',
-              borderRadius: '8px',
-              color: 'var(--muted)',
-              padding: '0.4rem 0.9rem',
-              cursor: 'pointer',
-              fontSize: '0.85rem'
-            }}
-          >
-            Sign out
-          </button>
-        
+          {profile?.role === 'admin' && (
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <button
+                onClick={() => {
+                  if (window.location.pathname.includes('admin')) {
+                    window.location.href = '/volunteer'
+                  } else {
+                    window.location.href = '/admin'
+                  }
+                }}
+                style={{
+                  background: 'none',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  color: 'var(--muted)',
+                  padding: '0.4rem 0.9rem',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem'
+                }}
+              >
+                Switch View
+              </button>
+  
+              <button
+                onClick={handleSignOut}
+                style={{
+                  background: 'none',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  color: 'var(--muted)',
+                  padding: '0.4rem 0.9rem',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem'
+                }}
+              >
+                Sign out
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Status banner */}
