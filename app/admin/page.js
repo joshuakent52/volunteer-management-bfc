@@ -500,46 +500,47 @@ export default function AdminPage() {
             <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Bingham Family Clinic &nbsp;·&nbsp;<span style={{ fontFamily: 'DM Mono, monospace' }}>{currentTime.toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit' })} {tzLabel}</span></p>
           </div>
           {profile?.role === 'admin' && (
-            <button
-              onClick={() => {
-                if (window.location.pathname.includes('admin')) {
-                  window.location.href = '/volunteer'
-                } else {
-                  window.location.href = '/admin'
-                }
-              }}
-              style={{
-                background: 'none',
-                border: '1px solid var(--border)',
-                borderRadius: '8px',
-                color: 'var(--muted)',
-                padding: '0.4rem 0.9rem',
-                cursor: 'pointer',
-                fontSize: '0.85rem'
-              }}
-            >
-              Switch View
-            </button>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+             <button
+                onClick={() => {
+                  if (window.location.pathname.includes('admin')) {
+                    window.location.href = '/volunteer'
+                  } else {
+                    window.location.href = '/admin'
+                 }
+                }}
+                style={{
+                  background: 'none',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  color: 'var(--muted)',
+                  padding: '0.4rem 0.9rem',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem'
+                }}
+              >
+                Switch View
+              </button>
+            
+              <button
+               onClick={async () => {
+                 await supabase.auth.signOut()
+                  window.location.href = '/'
+                }}
+                style={{
+                  background: 'none',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  color: 'var(--muted)',
+                  padding: '0.4rem 0.9rem',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem'
+                }}
+             >
+                Sign out
+             </button>
+            </div>
           )}
-
-          <button
-            onClick={async () => {
-              await supabase.auth.signOut()
-              window.location.href = '/'
-            }}
-            style={{
-              background: 'none',
-              border: '1px solid var(--border)',
-              borderRadius: '8px',
-              color: 'var(--muted)',
-              padding: '0.4rem 0.9rem',
-              cursor: 'pointer',
-              fontSize: '0.85rem'
-            }}
-          >
-            Sign out
-          </button>
-
         </div>
 
         {/* Stats */}
