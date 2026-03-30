@@ -116,13 +116,13 @@ export default function CSPage() {
   // ALL people currently clocked in (NO schedule filtering)
   const clockedInNow = activeShifts.map(s => ({
     ...s,
-    volunteer: getVolunteer(s.volunteer_id)
+    volunteer: getVol(s.volunteer_id)
   }))
 
   // ALL scheduled people (NO time/day filtering here)
   const scheduled = schedule.map(s => ({
     ...s,
-    volunteer: getVolunteer(s.volunteer_id)
+    volunteer: getVol(s.volunteer_id)
   }))
 
   // scheduled but NOT clocked in
@@ -459,7 +459,7 @@ export default function CSPage() {
             )}
           </div>
         )}
-        
+
         {/* ── FULL SCHEDULE ────────────────────────────────── */}
         {tab === 'schedule' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
