@@ -371,37 +371,66 @@ export default function CSPage() {
             <h1 style={{ fontSize: '1.3rem', fontWeight: 600, letterSpacing: '-0.02em', marginBottom: '0.25rem' }}>
               Clinical Supervisor
             </h1>
+
             <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
-              {currentTime.toLocaleDateString('en-US', { timeZone: 'America/Denver', weekday: 'long', month: 'long', day: 'numeric' })}
+              {currentTime.toLocaleDateString('en-US', {
+                timeZone: 'America/Denver',
+                weekday: 'long',
+                month: 'long',
+                day: 'numeric'
+              })}
               &nbsp;·&nbsp;
               <span style={{ fontFamily: 'DM Mono, monospace' }}>
-                {currentTime.toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit' })} {tzLabel}
+                {currentTime.toLocaleTimeString('en-US', {
+                  timeZone: 'America/Denver',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })} {tzLabel}
               </span>
             </p>
           </div>
-          <button
-            onClick={async () => { await supabase.auth.signOut(); router.push('/') }}
-            style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}
-          >
-            Sign out
-          </button>
-        </div>
-
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-          {[
-            ['live',      'Live'],
-            ['schedule',  'My Schedule'],
-            ['contacts',  'Contacts'],
-            ['languages', 'Languages'],
-          ].map(([key, label]) => (
-            <button key={key} onClick={() => { setTab(key); setSelectedContact(null); setLangModal(null) }} style={{
-              padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-              background: tab === key ? 'var(--accent)' : 'var(--surface)',
-              color:      tab === key ? '#0a0f0a'       : 'var(--muted)',
-              border:     tab === key ? 'none'           : '1px solid var(--border)',
-            }}>{label}</button>
-          ))}
+        
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        
+            {/* Switch to Volunteer View */}
+            {profile?.role === 'admin' && (
+              <button
+                onClick={() => {
+                  window.location.href = '/volunteer'
+                }}
+                style={{
+                  background: 'none',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  color: 'var(--muted)',
+                  padding: '0.4rem 0.9rem',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem'
+                }}
+              >
+                Volunteer View
+              </button>
+            )}
+        
+            {/* Sign out */}
+            <button
+              onClick={async () => {
+                await supabase.auth.signOut()
+                window.location.href = '/'
+              }}
+              style={{
+                background: 'none',
+                border: '1px solid var(--border)',
+                borderRadius: '8px',
+                color: 'var(--muted)',
+                padding: '0.4rem 0.9rem',
+                cursor: 'pointer',
+                fontSize: '0.85rem'
+              }}
+            >
+              Sign out
+            </button>
+          </div>
         </div>
 
         {/* ── LIVE TAB ───────────────────────────────────────── */}
