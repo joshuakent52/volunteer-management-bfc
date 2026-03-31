@@ -531,6 +531,13 @@ export default function AdminPage() {
 
   const tzLabel = getMountainLabel()
   const volunteerList = volunteers.filter(v => v.role === 'volunteer' && (showInactive ? true : (v.status || 'active') === 'active')).sort((a, b) => { const ln = n => (n?.full_name?.split(' ').slice(-1)[0] || '').toLowerCase(); return ln(a).localeCompare(ln(b)) })
+  const userList = volunteers
+  .filter(v => showInactive || (v.status || 'active') === 'active')
+  .sort((a, b) => {
+    const ln = n =>
+      (n?.full_name?.split(' ').slice(-1)[0] || '').toLowerCase()
+    return ln(a).localeCompare(ln(b))
+  })   
   const adminList = volunteers.filter(v => v.role === 'admin')
   const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
   const messages24h = adminMessages.filter(m => m.created_at >= cutoff24h && m.sender_id !== profile?.id).length
