@@ -1050,46 +1050,113 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* AUDIT TAB */}
+        {/* AUDIT LOG TAB */}
         {tab === 'audit' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={card}>
+              <p style={{ 
+                fontSize: '0.9rem', 
+                color: 'var(--muted)', 
+                lineHeight: 1.5,
+                maxWidth: '600px'
+              }}>
+                This tool helps maintain consistency across shifts by tracking administrative actions and providing clear visibility into changes.
+              </p>
+            </div>
+
+            {/* Filters */}
+            <div style={card}>
               <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Filters</h2>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                <div><label style={labelStyle}>Admin</label><select value={auditFilterAdmin} onChange={e => setAuditFilterAdmin(e.target.value)} style={inputStyle}><option value="">All admins</option>{adminList.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}</select></div>
-                <div><label style={labelStyle}>Action type</label><select value={auditFilterAction} onChange={e => setAuditFilterAction(e.target.value)} style={inputStyle}><option value="">All actions</option>{Object.entries(ACTION_LABELS).map(([value, label]) => (<option key={value} value={value}>{label}</option>))}</select></div>
-                <div><label style={labelStyle}>From date</label><input type="date" value={auditFilterFrom} onChange={e => setAuditFilterFrom(e.target.value)} style={inputStyle} /></div>
-                <div><label style={labelStyle}>To date</label><input type="date" value={auditFilterTo} onChange={e => setAuditFilterTo(e.target.value)} style={inputStyle} /></div>
+                <div>
+                  <label style={labelStyle}>Admin</label>
+                  <select value={auditFilterAdmin} onChange={e => setAuditFilterAdmin(e.target.value)} style={inputStyle}>
+                    <option value="">All admins</option>
+                    {adminList.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Action type</label>
+                  <select value={auditFilterAction} onChange={e => setAuditFilterAction(e.target.value)} style={inputStyle}>
+                    <option value="">All actions</option>
+                    {Object.entries(ACTION_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>From date</label>
+                  <input type="date" value={auditFilterFrom} onChange={e => setAuditFilterFrom(e.target.value)} style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>To date</label>
+                  <input type="date" value={auditFilterTo} onChange={e => setAuditFilterTo(e.target.value)} style={inputStyle} />
+                </div>
               </div>
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
-                <button onClick={loadAuditLogs} disabled={auditLoading} style={{ padding: '0.75rem 1.5rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: auditLoading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{auditLoading ? 'Loading...' : 'Apply Filters'}</button>
-                <button onClick={() => { setAuditFilterAdmin(''); setAuditFilterAction(''); setAuditFilterFrom(''); setAuditFilterTo(''); setTimeout(loadAuditLogs, 50) }} style={{ padding: '0.75rem 1rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '8px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>Reset</button>
+                <button onClick={loadAuditLogs} disabled={auditLoading} style={{ padding: '0.75rem 1.5rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: auditLoading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                  {auditLoading ? 'Loading...' : 'Apply Filters'}
+                </button>
+                <button onClick={() => {
+                  setAuditFilterAdmin('')
+                  setAuditFilterAction('')
+                  setAuditFilterFrom('')
+                  setAuditFilterTo('')
+                  setTimeout(loadAuditLogs, 50)
+                }} style={{ padding: '0.75rem 1rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '8px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                  Reset
+                </button>
               </div>
             </div>
+
+            {/* Log entries */}
             <div style={card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-                <h2 style={{ fontWeight: 600 }}>Activity Log{auditLogs.length > 0 && <span style={{ marginLeft: '0.5rem', color: 'var(--muted)', fontWeight: 400, fontSize: '0.85rem' }}>— {auditLogs.length} entries</span>}</h2>
+                <h2 style={{ fontWeight: 600 }}>
+                  Activity Log
+                  {auditLogs.length > 0 && (
+                    <span style={{ marginLeft: '0.5rem', color: 'var(--muted)', fontWeight: 400, fontSize: '0.85rem' }}>— {auditLogs.length} entries</span>
+                  )}
+                </h2>
                 <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>Last 2 weeks by default</span>
               </div>
-              {auditLoading ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading...</p> : auditLogs.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No activity found for the selected filters.</p> : (
+              {auditLoading ? (
+                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading...</p>
+              ) : auditLogs.length === 0 ? (
+                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No activity found for the selected filters.</p>
+              ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                   {auditLogs.map(log => {
                     const color = ACTION_COLORS[log.action] || '#94a3b8'
                     const label = ACTION_LABELS[log.action] || log.action
                     return (
                       <div key={log.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        {/* Color dot */}
                         <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: color, flexShrink: 0, marginTop: '0.35rem' }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.4rem' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                              <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', fontWeight: 600, background: color + '18', color, border: `1px solid ${color}44` }}>{label}</span>
-                              {log.target_name && <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{log.target_name}</span>}
+                              <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', fontWeight: 600, background: color + '18', color, border: `1px solid ${color}44` }}>
+                                {label}
+                              </span>
+                              {log.target_name && (
+                                <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{log.target_name}</span>
+                              )}
                             </div>
-                            <span style={{ color: 'var(--muted)', fontSize: '0.78rem', fontFamily: 'DM Mono, monospace', whiteSpace: 'nowrap' }}>{formatDateTime(log.created_at)}</span>
+                            <span style={{ color: 'var(--muted)', fontSize: '0.78rem', fontFamily: 'DM Mono, monospace', whiteSpace: 'nowrap' }}>
+                              {formatDateTime(log.created_at)}
+                            </span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
-                            <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>by {log.admin?.full_name || 'Unknown'}</span>
-                            {log.details && <><span style={{ color: 'var(--border)' }}>·</span><span style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic' }}>{log.details}</span></>}
+                            <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+                              by Admin
+                            </span>
+                            {log.details && (
+                              <>
+                                <span style={{ color: 'var(--border)' }}>·</span>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic' }}>{log.details}</span>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>
