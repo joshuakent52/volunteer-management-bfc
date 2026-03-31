@@ -459,6 +459,7 @@ export default function AdminPage() {
 
   const tzLabel = getMountainLabel()
   const volunteerList = volunteers.filter(v => v.role === 'volunteer' && (showInactive ? true : (v.status || 'active') === 'active')).sort((a, b) => { const ln = n => (n?.full_name?.split(' ').slice(-1)[0] || '').toLowerCase(); return ln(a).localeCompare(ln(b)) })
+  const userList = volunteers.filter(v => v.role === 'volunteer' || 'admin' && (showInactive ? true : (v.status || 'active') === 'active')).sort((a, b) => { const ln = n => (n?.full_name?.split(' ').slice(-1)[0] || '').toLowerCase(); return ln(a).localeCompare(ln(b)) }) 
   const adminList = volunteers.filter(v => v.role === 'admin')
   const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
   const messages24h = adminMessages.filter(m => m.created_at >= cutoff24h && m.sender_id !== profile?.id).length
@@ -789,7 +790,7 @@ export default function AdminPage() {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                         <select value={addVolId} onChange={e => setAddVolId(e.target.value)} style={inputStyle}>
                           <option value="">— Select volunteer —</option>
-                          {volunteerList.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}
+                          {userList.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}
                         </select>
                         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                           {[
@@ -840,7 +841,7 @@ export default function AdminPage() {
               </button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {volunteerList.map(v => {
+              {userList.map(v => {
                 const isInactive = (v.status || 'active') === 'inactive'
                 return (
                   <div key={v.id} onClick={() => openVolunteer(v)}
@@ -1023,7 +1024,7 @@ export default function AdminPage() {
                     <label style={labelStyle}>Volunteer</label>
                     <select value={newShiftForm.volunteer_id} onChange={e => setNewShiftForm({ ...newShiftForm, volunteer_id: e.target.value })} required style={inputStyle}>
                       <option value="">— Select volunteer —</option>
-                      {volunteerList.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}
+                      {userList.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}
                     </select>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
