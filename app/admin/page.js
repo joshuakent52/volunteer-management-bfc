@@ -424,10 +424,10 @@ export default function AdminPage() {
     await loadVolunteers()
     setChangingStatus(false)
   }
-  
+  {/* Failed, Will fix later */}
   async function removeVolunteerFromSchedule(volunteerId) {
     const { error } = await supabase
-      .from('shifts')
+      .from('schedule')
       .delete()
       .eq('profile_id', volunteerId)
 
