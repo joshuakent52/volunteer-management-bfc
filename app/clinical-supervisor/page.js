@@ -435,7 +435,6 @@ export default function CSPage() {
          {[
             ['live', 'Live'],
             ['schedule', 'Schedule'],
-            ['contacts', 'Contacts'],
             ['languages', 'Language Coverage']
           ].map(([key, label]) => (
             <button
