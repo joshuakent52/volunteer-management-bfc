@@ -438,9 +438,9 @@ export default function VolunteerPage() {
             </p>
           </div>
 
-          {(profile?.role === 'admin' || profile?.default_role === 'Clinical Supervisor') && (
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-      
+          
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            {(profile?.role === 'admin' || profile?.default_role === 'Clinical Supervisor') && (
               <button
                 onClick={() => {
                   // Clinical Supervisor gets priority routing
@@ -468,7 +468,7 @@ export default function VolunteerPage() {
               >
                 Switch View
               </button>
-        
+            )}
               <button
                 onClick={handleSignOut}
                 style={{
@@ -485,7 +485,6 @@ export default function VolunteerPage() {
               </button>
         
             </div>
-          )}
         </div>
         
         {/* Status banner */}

@@ -643,62 +643,6 @@ export default function CSPage() {
           </div>
         )}
 
-        {/* ── CONTACTS TAB ──────────────────────────────────── */}
-        {tab === 'contacts' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <p style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>
-              Showing contact info for volunteers on your scheduled shifts only.
-            </p>
-            {myShiftVolunteers.length === 0 ? (
-              <div style={card}><p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No volunteers found for your shifts.</p></div>
-            ) : (
-              myShiftVolunteers
-                .slice()
-                .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
-                .map(vol => (
-                  <div key={vol.id} style={{ ...card, padding: '1rem 1.25rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--bg)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.95rem', color: 'var(--accent)', flexShrink: 0 }}>
-                          {vol.full_name?.charAt(0)}
-                        </div>
-                        <div>
-                          <p style={{ fontWeight: 600, fontSize: '0.9rem', margin: 0 }}>{vol.full_name}</p>
-                          {vol.default_role && <p style={{ color: 'var(--muted)', fontSize: '0.78rem', margin: 0 }}>{vol.default_role}</p>}
-                        </div>
-                      </div>
-                      {clockedInIds.has(vol.id) && (
-                        <span style={{ fontSize: '0.72rem', padding: '0.15rem 0.5rem', borderRadius: '100px', background: 'rgba(74,222,128,0.12)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.3)', fontWeight: 600 }}>
-                          Clocked in
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.75rem', marginTop: '0.85rem' }}>
-                      <div>
-                        <p style={labelStyle}>Phone</p>
-                        <p style={{ fontSize: '0.85rem', fontFamily: 'DM Mono, monospace', color: vol.phone ? 'var(--text)' : 'var(--muted)', fontStyle: vol.phone ? 'normal' : 'italic', margin: 0 }}>
-                          {vol.phone || 'Not set'}
-                        </p>
-                      </div>
-                      {vol.languages && (
-                        <div>
-                          <p style={labelStyle}>Languages</p>
-                          <p style={{ fontSize: '0.85rem', margin: 0 }}>{vol.languages}</p>
-                        </div>
-                      )}
-                      {vol.affiliation && (
-                        <div>
-                          <p style={labelStyle}>Affiliation</p>
-                          <p style={{ fontSize: '0.85rem', margin: 0, textTransform: 'capitalize' }}>{vol.affiliation}</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))
-            )}
-          </div>
-        )}
-
         {/* ── LANGUAGES TAB ─────────────────────────────────── */}
         {tab === 'languages' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>

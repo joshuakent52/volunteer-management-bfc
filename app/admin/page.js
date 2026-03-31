@@ -519,7 +519,7 @@ export default function AdminPage() {
                   fontSize: '0.85rem'
                 }}
               >
-                Switch View
+                Volunteer View
               </button>
             
               <button
