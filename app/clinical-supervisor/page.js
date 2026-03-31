@@ -431,10 +431,31 @@ export default function CSPage() {
           </div>
         </div>
         
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-          <button onClick={() => setTab('live')}>Live</button>
-          <button onClick={() => setTab('schedule')}>Schedule</button>
-          <button onClick={() => setTab('contacts')}>Contacts</button>
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+         {[
+            ['live', 'Live'],
+            ['schedule', 'Schedule'],
+            ['contacts', 'Contacts'],
+            ['languages', 'Language Coverage']
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              style={{
+                padding: '0.5rem 1rem',
+                borderRadius: '8px',
+                fontSize: '0.875rem',
+                fontWeight: 500,
+                cursor: 'pointer',
+                fontFamily: 'DM Sans, sans-serif',
+                background: tab === key ? 'var(--accent)' : 'var(--surface)',
+                color: tab === key ? '#fff' : 'var(--muted)',
+                border: tab === key ? 'none' : '1px solid var(--border)'
+              }}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {/* ── LIVE TAB ───────────────────────────────────────── */}
