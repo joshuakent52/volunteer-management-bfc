@@ -296,6 +296,80 @@ export default function AdminPage() {
   }
 
   // ── All other action handlers ─────────────────────────────────────────────
+  const expectedVolunteers = (() => {
+    const todayMtnStr = new Date().toLocaleDateString('en-CA', {
+      timeZone: 'America/Denver'
+    })
+
+    const mtnNow = getMountainNow()
+    const dayIndex = mtnNow.getDay()
+    const isWeekday = dayIndex >= 1 && dayIndex <= 5
+
+    const h = mtnNow.getHours() + mtnNow.getMinutes() / 60
+    const currentShift =
+      h >= 10 && h < 14 ? '10-2' :
+      h >= 14 && h < 18 ? '2-6' :
+      null
+
+    const currentDay = [
+      'sunday','monday','tuesday','wednesday',
+      'thursday','friday','saturday'
+    ][dayIndex]
+
+    if (!isWeekday || !currentShift) return []
+
+    const calledOutIds = new Set(
+      callouts
+        .filter(c =>
+          c.callout_date === todayMtnStr &&
+          c.shift_time === currentShift &&
+          c.status === 'approved'
+        )
+        .map(c => c.volunteer_id)
+    )
+  
+    const coverIds = new Set(
+      callouts
+        .filter(c =>
+          c.callout_date === todayMtnStr &&
+          c.shift_time === currentShift &&
+          c.covered_by
+        )
+        .map(c => c.covered_by)
+    )
+  
+    const scheduled = schedule.filter(s =>
+      s.day_of_week === currentDay &&
+      s.shift_time === currentShift &&
+      (!s.start_date || s.start_date <= todayMtnStr) &&
+      (!s.end_date || s.end_date >= todayMtnStr)
+    )
+  
+    const expectedIds = new Set([
+      ...scheduled.filter(s => !calledOutIds.has(s.volunteer_id)).map(s => s.volunteer_id),
+      ...coverIds
+    ])
+  
+    const clockedInIds = new Set(
+      activeShifts.map(s => s.profiles?.id).filter(Boolean)
+    )
+  
+    return [...expectedIds]
+      .filter(id => !clockedInIds.has(id))
+      .map(id => {
+        const vol = volunteers.find(v => v.id === id)
+        const entry = scheduled.find(s => s.volunteer_id === id)
+        if (!vol) return null
+  
+        return {
+          ...vol,
+          role: entry?.role || '—',
+          notes: entry?.notes || null
+        }
+      })
+      .filter(Boolean)
+  })()
+
   async function approveCallout(callout) {
     const { error } = await supabase.from('callouts').update({ status: 'approved', is_read: true }).eq('id', callout.id)
     if (error) showMessage(error.message, 'error')
@@ -629,9 +703,9 @@ export default function AdminPage() {
         {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
           {[
-            { label: 'Messages (24h)', value: messages24h, info: messages24h > 0 },
-            { label: 'Clocked In Now', value: activeShifts.length, accent: true },
+            {label: 'Not Clocked In', value: expectedVolunteers.length, warn: expectedVolunteers.length > 0 },
             { label: 'Pending Call-Outs', value: callouts.filter(c => !c.status || c.status === 'pending').length, warn: callouts.filter(c => !c.status || c.status === 'pending').length > 0 },
+            {label: 'Pending Hours', value: hoursSubmissions.filter(h => !h.status || h.status === 'pending').length, warn: hoursSubmissions.some(h => !h.status || h.status === 'pending').length > 0 },
           ].map(s => (
             <div key={s.label} style={{ ...card, textAlign: 'center', borderColor: s.accent ? 'var(--accent)' : s.warn ? 'var(--warn)' : s.info ? '#60a5fa' : 'var(--border)' }}>
               <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: s.accent ? 'var(--accent)' : s.warn ? 'var(--warn)' : s.info ? '#60a5fa' : 'var(--text)' }}>{s.value}</p>
