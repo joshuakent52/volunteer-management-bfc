@@ -37,7 +37,7 @@ const ACTION_COLORS = {
   sent_message: '#94a3b8', created_volunteer: '#a78bfa',
 }
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5 MB
+const MAX_FILE_SIZE = 5 * 1024 * 1024
 
 function getMountainNow() {
   const str = new Date().toLocaleString('en-US', { timeZone: 'America/Denver' })
@@ -55,6 +55,7 @@ function asUTC(ts) {
   return /Z|[+-]\d{2}:\d{2}$/.test(ts) ? new Date(ts) : new Date(ts + 'Z')
 }
 function formatMountain(ts) { if (!ts) return '—'; return asUTC(ts).toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit' }) }
+function formatDateMountain(ts) { if (!ts) return '—'; return asUTC(ts).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric' }) }
 function formatDateTime(ts) { if (!ts) return '—'; return asUTC(ts).toLocaleString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }
 function toMountainInputValue(ts) {
   if (!ts) return ''
@@ -127,7 +128,10 @@ export default function AdminPage() {
   const [sendingMsg, setSendingMsg] = useState(false)
   const [msgView, setMsgView] = useState('inbox')
 
-  // Image attachment state
+  // Unread tracking
+  const [readMessageIds, setReadMessageIds] = useState(new Set())
+
+  // Image attachment
   const [msgImageFile, setMsgImageFile] = useState(null)
   const [msgImagePreview, setMsgImagePreview] = useState(null)
   const [uploadingImage, setUploadingImage] = useState(false)
@@ -162,13 +166,18 @@ export default function AdminPage() {
   const [auditFilterFrom, setAuditFilterFrom] = useState('')
   const [auditFilterTo, setAuditFilterTo] = useState('')
 
-  const isAdmin = profile?.role === 'admin'
-
   useEffect(() => {
     init()
     const interval = setInterval(() => setCurrentTime(getMountainNow()), 60000)
     return () => clearInterval(interval)
   }, [])
+
+  // Mark inbox as read when admin opens the messages tab → inbox
+  useEffect(() => {
+    if (tab === 'messages' && msgView === 'inbox' && profile) {
+      markInboxAsRead()
+    }
+  }, [tab, msgView, profile])
 
   async function init() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -176,7 +185,7 @@ export default function AdminPage() {
     const { data: p } = await supabase.from('profiles').select('*').eq('id', user.id).single()
     if (p?.role !== 'admin') { window.location.href = '/volunteer'; return }
     setProfile(p)
-    await Promise.all([loadVolunteers(), loadActiveShifts(), loadCallouts(), loadSchedule(), loadAdminMessages(), loadCoverRequests()])
+    await Promise.all([loadVolunteers(), loadActiveShifts(), loadCallouts(), loadSchedule(), loadAdminMessages(p.id), loadCoverRequests()])
     setLoading(false)
   }
 
@@ -187,10 +196,39 @@ export default function AdminPage() {
     setCallouts((data || []).map(c => ({ ...c, profiles: c.volunteer, status: c.status ?? (c.is_read ? 'approved' : 'pending') })))
   }
   async function loadSchedule() { const { data } = await supabase.from('schedule').select('*, profiles(id, full_name)').order('role'); setSchedule(data || []) }
-  async function loadAdminMessages() {
-    const { data } = await supabase.from('messages').select('*, sender:profiles!messages_sender_id_fkey(full_name)').order('created_at', { ascending: false }).limit(100)
-    setAdminMessages(data || [])
+
+  async function loadAdminMessages(uid) {
+    const userId = uid || profile?.id
+    const { data: msgs } = await supabase
+      .from('messages')
+      .select('*, sender:profiles!messages_sender_id_fkey(full_name)')
+      .order('created_at', { ascending: false })
+      .limit(100)
+    setAdminMessages(msgs || [])
+
+    if (userId) {
+      const { data: reads } = await supabase
+        .from('message_reads')
+        .select('message_id')
+        .eq('user_id', userId)
+      setReadMessageIds(new Set((reads || []).map(r => r.message_id)))
+    }
   }
+
+  async function markInboxAsRead() {
+    if (!profile) return
+    const inbox = adminMessages.filter(m => m.sender_id !== profile.id)
+    const unread = inbox.filter(m => !readMessageIds.has(m.id))
+    if (unread.length === 0) return
+    const rows = unread.map(m => ({ user_id: profile.id, message_id: m.id }))
+    await supabase.from('message_reads').upsert(rows, { onConflict: 'user_id,message_id' })
+    setReadMessageIds(prev => {
+      const next = new Set(prev)
+      unread.forEach(m => next.add(m.id))
+      return next
+    })
+  }
+
   async function loadCoverRequests() { const { data } = await supabase.from('shift_cover_requests').select('*, profiles(full_name)').order('requested_at', { ascending: false }); setCoverRequests(data || []) }
   async function loadDateCoverShifts(date) { const { data } = await supabase.from('shifts').select('*, profiles(id, full_name)').gte('clock_in', date + 'T00:00:00Z').lt('clock_in', date + 'T23:59:59Z'); setDateCoverShifts(data || []) }
 
@@ -212,7 +250,6 @@ export default function AdminPage() {
   }
 
   // ── Image helpers ─────────────────────────────────────────────────────────
-
   function handleImageSelect(e) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -220,13 +257,7 @@ export default function AdminPage() {
     setMsgImageFile(file)
     setMsgImagePreview(URL.createObjectURL(file))
   }
-
-  function clearImage() {
-    setMsgImageFile(null)
-    setMsgImagePreview(null)
-    if (fileInputRef.current) fileInputRef.current.value = ''
-  }
-
+  function clearImage() { setMsgImageFile(null); setMsgImagePreview(null); if (fileInputRef.current) fileInputRef.current.value = '' }
   async function uploadImage(userId) {
     if (!msgImageFile) return null
     setUploadingImage(true)
@@ -240,20 +271,14 @@ export default function AdminPage() {
   }
 
   // ── Message sending ───────────────────────────────────────────────────────
-
   async function handleAdminSendMessage(e) {
     e.preventDefault()
     if (!msgBody.trim() && !msgImageFile) return
     setSendingMsg(true)
-
     const imageUrl = await uploadImage(profile.id)
     if (msgImageFile && !imageUrl) { setSendingMsg(false); return }
-
     const payload = {
-      sender_id: profile.id,
-      recipient_type: msgRecipientType,
-      body: msgBody.trim(),
-      image_url: imageUrl || null,
+      sender_id: profile.id, recipient_type: msgRecipientType, body: msgBody.trim(), image_url: imageUrl || null,
       recipient_shift: msgRecipientType === 'shift' ? msgRecipientShift : null,
       recipient_day: msgRecipientType === 'shift' ? msgRecipientDay : null,
       recipient_role: msgRecipientType === 'role' ? msgRecipientRole : msgRecipientType === 'affiliation_missionary' ? 'missionary' : null,
@@ -264,16 +289,13 @@ export default function AdminPage() {
     else {
       showMessage('Message sent!', 'success')
       await audit('sent_message', 'message', null, null, `To: ${msgRecipientType}`)
-      setMsgBody('')
-      clearImage()
-      setMsgView('inbox')
+      setMsgBody(''); clearImage(); setMsgView('inbox')
       await loadAdminMessages()
     }
     setSendingMsg(false)
   }
 
-  // ── All other handlers (unchanged from original) ──────────────────────────
-
+  // ── All other action handlers ─────────────────────────────────────────────
   async function approveCallout(callout) {
     const { error } = await supabase.from('callouts').update({ status: 'approved', is_read: true }).eq('id', callout.id)
     if (error) showMessage(error.message, 'error')
@@ -307,8 +329,7 @@ export default function AdminPage() {
   async function loadAllShifts() {
     setShiftsLoading(true)
     const { data } = await supabase.from('shifts').select('*, profiles(id, full_name)').order('clock_in', { ascending: false }).limit(200)
-    setAllShifts(data || [])
-    setShiftsLoading(false)
+    setAllShifts(data || []); setShiftsLoading(false)
   }
   async function handleShiftEditSave(shiftId) {
     setSavingShift(true)
@@ -365,7 +386,25 @@ export default function AdminPage() {
     else { showMessage('Shift entry created!', 'success'); await audit('created_shift', 'shift', null, vol?.full_name, `${formatDateTime(clockIn)}`); setNewShiftForm({ volunteer_id: '', clock_in: '', clock_out: '', role: '' }); setShowNewShiftForm(false); await loadAllShifts(); await loadActiveShifts(); await loadVolunteers() }
     setCreatingShift(false)
   }
-
+  async function handleAddEntry() {
+    if (!addVolId) return; setAddingEntry(true)
+    const currentEntries = getEntries(scheduleDay, scheduleShift, addingRole)
+    const limit = ROLE_SUGGESTIONS[addingRole]
+    if (limit && currentEntries.length >= limit) { showMessage(`Limit reached for ${addingRole} (${limit})`, 'error'); setAddingEntry(false); return }
+    const exists = schedule.find(s => s.volunteer_id === addVolId && s.day_of_week === scheduleDay && s.shift_time === scheduleShift && s.role === addingRole)
+    if (exists) { showMessage('Volunteer already assigned to this slot', 'error'); setAddingEntry(false); return }
+    const vol = volunteers.find(v => v.id === addVolId)
+    const { error } = await supabase.from('schedule').insert({ volunteer_id: addVolId, day_of_week: scheduleDay, shift_time: scheduleShift, role: addingRole, start_date: addStartDate || null, end_date: addEndDate || null, week_pattern: addWeekPattern || 'every', notes: addNotes || null })
+    if (error) showMessage(error.message, 'error')
+    else { showMessage('Volunteer assigned!', 'success'); await audit('assigned_schedule', 'schedule', null, vol?.full_name, `${scheduleDay} ${scheduleShift} — ${addingRole}`); setAddingRole(null); setAddVolId(''); setAddStartDate(''); setAddEndDate(''); setAddWeekPattern('every'); setAddNotes(''); await loadSchedule() }
+    setAddingEntry(false)
+  }
+  async function handleRemoveEntry(id) {
+    const entry = schedule.find(s => s.id === id)
+    const { error } = await supabase.from('schedule').delete().eq('id', id)
+    if (error) showMessage(error.message, 'error')
+    else { showMessage('Removed from schedule', 'success'); await audit('removed_schedule', 'schedule', id, entry?.profiles?.full_name, `${entry?.day_of_week} ${entry?.shift_time} — ${entry?.role}`); await loadSchedule() }
+  }
   function openVolunteer(v) {
     setTab('volunteers'); setSelectedVolunteer(v)
     setEditForm({ full_name: v.full_name||'', email: v.email||'', phone: v.phone||'', affiliation: v.affiliation||'', credentials: v.credentials||'', languages: v.languages||'', role: v.role||'volunteer', sma_name: v.sma_name||'', sma_contact: v.sma_contact||'', school: v.school||'', default_role: v.default_role||'', birthday: v.birthday||'' })
@@ -481,26 +520,6 @@ export default function AdminPage() {
     })
   }
 
-  async function handleAddEntry() {
-    if (!addVolId) return; setAddingEntry(true)
-    const currentEntries = getEntries(scheduleDay, scheduleShift, addingRole)
-    const limit = ROLE_SUGGESTIONS[addingRole]
-    if (limit && currentEntries.length >= limit) { showMessage(`Limit reached for ${addingRole} (${limit})`, 'error'); setAddingEntry(false); return }
-    const exists = schedule.find(s => s.volunteer_id === addVolId && s.day_of_week === scheduleDay && s.shift_time === scheduleShift && s.role === addingRole)
-    if (exists) { showMessage('Volunteer already assigned to this slot', 'error'); setAddingEntry(false); return }
-    const vol = volunteers.find(v => v.id === addVolId)
-    const { error } = await supabase.from('schedule').insert({ volunteer_id: addVolId, day_of_week: scheduleDay, shift_time: scheduleShift, role: addingRole, start_date: addStartDate || null, end_date: addEndDate || null, week_pattern: addWeekPattern || 'every', notes: addNotes || null })
-    if (error) showMessage(error.message, 'error')
-    else { showMessage('Volunteer assigned!', 'success'); await audit('assigned_schedule', 'schedule', null, vol?.full_name, `${scheduleDay} ${scheduleShift} — ${addingRole}`); setAddingRole(null); setAddVolId(''); setAddStartDate(''); setAddEndDate(''); setAddWeekPattern('every'); setAddNotes(''); await loadSchedule() }
-    setAddingEntry(false)
-  }
-  async function handleRemoveEntry(id) {
-    const entry = schedule.find(s => s.id === id)
-    const { error } = await supabase.from('schedule').delete().eq('id', id)
-    if (error) showMessage(error.message, 'error')
-    else { showMessage('Removed from schedule', 'success'); await audit('removed_schedule', 'schedule', id, entry?.profiles?.full_name, `${entry?.day_of_week} ${entry?.shift_time} — ${entry?.role}`); await loadSchedule() }
-  }
-
   if (loading) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}><p style={{ color: 'var(--muted)' }}>Loading...</p></div>
 
   const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }
@@ -512,25 +531,26 @@ export default function AdminPage() {
 
   const tzLabel = getMountainLabel()
   const volunteerList = volunteers.filter(v => v.role === 'volunteer' && (showInactive ? true : (v.status || 'active') === 'active')).sort((a, b) => { const ln = n => (n?.full_name?.split(' ').slice(-1)[0] || '').toLowerCase(); return ln(a).localeCompare(ln(b)) })
-  const userList = volunteers
-  .filter(v => showInactive || (v.status || 'active') === 'active')
-  .sort((a, b) => {
-    const ln = n =>
-      (n?.full_name?.split(' ').slice(-1)[0] || '').toLowerCase()
-    return ln(a).localeCompare(ln(b))
-  })  
   const adminList = volunteers.filter(v => v.role === 'admin')
   const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
   const messages24h = adminMessages.filter(m => m.created_at >= cutoff24h && m.sender_id !== profile?.id).length
   const dayShiftCombos = DAYS.flatMap(d => SHIFTS.map(s => ({ day: d, shift: s, label: `${d.charAt(0).toUpperCase() + d.slice(1,3)} ${s}` })))
   const filteredShifts = shiftFilterVolId ? allShifts.filter(s => s.volunteer_id === shiftFilterVolId) : allShifts
 
-  // ── Shared message card renderer ─────────────────────────────────────────
+  // Unread count for badge — messages sent to admin inbox that haven't been read
+  const inboxMessages = adminMessages.filter(m => m.sender_id !== profile?.id)
+  const unreadCount = inboxMessages.filter(m => !readMessageIds.has(m.id)).length
+
+  // ── Shared message card renderer ──────────────────────────────────────────
   function MessageCard({ m }) {
+    const isUnread = !readMessageIds.has(m.id) && m.sender_id !== profile?.id
     return (
-      <div style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+      <div style={{ padding: '0.75rem 1rem', background: isUnread ? 'rgba(2,65,107,0.04)' : 'var(--bg)', borderRadius: '8px', border: `1px solid ${isUnread ? 'rgba(2,65,107,0.35)' : 'var(--border)'}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
-          <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{m.sender?.full_name || 'Unknown'}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {isUnread && <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#ef4444', flexShrink: 0 }} />}
+            <span style={{ fontWeight: isUnread ? 700 : 600, fontSize: '0.9rem' }}>{m.sender?.full_name || 'Unknown'}</span>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>{recipientLabel(m)}</span>
             <span style={{ color: 'var(--muted)', fontSize: '0.78rem', fontFamily: 'DM Mono, monospace' }}>{formatDateTime(m.created_at)}</span>
@@ -538,12 +558,8 @@ export default function AdminPage() {
         </div>
         {m.body && <p style={{ fontSize: '0.9rem', lineHeight: 1.5, marginBottom: m.image_url ? '0.75rem' : 0 }}>{m.body}</p>}
         {m.image_url && (
-          <img
-            src={m.image_url}
-            alt="Attached image"
-            onClick={() => setLightboxUrl(m.image_url)}
-            style={{ maxWidth: '100%', maxHeight: '260px', borderRadius: '8px', objectFit: 'cover', cursor: 'zoom-in', border: '1px solid var(--border)', display: 'block', marginTop: m.body ? '0.5rem' : 0 }}
-          />
+          <img src={m.image_url} alt="Attached image" onClick={() => setLightboxUrl(m.image_url)}
+            style={{ maxWidth: '100%', maxHeight: '260px', borderRadius: '8px', objectFit: 'cover', cursor: 'zoom-in', border: '1px solid var(--border)', display: 'block', marginTop: m.body ? '0.5rem' : 0 }} />
         )}
       </div>
     )
@@ -553,54 +569,13 @@ export default function AdminPage() {
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
       <div style={{ maxWidth: '960px', margin: '0 auto' }}>
 
-        {/*Header*/}
+        {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
           <div>
             <h1 style={{ fontSize: '1.4rem', fontWeight: 600, letterSpacing: '-0.02em' }}>Admin Dashboard</h1>
             <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Bingham Family Clinic &nbsp;·&nbsp;<span style={{ fontFamily: 'DM Mono, monospace' }}>{currentTime.toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit' })} {tzLabel}</span></p>
           </div>
-          {profile?.role === 'admin' && (
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-             <button
-                onClick={() => {
-                  if (window.location.pathname.includes('admin')) {
-                    window.location.href = '/volunteer'
-                  } else {
-                    window.location.href = '/admin'
-                 }
-                }}
-                style={{
-                  background: 'none',
-                  border: '1px solid var(--border)',
-                  borderRadius: '8px',
-                  color: 'var(--muted)',
-                  padding: '0.4rem 0.9rem',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem'
-                }}
-              >
-                Volunteer View
-              </button>
-            
-              <button
-               onClick={async () => {
-                 await supabase.auth.signOut()
-                  window.location.href = '/'
-                }}
-                style={{
-                  background: 'none',
-                  border: '1px solid var(--border)',
-                  borderRadius: '8px',
-                  color: 'var(--muted)',
-                  padding: '0.4rem 0.9rem',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem'
-                }}
-             >
-                Sign out
-             </button>
-            </div>
-          )}
+          <button onClick={async () => { await supabase.auth.signOut(); window.location.href = '/' }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>Sign out</button>
         </div>
 
         {/* Stats */}
@@ -620,99 +595,63 @@ export default function AdminPage() {
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
           {[['dashboard','Live'],['schedule','Schedule'],['volunteers','Volunteers'],['shifts','Shifts'],['callouts','Call-Outs'],['messages','Messages'],['hours','Hours'],['audit','Recent Activity'],['create','Add Volunteer']].map(([key, label]) => (
-            <button key={key} onClick={() => { setTab(key); setSelectedVolunteer(null); setAddingRole(null); if (key === 'shifts' && allShifts.length === 0) loadAllShifts(); if (key === 'hours') loadHoursSubmissions(); if (key === 'audit') loadAuditLogs() }}
-              style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: tab === key ? 'var(--accent)' : 'var(--surface)', color: tab === key ? '#fff' : 'var(--muted)', border: tab === key ? 'none' : '1px solid var(--border)' }}>{label}</button>
+            <button key={key} onClick={() => {
+              setTab(key); setSelectedVolunteer(null); setAddingRole(null)
+              if (key === 'shifts' && allShifts.length === 0) loadAllShifts()
+              if (key === 'hours') loadHoursSubmissions()
+              if (key === 'audit') loadAuditLogs()
+            }} style={{
+              position: 'relative', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500,
+              cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+              background: tab === key ? 'var(--accent)' : 'var(--surface)',
+              color: tab === key ? '#fff' : 'var(--muted)',
+              border: tab === key ? 'none' : '1px solid var(--border)',
+            }}>
+              {label}
+              {key === 'messages' && unreadCount > 0 && (
+                <span style={{
+                  position: 'absolute', top: '-5px', right: '-5px',
+                  background: '#ef4444', color: '#fff',
+                  borderRadius: '50%', width: '17px', height: '17px',
+                  fontSize: '0.65rem', fontWeight: 700,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  border: '2px solid var(--bg)', lineHeight: 1,
+                }}>
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
           ))}
         </div>
 
         {/* LIVE TAB */}
         {tab === 'dashboard' && (() => {
           const todayMtnStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
-          const mtnNow = getMountainNow()
-          const dayIndex = mtnNow.getDay()
-          const isWeekday = dayIndex >= 1 && dayIndex <= 5
+          const mtnNow = getMountainNow(); const dayIndex = mtnNow.getDay(); const isWeekday = dayIndex >= 1 && dayIndex <= 5
           const h = mtnNow.getHours() + mtnNow.getMinutes() / 60
           const currentShift = h >= 10 && h < 14 ? '10-2' : h >= 14 && h < 18 ? '2-6' : null
           const currentDay = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
-
           const expectedVolunteers = isWeekday && currentShift ? (() => {
-            const calledOutIds = new Set(
-              callouts
-                .filter(c => c.callout_date === todayMtnStr && c.shift_time === currentShift && c.status === 'approved')
-                .map(c => c.volunteer_id)
-            )
-            const coverIds = new Set(
-              callouts
-                .filter(c => c.callout_date === todayMtnStr && c.shift_time === currentShift && c.covered_by)
-                .map(c => c.covered_by)
-            )
-            const scheduled = schedule.filter(s =>
-              s.day_of_week === currentDay &&
-              s.shift_time === currentShift &&
-              (!s.start_date || s.start_date <= todayMtnStr) &&
-              (!s.end_date   || s.end_date   >= todayMtnStr)
-            )
-            const expectedIds = new Set([
-              ...scheduled.filter(s => !calledOutIds.has(s.volunteer_id)).map(s => s.volunteer_id),
-              ...coverIds,
-            ])
+            const calledOutIds = new Set(callouts.filter(c => c.callout_date === todayMtnStr && c.shift_time === currentShift && c.status === 'approved').map(c => c.volunteer_id))
+            const coverIds = new Set(callouts.filter(c => c.callout_date === todayMtnStr && c.shift_time === currentShift && c.covered_by).map(c => c.covered_by))
+            const scheduled = schedule.filter(s => s.day_of_week === currentDay && s.shift_time === currentShift && (!s.start_date || s.start_date <= todayMtnStr) && (!s.end_date || s.end_date >= todayMtnStr))
+            const expectedIds = new Set([...scheduled.filter(s => !calledOutIds.has(s.volunteer_id)).map(s => s.volunteer_id), ...coverIds])
             const clockedInIds = new Set(activeShifts.map(s => s.profiles?.id).filter(Boolean))
-            return [...expectedIds]
-              .filter(id => !clockedInIds.has(id))
-              .map(id => {
-                const vol = volunteers.find(v => v.id === id)
-                const entry = scheduled.find(s => s.volunteer_id === id)
-                if (!vol) return null
-                return { ...vol, role: entry?.role || '—', notes: entry?.notes || null }
-              })
-              .filter(Boolean)
+            return [...expectedIds].filter(id => !clockedInIds.has(id)).map(id => { const vol = volunteers.find(v => v.id === id); const entry = scheduled.find(s => s.volunteer_id === id); if (!vol) return null; return { ...vol, role: entry?.role || '—', notes: entry?.notes || null } }).filter(Boolean)
           })() : []
-
           return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {isWeekday && currentShift && (
                 <div style={{ ...card, borderColor: expectedVolunteers.length > 0 ? 'var(--danger)' : 'rgba(2,65,107,0.4)', background: expectedVolunteers.length > 0 ? 'rgba(239,68,68,0.03)' : 'rgba(2,65,107,0.03)' }}>
-                  <h2 style={{ fontWeight: 600, marginBottom: expectedVolunteers.length > 0 ? '1rem' : 0, fontSize: '1rem' }}>
-                    {expectedVolunteers.length > 0
-                      ? `${expectedVolunteers.length} volunteer${expectedVolunteers.length !== 1 ? 's' : ''} not yet clocked in — ${currentDay} ${currentShift}`
-                      : `All expected volunteers clocked in — ${currentDay} ${currentShift}`}
-                  </h2>
-                  {expectedVolunteers.length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {expectedVolunteers.map(v => (
-                        <div key={v.id} onClick={() => openVolunteer(v)}
-                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'rgba(239,68,68,0.06)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer' }}
-                          onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
-                          onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(239,68,68,0.2)'}
-                        >
-                          <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{v.full_name}</span>
-                          {v.notes && <span style={{ fontSize: '0.78rem', color: '#60a5fa', fontStyle: 'italic' }}>({v.notes})</span>}
-                          <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{v.role}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <h2 style={{ fontWeight: 600, marginBottom: expectedVolunteers.length > 0 ? '1rem' : 0, fontSize: '1rem' }}>{expectedVolunteers.length > 0 ? `${expectedVolunteers.length} volunteer${expectedVolunteers.length !== 1 ? 's' : ''} not yet clocked in — ${currentDay} ${currentShift}` : `All expected volunteers clocked in — ${currentDay} ${currentShift}`}</h2>
+                  {expectedVolunteers.length > 0 && <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>{expectedVolunteers.map(v => (<div key={v.id} onClick={() => openVolunteer(v)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'rgba(239,68,68,0.06)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer' }} onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'} onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(239,68,68,0.2)'}><span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{v.full_name}</span>{v.notes && <span style={{ fontSize: '0.78rem', color: '#60a5fa', fontStyle: 'italic' }}>({v.notes})</span>}<span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{v.role}</span></div>))}</div>}
                 </div>
               )}
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Currently Clocked In</h2>
-                {activeShifts.length === 0 ? (
-                  <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No one is currently clocked in.</p>
-                ) : (
+                {activeShifts.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No one is currently clocked in.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {activeShifts.map(s => (
-                      <div key={s.id} onClick={() => { const full = volunteers.find(v => v.id === s.profiles?.id); if (full) openVolunteer(full) }}
-                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(2,65,107,0.05)', borderRadius: '8px', border: '1px solid var(--accent)', cursor: 'pointer' }}
-                        onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
-                        onMouseLeave={e => e.currentTarget.style.opacity = '1'}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 6px var(--accent)' }} />
-                          <span style={{ fontWeight: 500 }}>{s.profiles?.full_name}</span>
-                        </div>
-                        <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Since {formatMountain(s.clock_in)}</span>
-                      </div>
-                    ))}
+                    {activeShifts.map(s => (<div key={s.id} onClick={() => { const full = volunteers.find(v => v.id === s.profiles?.id); if (full) openVolunteer(full) }} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(2,65,107,0.05)', borderRadius: '8px', border: '1px solid var(--accent)', cursor: 'pointer' }} onMouseEnter={e => e.currentTarget.style.opacity = '0.85'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}><div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}><div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 6px var(--accent)' }} /><span style={{ fontWeight: 500 }}>{s.profiles?.full_name}</span></div><span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Since {formatMountain(s.clock_in)}</span></div>))}
                   </div>
                 )}
               </div>
@@ -721,38 +660,9 @@ export default function AdminPage() {
                 const todaysCallouts = callouts.filter(c => c.callout_date === todayMtn && c.status !== 'denied')
                 return todaysCallouts.length > 0 && (
                   <div style={card}>
-                    <h2 style={{ fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span>Today's Call-Outs</span>
-                      <span style={{ padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>
-                        {todaysCallouts.length}
-                      </span>
-                    </h2>
+                    <h2 style={{ fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><span>Today's Call-Outs</span><span style={{ padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>{todaysCallouts.length}</span></h2>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {todaysCallouts.map(c => {
-                        const isCovered = c.status === 'approved' && c.covered_by
-                        const isOpen    = c.status === 'approved' && !c.covered_by
-                        const isPending = !c.status || c.status === 'pending'
-                        return (
-                          <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: isCovered ? 'rgba(2,65,107,0.04)' : isOpen ? 'rgba(239,68,68,0.04)' : 'rgba(96,165,250,0.05)', borderRadius: '8px', border: `1px solid ${isCovered ? 'rgba(2,65,107,0.25)' : isOpen ? 'rgba(239,68,68,0.25)' : 'rgba(96,165,250,0.3)'}`, flexWrap: 'wrap', gap: '0.5rem' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-                              <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{c.profiles?.full_name}</span>
-                              {c.shift_time && (
-                                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(96,165,250,0.3)' }}>
-                                  {c.day_of_week ? c.day_of_week.charAt(0).toUpperCase() + c.day_of_week.slice(1,3) + ' ' : ''}{c.shift_time}
-                                </span>
-                              )}
-                              <span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', fontWeight: 600,
-                                background: isCovered ? 'rgba(2,65,107,0.1)' : isOpen ? 'rgba(239,68,68,0.08)' : 'rgba(96,165,250,0.1)',
-                                color: isCovered ? 'var(--accent)' : isOpen ? '#ef4444' : '#60a5fa',
-                                border: `1px solid ${isCovered ? 'rgba(2,65,107,0.3)' : isOpen ? 'rgba(239,68,68,0.25)' : 'rgba(96,165,250,0.3)'}`,
-                              }}>
-                                {isCovered ? 'covered' : isOpen ? 'open' : 'pending'}
-                              </span>
-                              {c.reason && <span style={{ fontSize: '0.82rem', color: 'var(--muted)', fontStyle: 'italic' }}>{c.reason}</span>}
-                            </div>
-                          </div>
-                        )
-                      })}
+                      {todaysCallouts.map(c => { const isCovered = c.status === 'approved' && c.covered_by; const isOpen = c.status === 'approved' && !c.covered_by; return (<div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: isCovered ? 'rgba(2,65,107,0.04)' : isOpen ? 'rgba(239,68,68,0.04)' : 'rgba(96,165,250,0.05)', borderRadius: '8px', border: `1px solid ${isCovered ? 'rgba(2,65,107,0.25)' : isOpen ? 'rgba(239,68,68,0.25)' : 'rgba(96,165,250,0.3)'}`, flexWrap: 'wrap', gap: '0.5rem' }}><div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}><span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{c.profiles?.full_name}</span>{c.shift_time && <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(96,165,250,0.3)' }}>{c.day_of_week ? c.day_of_week.charAt(0).toUpperCase() + c.day_of_week.slice(1,3) + ' ' : ''}{c.shift_time}</span>}<span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', fontWeight: 600, background: isCovered ? 'rgba(2,65,107,0.1)' : isOpen ? 'rgba(239,68,68,0.08)' : 'rgba(96,165,250,0.1)', color: isCovered ? 'var(--accent)' : isOpen ? '#ef4444' : '#60a5fa', border: `1px solid ${isCovered ? 'rgba(2,65,107,0.3)' : isOpen ? 'rgba(239,68,68,0.25)' : 'rgba(96,165,250,0.3)'}` }}>{isCovered ? 'covered' : isOpen ? 'open' : 'pending'}</span>{c.reason && <span style={{ fontSize: '0.82rem', color: 'var(--muted)', fontStyle: 'italic' }}>{c.reason}</span>}</div></div>) })}
                     </div>
                   </div>
                 )
@@ -765,30 +675,11 @@ export default function AdminPage() {
         {tab === 'schedule' && (
           <div>
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                {DAYS.map(d => (
-                  <button key={d} onClick={() => { setScheduleDay(d); setAddingRole(null); setScheduleDate(''); setDateCoverShifts([]) }} style={{ ...pillBtn(scheduleDay === d, false), textTransform: 'capitalize' }}>{d.slice(0,3)}</button>
-                ))}
-              </div>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                {SHIFTS.map(sh => (
-                  <button key={sh} onClick={() => { setScheduleShift(sh); setAddingRole(null); setScheduleDate(''); setDateCoverShifts([]) }} style={pillBtn(scheduleShift === sh, true)}>{sh}</button>
-                ))}
-              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>{DAYS.map(d => (<button key={d} onClick={() => { setScheduleDay(d); setAddingRole(null); setScheduleDate(''); setDateCoverShifts([]) }} style={{ ...pillBtn(scheduleDay === d, false), textTransform: 'capitalize' }}>{d.slice(0,3)}</button>))}</div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>{SHIFTS.map(sh => (<button key={sh} onClick={() => { setScheduleShift(sh); setAddingRole(null); setScheduleDate(''); setDateCoverShifts([]) }} style={pillBtn(scheduleShift === sh, true)}>{sh}</button>))}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: 'auto' }}>
                 <label style={{ ...labelStyle, margin: 0, whiteSpace: 'nowrap' }}>View date:</label>
-                <input type="date" value={scheduleDate} onChange={e => {
-                  const val = e.target.value
-                  setScheduleDate(val)
-                  if (val) {
-                    loadDateCoverShifts(val)
-                    const d = new Date(val + 'T12:00:00')
-                    const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][d.getDay()]
-                    if (dayName !== 'sunday' && dayName !== 'saturday') setScheduleDay(dayName)
-                  } else {
-                    setDateCoverShifts([])
-                  }
-                }} style={{ ...inputStyle, width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.85rem' }} />
+                <input type="date" value={scheduleDate} onChange={e => { const val = e.target.value; setScheduleDate(val); if (val) { loadDateCoverShifts(val); const d = new Date(val + 'T12:00:00'); const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][d.getDay()]; if (dayName !== 'sunday' && dayName !== 'saturday') setScheduleDay(dayName) } else { setDateCoverShifts([]) } }} style={{ ...inputStyle, width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.85rem' }} />
               </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -798,28 +689,14 @@ export default function AdminPage() {
                 return (
                   <div key={role} style={{ ...card, padding: '1rem 1.25rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: entries.length > 0 || isOpen ? '0.75rem' : 0 }}>
-                      <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>
-                        {role}{ROLE_SUGGESTIONS[role] ? ` — ${ROLE_SUGGESTIONS[role]}` : ''}
-                      </span>
-                      <button onClick={() => { setAddingRole(isOpen ? null : role); setAddVolId('') }} style={{
-                        padding: '0.3rem 0.75rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-                        background: isOpen ? 'var(--surface)' : 'rgba(2,65,107,0.12)',
-                        color: isOpen ? 'var(--muted)' : 'var(--accent)',
-                        border: `1px solid ${isOpen ? 'var(--border)' : 'var(--accent)'}`,
-                      }}>{isOpen ? 'Cancel' : '+ Assign'}</button>
+                      <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{role}{ROLE_SUGGESTIONS[role] ? ` — ${ROLE_SUGGESTIONS[role]}` : ''}</span>
+                      <button onClick={() => { setAddingRole(isOpen ? null : role); setAddVolId('') }} style={{ padding: '0.3rem 0.75rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: isOpen ? 'var(--surface)' : 'rgba(2,65,107,0.12)', color: isOpen ? 'var(--muted)' : 'var(--accent)', border: `1px solid ${isOpen ? 'var(--border)' : 'var(--accent)'}` }}>{isOpen ? 'Cancel' : '+ Assign'}</button>
                     </div>
                     {entries.length > 0 && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: isOpen ? '0.75rem' : 0 }}>
                         {entries.map(entry => {
-                          const approvedCallout = callouts.find(c =>
-                            c.volunteer_id === entry.volunteer_id &&
-                            c.callout_date === scheduleDate &&
-                            c.shift_time === scheduleShift &&
-                            c.status === 'approved'
-                          )
-                          const coverShift = approvedCallout && dateCoverShifts.find(s =>
-                            s.volunteer_id === approvedCallout.covered_by
-                          )
+                          const approvedCallout = callouts.find(c => c.volunteer_id === entry.volunteer_id && c.callout_date === scheduleDate && c.shift_time === scheduleShift && c.status === 'approved')
+                          const coverShift = approvedCallout && dateCoverShifts.find(s => s.volunteer_id === approvedCallout.covered_by)
                           const coverName = coverShift ? coverShift.profiles?.full_name : null
                           return (
                             <div key={entry.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
@@ -827,19 +704,10 @@ export default function AdminPage() {
                                 {approvedCallout && <span style={{ fontSize: '0.7rem' }}>out</span>}
                                 <span style={{ textDecoration: approvedCallout ? 'line-through' : 'none', opacity: approvedCallout ? 0.6 : 1 }}>{entry.profiles?.full_name}</span>
                                 {entry.notes && <span style={{ fontSize: '0.65rem', color: 'var(--muted)', fontStyle: 'italic' }}>({entry.notes})</span>}
-                                {entry.week_pattern && entry.week_pattern !== 'every' && (
-                                  <span style={{ fontSize: '0.65rem', background: 'rgba(96,165,250,0.15)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>
-                                    {entry.week_pattern === 'odd' ? '1st&3rd' : '2nd&4th'}
-                                  </span>
-                                )}
+                                {entry.week_pattern && entry.week_pattern !== 'every' && (<span style={{ fontSize: '0.65rem', background: 'rgba(96,165,250,0.15)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>{entry.week_pattern === 'odd' ? '1st&3rd' : '2nd&4th'}</span>)}
                                 <button onClick={() => handleRemoveEntry(entry.id)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 2px' }}>✕</button>
                               </div>
-                              {coverName && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.25rem 0.6rem 0.25rem 0.75rem', borderRadius: '100px', fontSize: '0.82rem', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.35)', color: '#60a5fa', marginLeft: '0.5rem' }}>
-                                  <span style={{ fontSize: '0.7rem' }}>cover</span>
-                                  <span>{coverName}</span>
-                                </div>
-                              )}
+                              {coverName && (<div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.25rem 0.6rem 0.25rem 0.75rem', borderRadius: '100px', fontSize: '0.82rem', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.35)', color: '#60a5fa', marginLeft: '0.5rem' }}><span style={{ fontSize: '0.7rem' }}>cover</span><span>{coverName}</span></div>)}
                             </div>
                           )
                         })}
@@ -847,40 +715,16 @@ export default function AdminPage() {
                     )}
                     {isOpen && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        <select value={addVolId} onChange={e => setAddVolId(e.target.value)} style={inputStyle}>
-                          <option value="">— Select volunteer —</option>
-                          {userList.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}
-                        </select>
+                        <select value={addVolId} onChange={e => setAddVolId(e.target.value)} style={inputStyle}><option value="">— Select volunteer —</option>{volunteerList.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}</select>
                         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                          {[
-                            { value: 'every', label: 'Every week' },
-                            { value: 'odd',   label: '1st & 3rd' },
-                            { value: 'even',  label: '2nd & 4th' },
-                          ].map(opt => (
-                            <button key={opt.value} type="button" onClick={() => setAddWeekPattern(opt.value)}
-                              style={{ ...pillBtn(addWeekPattern === opt.value, false), fontSize: '0.78rem', padding: '0.3rem 0.75rem' }}>
-                              {opt.label}
-                            </button>
-                          ))}
+                          {[{ value: 'every', label: 'Every week' }, { value: 'odd', label: '1st & 3rd' }, { value: 'even', label: '2nd & 4th' }].map(opt => (<button key={opt.value} type="button" onClick={() => setAddWeekPattern(opt.value)} style={{ ...pillBtn(addWeekPattern === opt.value, false), fontSize: '0.78rem', padding: '0.3rem 0.75rem' }}>{opt.label}</button>))}
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                          <div>
-                            <label style={labelStyle}>Start date <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional)</span></label>
-                            <input type="date" value={addStartDate} onChange={e => setAddStartDate(e.target.value)} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} />
-                          </div>
-                          <div>
-                            <label style={labelStyle}>End date <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional)</span></label>
-                            <input type="date" value={addEndDate} onChange={e => setAddEndDate(e.target.value)} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} />
-                          </div>
+                          <div><label style={labelStyle}>Start date <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional)</span></label><input type="date" value={addStartDate} onChange={e => setAddStartDate(e.target.value)} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} /></div>
+                          <div><label style={labelStyle}>End date <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional)</span></label><input type="date" value={addEndDate} onChange={e => setAddEndDate(e.target.value)} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} /></div>
                         </div>
-                        <div>
-                          <label style={labelStyle}>Schedule note <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional)</span></label>
-                          <input type="text" value={addNotes} onChange={e => setAddNotes(e.target.value)} placeholder="e.g. arriving late" style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} />
-                        </div>
-                        <button onClick={handleAddEntry} disabled={!addVolId || addingEntry}
-                          style={{ padding: '0.75rem 1.25rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
-                          {addingEntry ? '...' : 'Assign'}
-                        </button>
+                        <div><label style={labelStyle}>Schedule note <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional)</span></label><input type="text" value={addNotes} onChange={e => setAddNotes(e.target.value)} placeholder="e.g. arriving late" style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} /></div>
+                        <button onClick={handleAddEntry} disabled={!addVolId || addingEntry} style={{ padding: '0.75rem 1.25rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{addingEntry ? '...' : 'Assign'}</button>
                       </div>
                     )}
                   </div>
@@ -895,27 +739,16 @@ export default function AdminPage() {
           <div style={card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
               <h2 style={{ fontWeight: 600 }}>All Volunteers <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: '0.85rem' }}>— click to view or edit</span></h2>
-              <button onClick={() => setShowInactive(s => !s)} style={{ padding: '0.35rem 0.85rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showInactive ? 'rgba(156,163,175,0.15)' : 'var(--surface)', color: showInactive ? 'var(--text)' : 'var(--muted)', border: '1px solid var(--border)' }}>
-                {showInactive ? 'Hide Inactive' : 'Show Inactive'}
-              </button>
+              <button onClick={() => setShowInactive(s => !s)} style={{ padding: '0.35rem 0.85rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showInactive ? 'rgba(156,163,175,0.15)' : 'var(--surface)', color: showInactive ? 'var(--text)' : 'var(--muted)', border: '1px solid var(--border)' }}>{showInactive ? 'Hide Inactive' : 'Show Inactive'}</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {userList.map(v => {
+              {volunteerList.map(v => {
                 const isInactive = (v.status || 'active') === 'inactive'
                 return (
-                  <div key={v.id} onClick={() => openVolunteer(v)}
-                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: isInactive ? 'rgba(156,163,175,0.06)' : 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', cursor: 'pointer', opacity: isInactive ? 0.7 : 1 }}
-                    onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
-                    onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
-                  >
+                  <div key={v.id} onClick={() => openVolunteer(v)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: isInactive ? 'rgba(156,163,175,0.06)' : 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', cursor: 'pointer', opacity: isInactive ? 0.7 : 1 }} onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'} onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: isInactive ? 'var(--muted)' : 'var(--accent)' }}>
-                        {v.full_name?.charAt(0)}
-                      </div>
-                      <div>
-                        <p style={{ fontWeight: 500, color: isInactive ? 'var(--muted)' : 'var(--text)' }}>{v.full_name}</p>
-                        <p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{v.email}</p>
-                      </div>
+                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: isInactive ? 'var(--muted)' : 'var(--accent)' }}>{v.full_name?.charAt(0)}</div>
+                      <div><p style={{ fontWeight: 500, color: isInactive ? 'var(--muted)' : 'var(--text)' }}>{v.full_name}</p><p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{v.email}</p></div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                       {isInactive && <span style={badgeStyle('#9ca3af')}>inactive</span>}
@@ -936,37 +769,15 @@ export default function AdminPage() {
             <button onClick={() => setSelectedVolunteer(null)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.875rem', marginBottom: '1.25rem', padding: 0, fontFamily: 'DM Sans, sans-serif' }}>← Back</button>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '1.3rem', color: 'var(--accent)', border: '2px solid var(--accent)' }}>
-                  {selectedVolunteer.full_name?.charAt(0)}
-                </div>
-                <div>
-                  <h2 style={{ fontWeight: 600, fontSize: '1.2rem' }}>{selectedVolunteer.full_name}</h2>
-                  <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{selectedVolunteer.email}</p>
-                </div>
+                <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '1.3rem', color: 'var(--accent)', border: '2px solid var(--accent)' }}>{selectedVolunteer.full_name?.charAt(0)}</div>
+                <div><h2 style={{ fontWeight: 600, fontSize: '1.2rem' }}>{selectedVolunteer.full_name}</h2><p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{selectedVolunteer.email}</p></div>
               </div>
               <button onClick={() => setEditing(!editing)} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: editing ? 'var(--surface)' : 'var(--accent)', color: editing ? 'var(--muted)' : '#0a0f0a', border: editing ? '1px solid var(--border)' : 'none' }}>{editing ? 'Cancel' : 'Edit'}</button>
             </div>
             {!editing ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                  {[
-                    { label: 'Phone', value: selectedVolunteer.phone },
-                    { label: 'Affiliation', value: selectedVolunteer.affiliation },
-                    { label: 'Credentials / Skills', value: selectedVolunteer.credentials },
-                    { label: 'Languages', value: selectedVolunteer.languages },
-                    { label: 'Total Hours', value: totalHours(selectedVolunteer.shifts) + 'h' },
-                    { label: 'Role', value: selectedVolunteer.role },
-                    { label: 'Default Position', value: selectedVolunteer.default_role },
-                    { label: 'Birthday', value: selectedVolunteer.birthday },
-                    ...(selectedVolunteer.affiliation === 'missionary' ? [
-                      { label: 'SMA Name', value: selectedVolunteer.sma_name },
-                      { label: 'SMA Contact', value: selectedVolunteer.sma_contact },
-                    ] : []),
-                    ...(selectedVolunteer.affiliation === 'student' ? [
-                      { label: 'School', value: selectedVolunteer.school },
-                      { label: 'Major', value: selectedVolunteer.major },
-                    ] : []),
-                  ].map(({ label, value }) => (
+                  {[{ label: 'Phone', value: selectedVolunteer.phone }, { label: 'Affiliation', value: selectedVolunteer.affiliation }, { label: 'Credentials / Skills', value: selectedVolunteer.credentials }, { label: 'Languages', value: selectedVolunteer.languages }, { label: 'Total Hours', value: totalHours(selectedVolunteer.shifts) + 'h' }, { label: 'Role', value: selectedVolunteer.role }, { label: 'Default Position', value: selectedVolunteer.default_role }, { label: 'Birthday', value: selectedVolunteer.birthday }, ...(selectedVolunteer.affiliation === 'missionary' ? [{ label: 'SMA Name', value: selectedVolunteer.sma_name }, { label: 'SMA Contact', value: selectedVolunteer.sma_contact }] : []), ...(selectedVolunteer.affiliation === 'student' ? [{ label: 'School', value: selectedVolunteer.school }, { label: 'Major', value: selectedVolunteer.major }] : [])].map(({ label, value }) => (
                     <div key={label} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                       <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>{label}</p>
                       <p style={{ fontWeight: 500, color: value ? 'var(--text)' : 'var(--muted)', fontStyle: value ? 'normal' : 'italic' }}>{value || 'Not set'}</p>
@@ -981,27 +792,11 @@ export default function AdminPage() {
                         <div>
                           <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>Status</p>
                           <p style={{ fontWeight: 600, color: isInactive ? 'var(--muted)' : 'var(--accent)' }}>{isInactive ? 'Inactive' : 'Active'}</p>
-                          {isInactive && selectedVolunteer.status_reason && (
-                            <p style={{ fontSize: '0.82rem', color: 'var(--muted)', marginTop: '0.25rem', fontStyle: 'italic' }}>Reason: {selectedVolunteer.status_reason}</p>
-                          )}
+                          {isInactive && selectedVolunteer.status_reason && (<p style={{ fontSize: '0.82rem', color: 'var(--muted)', marginTop: '0.25rem', fontStyle: 'italic' }}>Reason: {selectedVolunteer.status_reason}</p>)}
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minWidth: '200px' }}>
-                          {!isInactive && (
-                            <select value={statusForm.status_reason} onChange={e => setStatusForm({ ...statusForm, status_reason: e.target.value })} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}>
-                              <option value="">— Reason for deactivating —</option>
-                              <option value="Graduated">Graduated</option>
-                              <option value="Mission / Service Term Ended">Mission / Service Term Ended</option>
-                              <option value="Schedule Conflict">Schedule Conflict</option>
-                              <option value="Moved Away">Moved Away</option>
-                              <option value="Personal / Unknown">Personal / Unknown</option>
-                            </select>
-                          )}
-                          <button
-                            onClick={() => handleStatusChange(isInactive ? 'active' : 'inactive', statusForm.status_reason)}
-                            disabled={changingStatus || (!isInactive && !statusForm.status_reason)}
-                            style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600, cursor: (changingStatus || (!isInactive && !statusForm.status_reason)) ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', border: 'none', background: isInactive ? 'var(--accent)' : '#dc2626', color: isInactive ? '#0a0f0a' : '#fff', opacity: (!isInactive && !statusForm.status_reason) ? 0.5 : 1 }}>
-                            {changingStatus ? 'Saving...' : isInactive ? 'Reactivate' : 'Deactivate'}
-                          </button>
+                          {!isInactive && (<select value={statusForm.status_reason} onChange={e => setStatusForm({ ...statusForm, status_reason: e.target.value })} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}><option value="">— Reason for deactivating —</option><option value="Graduated">Graduated</option><option value="Mission / Service Term Ended">Mission / Service Term Ended</option><option value="Schedule Conflict">Schedule Conflict</option><option value="Moved Away">Moved Away</option><option value="Personal / Unknown">Personal / Unknown</option></select>)}
+                          <button onClick={() => handleStatusChange(isInactive ? 'active' : 'inactive', statusForm.status_reason)} disabled={changingStatus || (!isInactive && !statusForm.status_reason)} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600, cursor: (changingStatus || (!isInactive && !statusForm.status_reason)) ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', border: 'none', background: isInactive ? 'var(--accent)' : '#dc2626', color: isInactive ? '#0a0f0a' : '#fff', opacity: (!isInactive && !statusForm.status_reason) ? 0.5 : 1 }}>{changingStatus ? 'Saving...' : isInactive ? 'Reactivate' : 'Deactivate'}</button>
                         </div>
                       </div>
                     </div>
@@ -1013,60 +808,16 @@ export default function AdminPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                   <div><label style={labelStyle}>Full Name</label><input value={editForm.full_name} onChange={e => setEditForm({...editForm, full_name: e.target.value})} style={inputStyle} /></div>
                   <div><label style={labelStyle}>Phone</label><input value={editForm.phone} onChange={e => setEditForm({...editForm, phone: e.target.value})} placeholder="xxx-xxx-xxxx" style={inputStyle} /></div>
-                  <div>
-                    <label style={labelStyle}>Affiliation</label>
-                    <select value={editForm.affiliation} onChange={e => setEditForm({...editForm, affiliation: e.target.value})} style={inputStyle}>
-                      <option value="">— Select —</option>
-                      <option value="missionary">Missionary</option>
-                      <option value="student">Student</option>
-                      <option value="volunteer">Volunteer</option>
-                      <option value="provider">Provider</option>
-                    </select>
-                  </div>
+                  <div><label style={labelStyle}>Affiliation</label><select value={editForm.affiliation} onChange={e => setEditForm({...editForm, affiliation: e.target.value})} style={inputStyle}><option value="">— Select —</option><option value="missionary">Missionary</option><option value="student">Student</option><option value="volunteer">Volunteer</option><option value="provider">Provider</option></select></div>
                   <div><label style={labelStyle}>Credentials / Skills</label><input type="text" value={editForm.credentials} onChange={e => setEditForm({...editForm, credentials: e.target.value})} placeholder="e.g. EMT, Phlebotomy" style={inputStyle} /></div>
                   <div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Languages</label><input value={editForm.languages} onChange={e => setEditForm({...editForm, languages: e.target.value})} placeholder="e.g. Spanish, French" style={inputStyle} /></div>
-                  <div>
-                    <label style={labelStyle}>Role</label>
-                    <select value={editForm.role} onChange={e => setEditForm({...editForm, role: e.target.value})} style={inputStyle}>
-                      <option value="volunteer">Volunteer</option>
-                      <option value="admin">Admin</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Default Position</label>
-                    <select value={editForm.default_role} onChange={e => setEditForm({...editForm, default_role: e.target.value})} style={inputStyle}>
-                      <option value="">— None —</option>
-                      {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Birthday</label>
-                    <input type="date" value={editForm.birthday || ''} onChange={e => setEditForm({ ...editForm, birthday: e.target.value })} style={inputStyle} />
-                  </div>
-                  {editForm.affiliation === 'missionary' && <>
-                    <div><label style={labelStyle}>SMA Name</label><input value={editForm.sma_name} onChange={e => setEditForm({...editForm, sma_name: e.target.value})} placeholder="SMA full name" style={inputStyle} /></div>
-                    <div><label style={labelStyle}>SMA Contact</label><input value={editForm.sma_contact} onChange={e => setEditForm({...editForm, sma_contact: e.target.value})} placeholder="Phone or email" style={inputStyle} /></div>
-                  </>}
-                  {editForm.affiliation === 'student' && <>
-                    <div style={{ gridColumn: '1 / -1' }}>
-                      <label style={labelStyle}>School</label>
-                      <select value={editForm.school} onChange={e => setEditForm({...editForm, school: e.target.value})} style={inputStyle}>
-                        <option value="">— Select school —</option>
-                        {SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    </div>
-                    <div style={{ gridColumn: '1 / -1' }}>
-                      <label style={labelStyle}>Major</label>
-                      <select value={editForm.major || ''} onChange={e => setEditForm({...editForm, major: e.target.value})} style={inputStyle}>
-                        <option value="">— Select major —</option>
-                        {MAJORS.map(m => <option key={m} value={m}>{m}</option>)}
-                      </select>
-                    </div>
-                  </>}
+                  <div><label style={labelStyle}>Role</label><select value={editForm.role} onChange={e => setEditForm({...editForm, role: e.target.value})} style={inputStyle}><option value="volunteer">Volunteer</option><option value="admin">Admin</option></select></div>
+                  <div><label style={labelStyle}>Default Position</label><select value={editForm.default_role} onChange={e => setEditForm({...editForm, default_role: e.target.value})} style={inputStyle}><option value="">— None —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+                  <div><label style={labelStyle}>Birthday</label><input type="date" value={editForm.birthday || ''} onChange={e => setEditForm({ ...editForm, birthday: e.target.value })} style={inputStyle} /></div>
+                  {editForm.affiliation === 'missionary' && <><div><label style={labelStyle}>SMA Name</label><input value={editForm.sma_name} onChange={e => setEditForm({...editForm, sma_name: e.target.value})} placeholder="SMA full name" style={inputStyle} /></div><div><label style={labelStyle}>SMA Contact</label><input value={editForm.sma_contact} onChange={e => setEditForm({...editForm, sma_contact: e.target.value})} placeholder="Phone or email" style={inputStyle} /></div></>}
+                  {editForm.affiliation === 'student' && <><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>School</label><select value={editForm.school} onChange={e => setEditForm({...editForm, school: e.target.value})} style={inputStyle}><option value="">— Select school —</option>{SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}</select></div><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Major</label><select value={editForm.major || ''} onChange={e => setEditForm({...editForm, major: e.target.value})} style={inputStyle}><option value="">— Select major —</option>{MAJORS.map(m => <option key={m} value={m}>{m}</option>)}</select></div></>}
                 </div>
-                <button onClick={handleSaveEdit} disabled={saving} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
-                  {saving ? 'Saving...' : 'Save Changes'}
-                </button>
+                <button onClick={handleSaveEdit} disabled={saving} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{saving ? 'Saving...' : 'Save Changes'}</button>
               </div>
             )}
           </div>
@@ -1079,37 +830,15 @@ export default function AdminPage() {
               <div style={{ ...card, borderColor: 'var(--accent)', background: 'rgba(2,65,107,0.04)' }}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>New Shift Entry</h2>
                 <form onSubmit={handleCreateShift} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div>
-                    <label style={labelStyle}>Volunteer</label>
-                    <select value={newShiftForm.volunteer_id} onChange={e => setNewShiftForm({ ...newShiftForm, volunteer_id: e.target.value })} required style={inputStyle}>
-                      <option value="">— Select volunteer —</option>
-                      {userList.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}
-                    </select>
-                  </div>
+                  <div><label style={labelStyle}>Volunteer</label><select value={newShiftForm.volunteer_id} onChange={e => setNewShiftForm({ ...newShiftForm, volunteer_id: e.target.value })} required style={inputStyle}><option value="">— Select volunteer —</option>{volunteerList.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}</select></div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                    <div>
-                      <label style={labelStyle}>Clock In ({tzLabel})</label>
-                      <input type="datetime-local" value={newShiftForm.clock_in} onChange={e => setNewShiftForm({ ...newShiftForm, clock_in: e.target.value })} required style={inputStyle} />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>Clock Out ({tzLabel}) <span style={{ color: 'var(--muted)', textTransform: 'none', fontSize: '0.75rem' }}>— leave blank if active</span></label>
-                      <input type="datetime-local" value={newShiftForm.clock_out} onChange={e => setNewShiftForm({ ...newShiftForm, clock_out: e.target.value })} style={inputStyle} />
-                    </div>
+                    <div><label style={labelStyle}>Clock In ({tzLabel})</label><input type="datetime-local" value={newShiftForm.clock_in} onChange={e => setNewShiftForm({ ...newShiftForm, clock_in: e.target.value })} required style={inputStyle} /></div>
+                    <div><label style={labelStyle}>Clock Out ({tzLabel}) <span style={{ color: 'var(--muted)', textTransform: 'none', fontSize: '0.75rem' }}>— leave blank if active</span></label><input type="datetime-local" value={newShiftForm.clock_out} onChange={e => setNewShiftForm({ ...newShiftForm, clock_out: e.target.value })} style={inputStyle} /></div>
                   </div>
-                  <div>
-                    <label style={labelStyle}>Position</label>
-                    <select value={newShiftForm.role} onChange={e => setNewShiftForm({ ...newShiftForm, role: e.target.value })} style={inputStyle}>
-                      <option value="">— No role —</option>
-                      {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                    </select>
-                  </div>
+                  <div><label style={labelStyle}>Position</label><select value={newShiftForm.role} onChange={e => setNewShiftForm({ ...newShiftForm, role: e.target.value })} style={inputStyle}><option value="">— No role —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                   <div style={{ display: 'flex', gap: '0.75rem' }}>
-                    <button type="submit" disabled={creatingShift} style={{ flex: 1, padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: creatingShift ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
-                      {creatingShift ? 'Creating...' : 'Create Entry'}
-                    </button>
-                    <button type="button" onClick={() => { setShowNewShiftForm(false); setNewShiftForm({ volunteer_id: '', clock_in: '', clock_out: '', role: '' }) }} style={{ padding: '0.85rem 1.25rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '8px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
-                      Cancel
-                    </button>
+                    <button type="submit" disabled={creatingShift} style={{ flex: 1, padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: creatingShift ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{creatingShift ? 'Creating...' : 'Create Entry'}</button>
+                    <button type="button" onClick={() => { setShowNewShiftForm(false); setNewShiftForm({ volunteer_id: '', clock_in: '', clock_out: '', role: '' }) }} style={{ padding: '0.85rem 1.25rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '8px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>Cancel</button>
                   </div>
                 </form>
               </div>
@@ -1117,23 +846,13 @@ export default function AdminPage() {
             <div style={card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
                 <h2 style={{ fontWeight: 600 }}>All Shift Entries <span style={{ marginLeft: '0.5rem', color: 'var(--muted)', fontWeight: 400, fontSize: '0.85rem' }}>— last 200</span></h2>
-                <button onClick={() => { setShowNewShiftForm(true); setEditingShiftId(null); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}>
-                  + New Entry
-                </button>
+                <button onClick={() => { setShowNewShiftForm(true); setEditingShiftId(null); window.scrollTo({ top: 0, behavior: 'smooth' }) }} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}>+ New Entry</button>
               </div>
               <div style={{ marginBottom: '1rem' }}>
                 <label style={labelStyle}>Filter by volunteer</label>
-                <select value={shiftFilterVolId} onChange={e => setShiftFilterVolId(e.target.value)} style={{ ...inputStyle, maxWidth: '320px' }}>
-                  <option value="">All volunteers</option>
-                  {volunteers.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}
-                </select>
+                <select value={shiftFilterVolId} onChange={e => setShiftFilterVolId(e.target.value)} style={{ ...inputStyle, maxWidth: '320px' }}><option value="">All volunteers</option>{volunteers.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}</select>
               </div>
-              {shiftsLoading ? (
-                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading shifts...</p>
-              ) : filteredShifts.length === 0 ? (
-                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No shift entries found.</p>
-              ) : (
+              {shiftsLoading ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading shifts...</p> : filteredShifts.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No shift entries found.</p> : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                   {filteredShifts.map(s => {
                     const isEditing = editingShiftId === s.id
@@ -1143,76 +862,30 @@ export default function AdminPage() {
                         {!isEditing ? (
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                              <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: '0.85rem', color: 'var(--accent)', flexShrink: 0 }}>
-                                {s.profiles?.full_name?.charAt(0)}
-                              </div>
+                              <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: '0.85rem', color: 'var(--accent)', flexShrink: 0 }}>{s.profiles?.full_name?.charAt(0)}</div>
                               <div>
                                 <p style={{ fontWeight: 500, fontSize: '0.9rem' }}>{s.profiles?.full_name}</p>
-                                <p style={{ color: 'var(--muted)', fontSize: '0.8rem', fontFamily: 'DM Mono, monospace' }}>
-                                  {formatDateTime(s.clock_in)} → {s.clock_out ? formatDateTime(s.clock_out) : <span style={{ color: 'var(--accent)' }}>active</span>}
-                                </p>
+                                <p style={{ color: 'var(--muted)', fontSize: '0.8rem', fontFamily: 'DM Mono, monospace' }}>{formatDateTime(s.clock_in)} → {s.clock_out ? formatDateTime(s.clock_out) : <span style={{ color: 'var(--accent)' }}>active</span>}</p>
                               </div>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                              {s.role ? (
-                                <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', borderRadius: '100px', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', fontWeight: 500 }}>{s.role}</span>
-                              ) : (
-                                <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', borderRadius: '100px', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', fontStyle: 'italic' }}>no role</span>
-                              )}
-                              {hours !== null ? (
-                                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', color: 'var(--accent)', fontWeight: 600 }}>{hours}h</span>
-                              ) : (
-                                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--accent)', background: 'rgba(2,65,107,0.1)', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid rgba(2,65,107,0.35)' }}>active</span>
-                              )}
-                              <button
-                                onClick={() => {
-                                  setEditingShiftId(s.id)
-                                  setShiftEditForm({
-                                    clock_in: toMountainInputValue(s.clock_in),
-                                    clock_out: toMountainInputValue(s.clock_out),
-                                    role: s.role || '',
-                                    clock_in_utc: s.clock_in,
-                                    clock_out_utc: s.clock_out || '',
-                                  })
-                                }}
-                                style={{ padding: '0.3rem 0.7rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
-                                Edit
-                              </button>
-                              <button onClick={() => handleShiftDelete(s.id)}
-                                style={{ padding: '0.3rem 0.7rem', background: 'rgba(248,113,113,0.08)', color: 'var(--danger)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
-                                Delete
-                              </button>
+                              {s.role ? <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', borderRadius: '100px', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', fontWeight: 500 }}>{s.role}</span> : <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', borderRadius: '100px', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', fontStyle: 'italic' }}>no role</span>}
+                              {hours !== null ? <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', color: 'var(--accent)', fontWeight: 600 }}>{hours}h</span> : <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--accent)', background: 'rgba(2,65,107,0.1)', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid rgba(2,65,107,0.35)' }}>active</span>}
+                              <button onClick={() => { setEditingShiftId(s.id); setShiftEditForm({ clock_in: toMountainInputValue(s.clock_in), clock_out: toMountainInputValue(s.clock_out), role: s.role || '', clock_in_utc: s.clock_in, clock_out_utc: s.clock_out || '' }) }} style={{ padding: '0.3rem 0.7rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>Edit</button>
+                              <button onClick={() => handleShiftDelete(s.id)} style={{ padding: '0.3rem 0.7rem', background: 'rgba(248,113,113,0.08)', color: 'var(--danger)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>Delete</button>
                             </div>
                           </div>
                         ) : (
                           <div>
                             <p style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.75rem', color: 'var(--accent)' }}>Editing: {s.profiles?.full_name}</p>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
-                              <div>
-                                <label style={labelStyle}>Clock In ({tzLabel})</label>
-                                <input type="datetime-local" value={shiftEditForm.clock_in} onChange={e => setShiftEditForm({ ...shiftEditForm, clock_in: e.target.value })} style={inputStyle} />
-                              </div>
-                              <div>
-                                <label style={labelStyle}>Clock Out ({tzLabel}) <span style={{ color: 'var(--muted)', textTransform: 'none', fontSize: '0.75rem' }}>— clear to mark active</span></label>
-                                <input type="datetime-local" value={shiftEditForm.clock_out} onChange={e => setShiftEditForm({ ...shiftEditForm, clock_out: e.target.value })} style={inputStyle} />
-                              </div>
+                              <div><label style={labelStyle}>Clock In ({tzLabel})</label><input type="datetime-local" value={shiftEditForm.clock_in} onChange={e => setShiftEditForm({ ...shiftEditForm, clock_in: e.target.value })} style={inputStyle} /></div>
+                              <div><label style={labelStyle}>Clock Out ({tzLabel})</label><input type="datetime-local" value={shiftEditForm.clock_out} onChange={e => setShiftEditForm({ ...shiftEditForm, clock_out: e.target.value })} style={inputStyle} /></div>
                             </div>
-                            <div style={{ marginBottom: '0.75rem' }}>
-                              <label style={labelStyle}>Position</label>
-                              <select value={shiftEditForm.role} onChange={e => setShiftEditForm({ ...shiftEditForm, role: e.target.value })} style={inputStyle}>
-                                <option value="">— No role —</option>
-                                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                              </select>
-                            </div>
+                            <div style={{ marginBottom: '0.75rem' }}><label style={labelStyle}>Position</label><select value={shiftEditForm.role} onChange={e => setShiftEditForm({ ...shiftEditForm, role: e.target.value })} style={inputStyle}><option value="">— No role —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                             <div style={{ display: 'flex', gap: '0.5rem' }}>
-                              <button onClick={() => handleShiftEditSave(s.id)} disabled={savingShift}
-                                style={{ padding: '0.55rem 1.1rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '7px', fontWeight: 600, cursor: savingShift ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}>
-                                {savingShift ? 'Saving...' : 'Save'}
-                              </button>
-                              <button onClick={() => setEditingShiftId(null)}
-                                style={{ padding: '0.55rem 1rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '7px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}>
-                                Cancel
-                              </button>
+                              <button onClick={() => handleShiftEditSave(s.id)} disabled={savingShift} style={{ padding: '0.55rem 1.1rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '7px', fontWeight: 600, cursor: savingShift ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}>{savingShift ? 'Saving...' : 'Save'}</button>
+                              <button onClick={() => setEditingShiftId(null)} style={{ padding: '0.55rem 1rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '7px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}>Cancel</button>
                             </div>
                           </div>
                         )}
@@ -1228,33 +901,22 @@ export default function AdminPage() {
         {/* CALLOUTS TAB */}
         {tab === 'callouts' && (() => {
           const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
-          const pendingCallouts  = callouts.filter(c => (!c.status || c.status === 'pending') && c.callout_date >= todayStr)
+          const pendingCallouts = callouts.filter(c => (!c.status || c.status === 'pending') && c.callout_date >= todayStr)
           const approvedCallouts = callouts.filter(c => c.status === 'approved' && !c.covered_by && c.callout_date >= todayStr)
-          const closedCallouts   = callouts.filter(c => c.status === 'denied' || (c.status === 'approved' && c.covered_by))
-          const pendingCovers    = coverRequests.filter(r => r.status === 'pending')
+          const closedCallouts = callouts.filter(c => c.status === 'denied' || (c.status === 'approved' && c.covered_by))
+          const pendingCovers = coverRequests.filter(r => r.status === 'pending')
           return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div style={card}>
-                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>
-                  Pending Call-Outs
-                  {pendingCallouts.length > 0 && (
-                    <span style={{ marginLeft: '0.5rem', padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>
-                      {pendingCallouts.length}
-                    </span>
-                  )}
-                </h2>
-                {pendingCallouts.length === 0 ? (
-                  <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No pending call-outs.</p>
-                ) : (
+                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Pending Call-Outs{pendingCallouts.length > 0 && <span style={{ marginLeft: '0.5rem', padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>{pendingCallouts.length}</span>}</h2>
+                {pendingCallouts.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No pending call-outs.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                     {pendingCallouts.map(c => (
                       <div key={c.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid rgba(96,165,250,0.35)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
                           <div>
                             <span style={{ fontWeight: 600 }}>{c.profiles?.full_name}</span>
-                            <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'capitalize' }}>
-                              {c.callout_date} · {c.day_of_week} {c.shift_time}
-                            </span>
+                            <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'capitalize' }}>{c.callout_date} · {c.day_of_week} {c.shift_time}</span>
                             {c.role && <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)' }}>{c.role}</span>}
                             {c.reason && <p style={{ color: 'var(--muted)', fontSize: '0.82rem', marginTop: '0.25rem', fontStyle: 'italic' }}>{c.reason}</p>}
                           </div>
@@ -1268,45 +930,22 @@ export default function AdminPage() {
                   </div>
                 )}
               </div>
-
               {(approvedCallouts.length > 0 || pendingCovers.length > 0) && (
                 <div style={card}>
-                  <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>
-                    Open Shifts — Awaiting Coverage
-                    {pendingCovers.length > 0 && (
-                      <span style={{ marginLeft: '0.5rem', padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.15)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>
-                        {pendingCovers.length} request{pendingCovers.length !== 1 ? 's' : ''}
-                      </span>
-                    )}
-                  </h2>
+                  <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Open Shifts — Awaiting Coverage{pendingCovers.length > 0 && <span style={{ marginLeft: '0.5rem', padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.15)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>{pendingCovers.length} request{pendingCovers.length !== 1 ? 's' : ''}</span>}</h2>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     {approvedCallouts.filter(c => !c.covered_by).map(c => {
                       const requests = coverRequests.filter(r => r.callout_id === c.id)
-                      const pending  = requests.filter(r => r.status === 'pending')
+                      const pending = requests.filter(r => r.status === 'pending')
                       return (
                         <div key={c.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid rgba(96,165,250,0.35)' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: pending.length > 0 ? '0.75rem' : 0, flexWrap: 'wrap', gap: '0.5rem' }}>
-                            <div>
-                              <span style={{ fontWeight: 500, color: 'var(--muted)', fontSize: '0.85rem' }}>Called out: </span>
-                              <span style={{ fontWeight: 600 }}>{c.profiles?.full_name}</span>
-                              <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)' }}>{c.callout_date} · {c.day_of_week} {c.shift_time}</span>
-                              {c.role && <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)' }}>{c.role}</span>}
-                            </div>
+                            <div><span style={{ fontWeight: 500, color: 'var(--muted)', fontSize: '0.85rem' }}>Called out: </span><span style={{ fontWeight: 600 }}>{c.profiles?.full_name}</span><span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)' }}>{c.callout_date} · {c.day_of_week} {c.shift_time}</span>{c.role && <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)' }}>{c.role}</span>}</div>
                             {pending.length === 0 && <span style={{ fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic' }}>No volunteers yet</span>}
                           </div>
                           {pending.length > 0 && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                              {pending.map(r => (
-                                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'var(--surface)', borderRadius: '6px', border: '1px solid var(--border)' }}>
-                                  <span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{r.profiles?.full_name}</span>
-                                  <div style={{ display: 'flex', gap: '0.4rem' }}>
-                                    <button onClick={() => approveCover(r)} disabled={approvingCoverId === r.id} style={{ padding: '0.25rem 0.7rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
-                                      {approvingCoverId === r.id ? '...' : '✓ Assign'}
-                                    </button>
-                                    <button onClick={() => denyCover(r.id)} disabled={approvingCoverId === r.id} style={{ padding: '0.25rem 0.7rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>✕</button>
-                                  </div>
-                                </div>
-                              ))}
+                              {pending.map(r => (<div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'var(--surface)', borderRadius: '6px', border: '1px solid var(--border)' }}><span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{r.profiles?.full_name}</span><div style={{ display: 'flex', gap: '0.4rem' }}><button onClick={() => approveCover(r)} disabled={approvingCoverId === r.id} style={{ padding: '0.25rem 0.7rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{approvingCoverId === r.id ? '...' : '✓ Assign'}</button><button onClick={() => denyCover(r.id)} disabled={approvingCoverId === r.id} style={{ padding: '0.25rem 0.7rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>✕</button></div></div>))}
                             </div>
                           )}
                         </div>
@@ -1315,24 +954,12 @@ export default function AdminPage() {
                   </div>
                 </div>
               )}
-
               {closedCallouts.length > 0 && (
                 <div style={card}>
-                  <button onClick={() => setShowReadCallouts(!showReadCallouts)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.9rem', fontWeight: 500, padding: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span style={{ display: 'inline-block', transform: showReadCallouts ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>›</span>
-                    Covered / Closed ({closedCallouts.length})
-                  </button>
+                  <button onClick={() => setShowReadCallouts(!showReadCallouts)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.9rem', fontWeight: 500, padding: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}><span style={{ display: 'inline-block', transform: showReadCallouts ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>›</span>Covered / Closed ({closedCallouts.length})</button>
                   {showReadCallouts && (
                     <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {closedCallouts.map(c => (
-                        <div key={c.id} style={{ padding: '0.6rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', opacity: 0.65, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-                          <div>
-                            <span style={{ fontWeight: 500 }}>{c.profiles?.full_name}</span>
-                            <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', color: 'var(--muted)' }}>{c.callout_date} · {c.shift_time}</span>
-                          </div>
-                          <span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: c.covered_by ? 'rgba(2,65,107,0.1)' : 'rgba(239,68,68,0.08)', color: c.covered_by ? 'var(--accent)' : '#ef4444', border: `1px solid ${c.covered_by ? 'rgba(2,65,107,0.35)' : 'rgba(239,68,68,0.25)'}` }}>{c.covered_by ? 'covered' : 'denied'}</span>
-                        </div>
-                      ))}
+                      {closedCallouts.map(c => (<div key={c.id} style={{ padding: '0.6rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', opacity: 0.65, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}><div><span style={{ fontWeight: 500 }}>{c.profiles?.full_name}</span><span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', color: 'var(--muted)' }}>{c.callout_date} · {c.shift_time}</span></div><span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: c.covered_by ? 'rgba(2,65,107,0.1)' : 'rgba(239,68,68,0.08)', color: c.covered_by ? 'var(--accent)' : '#ef4444', border: `1px solid ${c.covered_by ? 'rgba(2,65,107,0.35)' : 'rgba(239,68,68,0.25)'}` }}>{c.covered_by ? 'covered' : 'denied'}</span></div>))}
                     </div>
                   )}
                 </div>
@@ -1344,35 +971,18 @@ export default function AdminPage() {
         {/* HOURS TAB */}
         {tab === 'hours' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {hoursLoading ? (
-              <p style={{ color: 'var(--muted)', padding: '1rem' }}>Loading...</p>
-            ) : hoursSubmissions.length === 0 ? (
-              <div style={card}><p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No hours submissions yet.</p></div>
-            ) : (
+            {hoursLoading ? <p style={{ color: 'var(--muted)', padding: '1rem' }}>Loading...</p> : hoursSubmissions.length === 0 ? <div style={card}><p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No hours submissions yet.</p></div> : (
               <>
                 {hoursSubmissions.filter(h => h.status === 'pending' && h.profiles?.role !== 'admin').length > 0 && (
                   <div style={card}>
-                    <h2 style={{ fontWeight: 600, marginBottom: '1rem' }}>
-                      Pending Approval
-                      <span style={{ marginLeft: '0.5rem', padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>
-                        {hoursSubmissions.filter(h => h.status === 'pending' && h.profiles?.role !== 'admin').length}
-                      </span>
-                    </h2>
+                    <h2 style={{ fontWeight: 600, marginBottom: '1rem' }}>Pending Approval<span style={{ marginLeft: '0.5rem', padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>{hoursSubmissions.filter(h => h.status === 'pending' && h.profiles?.role !== 'admin').length}</span></h2>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                       {hoursSubmissions.filter(h => h.status === 'pending' && h.profiles?.role !== 'admin').map(h => (
                         <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', flexWrap: 'wrap', gap: '0.75rem' }}>
-                          <div>
-                            <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{h.profiles?.full_name}</p>
-                            <p style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>{h.work_date} &nbsp;·&nbsp; {h.role} &nbsp;·&nbsp; <span style={{ fontFamily: 'DM Mono, monospace' }}>{h.hours}h</span></p>
-                            {h.notes && <p style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic', marginTop: '0.2rem' }}>{h.notes}</p>}
-                          </div>
+                          <div><p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{h.profiles?.full_name}</p><p style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>{h.work_date} &nbsp;·&nbsp; {h.role} &nbsp;·&nbsp; <span style={{ fontFamily: 'DM Mono, monospace' }}>{h.hours}h</span></p>{h.notes && <p style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic', marginTop: '0.2rem' }}>{h.notes}</p>}</div>
                           <div style={{ display: 'flex', gap: '0.5rem' }}>
-                            <button onClick={() => approveHours(h)} disabled={approvingHoursId === h.id} style={{ padding: '0.4rem 0.9rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
-                              {approvingHoursId === h.id ? '...' : '✓ Approve'}
-                            </button>
-                            <button onClick={() => rejectHours(h.id)} disabled={approvingHoursId === h.id} style={{ padding: '0.4rem 0.9rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
-                              ✕ Reject
-                            </button>
+                            <button onClick={() => approveHours(h)} disabled={approvingHoursId === h.id} style={{ padding: '0.4rem 0.9rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{approvingHoursId === h.id ? '...' : '✓ Approve'}</button>
+                            <button onClick={() => rejectHours(h.id)} disabled={approvingHoursId === h.id} style={{ padding: '0.4rem 0.9rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>✕ Reject</button>
                           </div>
                         </div>
                       ))}
@@ -1383,15 +993,7 @@ export default function AdminPage() {
                   <div style={card}>
                     <h2 style={{ fontWeight: 600, marginBottom: '1rem', color: 'var(--muted)' }}>Previously Reviewed</h2>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {hoursSubmissions.filter(h => h.status !== 'pending' && h.profiles?.role !== 'admin').map(h => (
-                        <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', opacity: 0.75 }}>
-                          <div>
-                            <span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{h.profiles?.full_name}</span>
-                            <span style={{ color: 'var(--muted)', fontSize: '0.8rem', marginLeft: '0.5rem' }}>{h.work_date} · {h.role} · {h.hours}h</span>
-                          </div>
-                          <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', fontWeight: 500, background: h.status === 'approved' ? 'rgba(2,65,107,0.12)' : 'rgba(239,68,68,0.1)', color: h.status === 'approved' ? 'var(--accent)' : '#ef4444', border: `1px solid ${h.status === 'approved' ? 'rgba(2,65,107,0.35)' : 'rgba(239,68,68,0.25)'}` }}>{h.status}</span>
-                        </div>
-                      ))}
+                      {hoursSubmissions.filter(h => h.status !== 'pending' && h.profiles?.role !== 'admin').map(h => (<div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', opacity: 0.75 }}><div><span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{h.profiles?.full_name}</span><span style={{ color: 'var(--muted)', fontSize: '0.8rem', marginLeft: '0.5rem' }}>{h.work_date} · {h.role} · {h.hours}h</span></div><span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', fontWeight: 500, background: h.status === 'approved' ? 'rgba(2,65,107,0.12)' : 'rgba(239,68,68,0.1)', color: h.status === 'approved' ? 'var(--accent)' : '#ef4444', border: `1px solid ${h.status === 'approved' ? 'rgba(2,65,107,0.35)' : 'rgba(239,68,68,0.25)'}` }}>{h.status}</span></div>))}
                     </div>
                   </div>
                 )}
@@ -1400,113 +1002,46 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* AUDIT LOG TAB */}
+        {/* AUDIT TAB */}
         {tab === 'audit' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={card}>
-              <p style={{ 
-                fontSize: '0.9rem', 
-                color: 'var(--muted)', 
-                lineHeight: 1.5,
-                maxWidth: '600px'
-              }}>
-                This tool helps maintain consistency across shifts by tracking administrative actions and providing clear visibility into changes.
-              </p>
-            </div>
-
-            {/* Filters */}
-            <div style={card}>
               <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Filters</h2>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                <div>
-                  <label style={labelStyle}>Admin</label>
-                  <select value={auditFilterAdmin} onChange={e => setAuditFilterAdmin(e.target.value)} style={inputStyle}>
-                    <option value="">All admins</option>
-                    {adminList.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={labelStyle}>Action type</label>
-                  <select value={auditFilterAction} onChange={e => setAuditFilterAction(e.target.value)} style={inputStyle}>
-                    <option value="">All actions</option>
-                    {Object.entries(ACTION_LABELS).map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label style={labelStyle}>From date</label>
-                  <input type="date" value={auditFilterFrom} onChange={e => setAuditFilterFrom(e.target.value)} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>To date</label>
-                  <input type="date" value={auditFilterTo} onChange={e => setAuditFilterTo(e.target.value)} style={inputStyle} />
-                </div>
+                <div><label style={labelStyle}>Admin</label><select value={auditFilterAdmin} onChange={e => setAuditFilterAdmin(e.target.value)} style={inputStyle}><option value="">All admins</option>{adminList.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}</select></div>
+                <div><label style={labelStyle}>Action type</label><select value={auditFilterAction} onChange={e => setAuditFilterAction(e.target.value)} style={inputStyle}><option value="">All actions</option>{Object.entries(ACTION_LABELS).map(([value, label]) => (<option key={value} value={value}>{label}</option>))}</select></div>
+                <div><label style={labelStyle}>From date</label><input type="date" value={auditFilterFrom} onChange={e => setAuditFilterFrom(e.target.value)} style={inputStyle} /></div>
+                <div><label style={labelStyle}>To date</label><input type="date" value={auditFilterTo} onChange={e => setAuditFilterTo(e.target.value)} style={inputStyle} /></div>
               </div>
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
-                <button onClick={loadAuditLogs} disabled={auditLoading} style={{ padding: '0.75rem 1.5rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: auditLoading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
-                  {auditLoading ? 'Loading...' : 'Apply Filters'}
-                </button>
-                <button onClick={() => {
-                  setAuditFilterAdmin('')
-                  setAuditFilterAction('')
-                  setAuditFilterFrom('')
-                  setAuditFilterTo('')
-                  setTimeout(loadAuditLogs, 50)
-                }} style={{ padding: '0.75rem 1rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '8px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
-                  Reset
-                </button>
+                <button onClick={loadAuditLogs} disabled={auditLoading} style={{ padding: '0.75rem 1.5rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: auditLoading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{auditLoading ? 'Loading...' : 'Apply Filters'}</button>
+                <button onClick={() => { setAuditFilterAdmin(''); setAuditFilterAction(''); setAuditFilterFrom(''); setAuditFilterTo(''); setTimeout(loadAuditLogs, 50) }} style={{ padding: '0.75rem 1rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '8px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>Reset</button>
               </div>
             </div>
-
-            {/* Log entries */}
             <div style={card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-                <h2 style={{ fontWeight: 600 }}>
-                  Activity Log
-                  {auditLogs.length > 0 && (
-                    <span style={{ marginLeft: '0.5rem', color: 'var(--muted)', fontWeight: 400, fontSize: '0.85rem' }}>— {auditLogs.length} entries</span>
-                  )}
-                </h2>
+                <h2 style={{ fontWeight: 600 }}>Activity Log{auditLogs.length > 0 && <span style={{ marginLeft: '0.5rem', color: 'var(--muted)', fontWeight: 400, fontSize: '0.85rem' }}>— {auditLogs.length} entries</span>}</h2>
                 <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>Last 2 weeks by default</span>
               </div>
-              {auditLoading ? (
-                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading...</p>
-              ) : auditLogs.length === 0 ? (
-                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No activity found for the selected filters.</p>
-              ) : (
+              {auditLoading ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading...</p> : auditLogs.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No activity found for the selected filters.</p> : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                   {auditLogs.map(log => {
                     const color = ACTION_COLORS[log.action] || '#94a3b8'
                     const label = ACTION_LABELS[log.action] || log.action
                     return (
                       <div key={log.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                        {/* Color dot */}
                         <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: color, flexShrink: 0, marginTop: '0.35rem' }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.4rem' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                              <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', fontWeight: 600, background: color + '18', color, border: `1px solid ${color}44` }}>
-                                {label}
-                              </span>
-                              {log.target_name && (
-                                <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{log.target_name}</span>
-                              )}
+                              <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', fontWeight: 600, background: color + '18', color, border: `1px solid ${color}44` }}>{label}</span>
+                              {log.target_name && <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{log.target_name}</span>}
                             </div>
-                            <span style={{ color: 'var(--muted)', fontSize: '0.78rem', fontFamily: 'DM Mono, monospace', whiteSpace: 'nowrap' }}>
-                              {formatDateTime(log.created_at)}
-                            </span>
+                            <span style={{ color: 'var(--muted)', fontSize: '0.78rem', fontFamily: 'DM Mono, monospace', whiteSpace: 'nowrap' }}>{formatDateTime(log.created_at)}</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
-                            <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
-                              by Admin
-                            </span>
-                            {log.details && (
-                              <>
-                                <span style={{ color: 'var(--border)' }}>·</span>
-                                <span style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic' }}>{log.details}</span>
-                              </>
-                            )}
+                            <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>by {log.admin?.full_name || 'Unknown'}</span>
+                            {log.details && <><span style={{ color: 'var(--border)' }}>·</span><span style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic' }}>{log.details}</span></>}
                           </div>
                         </div>
                       </div>
@@ -1518,75 +1053,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* CREATE TAB */}
-        {tab === 'create' && (
-          <div style={card}>
-            <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Create Volunteer Account</h2>
-            <form onSubmit={handleCreateVolunteer} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                <div><label style={labelStyle}>Full Name</label><input value={newName} onChange={e => setNewName(e.target.value)} required placeholder="Justa Alias" style={inputStyle} /></div>
-                <div><label style={labelStyle}>Email</label><input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} required placeholder="justa@example.com" style={inputStyle} /></div>
-                <div><label style={labelStyle}>Temporary Password</label><input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required placeholder="Min 6 characters" style={inputStyle} /></div>
-                <div><label style={labelStyle}>Phone</label><input value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="xxx-xxx-xxxx" style={inputStyle} /></div>
-                <div>
-                  <label style={labelStyle}>Affiliation</label>
-                  <select value={newAffiliation} onChange={e => setNewAffiliation(e.target.value)} style={inputStyle}>
-                    <option value="">— Select —</option>
-                    <option value="missionary">Missionary</option>
-                    <option value="student">Student</option>
-                    <option value="volunteer">Volunteer</option>
-                    <option value="provider">Provider</option>
-                  </select>
-                </div>
-                <div><label style={labelStyle}>Credentials / Skills</label><input type="text" value={newCredentials} onChange={e => setNewCredentials(e.target.value)} placeholder="e.g. EMT, Phlebotomy" style={inputStyle} /></div>
-                <div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Languages Spoken</label><input value={newLanguages} onChange={e => setNewLanguages(e.target.value)} placeholder="e.g. Spanish, Mandarin" style={inputStyle} /></div>
-                <div>
-                  <label style={labelStyle}>Role</label>
-                  <select value={newRole} onChange={e => setNewRole(e.target.value)} style={inputStyle}>
-                    <option value="volunteer">Volunteer</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={labelStyle}>Default Position</label>
-                  <select value={newDefaultRole} onChange={e => setNewDefaultRole(e.target.value)} style={inputStyle}>
-                    <option value="">— None —</option>
-                    {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={labelStyle}>Birthday</label>
-                  <input type="date" value={newBirthday} onChange={e => setNewBirthday(e.target.value)} style={inputStyle} />
-                </div>
-                {newAffiliation === 'missionary' && <>
-                  <div><label style={labelStyle}>SMA Name</label><input value={newSmaName} onChange={e => setNewSmaName(e.target.value)} placeholder="SMA full name" style={inputStyle} /></div>
-                  <div><label style={labelStyle}>SMA Contact</label><input value={newSmaContact} onChange={e => setNewSmaContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div>
-                </>}
-                {newAffiliation === 'student' && <>
-                  <div style={{ gridColumn: '1 / -1' }}>
-                    <label style={labelStyle}>School</label>
-                    <select value={newSchool} onChange={e => setNewSchool(e.target.value)} style={inputStyle}>
-                      <option value="">— Select school —</option>
-                      {SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </div>
-                  <div style={{ gridColumn: '1 / -1' }}>
-                    <label style={labelStyle}>Major</label>
-                    <select value={newMajor} onChange={e => setNewMajor(e.target.value)} style={inputStyle}>
-                      <option value="">— Select major —</option>
-                      {MAJORS.map(m => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                  </div>
-                </>}
-              </div>
-              <button type="submit" disabled={creating} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: creating ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
-                {creating ? 'Creating...' : 'Create Account'}
-              </button>
-            </form>
-          </div>
-        )}
-
-        {/* MESSAGES TAB — updated with image support */}
+        {/* MESSAGES TAB */}
         {tab === 'messages' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -1594,18 +1061,16 @@ export default function AdminPage() {
                 <button key={key} onClick={() => setMsgView(key)} style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: msgView === key ? 'var(--accent)' : 'var(--surface)', color: msgView === key ? '#0a0f0a' : 'var(--muted)', border: msgView === key ? 'none' : '1px solid var(--border)' }}>{label}</button>
               ))}
             </div>
-
             {msgView === 'inbox' && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>All Messages</h2>
-                {adminMessages.filter(m => m.sender_id !== profile?.id).length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No messages yet.</p> : (
+                {inboxMessages.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No messages yet.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {adminMessages.filter(m => m.sender_id !== profile?.id).map(m => <MessageCard key={m.id} m={m} />)}
+                    {inboxMessages.map(m => <MessageCard key={m.id} m={m} />)}
                   </div>
                 )}
               </div>
             )}
-
             {msgView === 'sent' && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Sent Messages</h2>
@@ -1616,7 +1081,6 @@ export default function AdminPage() {
                 )}
               </div>
             )}
-
             {msgView === 'compose' && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>New Message</h2>
@@ -1628,34 +1092,11 @@ export default function AdminPage() {
                         <button key={opt.value} type="button" onClick={() => setMsgRecipientType(opt.value)} style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: msgRecipientType === opt.value ? 'var(--accent)' : 'var(--surface)', color: msgRecipientType === opt.value ? '#0a0f0a' : 'var(--muted)', border: msgRecipientType === opt.value ? 'none' : '1px solid var(--border)' }}>{opt.label}</button>
                       ))}
                     </div>
-                    {msgRecipientType === 'shift' && (
-                      <div style={{ marginTop: '0.75rem' }}>
-                        <label style={labelStyle}>Which shift</label>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                          {dayShiftCombos.map(({ day, shift, label }) => { const active = msgRecipientDay === day && msgRecipientShift === shift; return <button key={label} type="button" onClick={() => { setMsgRecipientDay(day); setMsgRecipientShift(shift) }} style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Mono, monospace', background: active ? '#1e40af' : 'var(--surface)', color: active ? '#bfdbfe' : 'var(--muted)', border: active ? 'none' : '1px solid var(--border)' }}>{label}</button> })}
-                        </div>
-                      </div>
-                    )}
-                    {msgRecipientType === 'role' && (
-                      <div style={{ marginTop: '0.75rem' }}>
-                        <label style={labelStyle}>Which role</label>
-                        <select value={msgRecipientRole} onChange={e => setMsgRecipientRole(e.target.value)} style={inputStyle}>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select>
-                      </div>
-                    )}
-                    {msgRecipientType === 'volunteer' && (
-                      <div style={{ marginTop: '0.75rem' }}>
-                        <label style={labelStyle}>Which volunteer</label>
-                        <select value={msgRecipientVolId} onChange={e => setMsgRecipientVolId(e.target.value)} style={inputStyle}><option value="">— Select volunteer —</option>{volunteers.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}</select>
-                      </div>
-                    )}
+                    {msgRecipientType === 'shift' && (<div style={{ marginTop: '0.75rem' }}><label style={labelStyle}>Which shift</label><div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>{dayShiftCombos.map(({ day, shift, label }) => { const active = msgRecipientDay === day && msgRecipientShift === shift; return <button key={label} type="button" onClick={() => { setMsgRecipientDay(day); setMsgRecipientShift(shift) }} style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Mono, monospace', background: active ? '#1e40af' : 'var(--surface)', color: active ? '#bfdbfe' : 'var(--muted)', border: active ? 'none' : '1px solid var(--border)' }}>{label}</button> })}</div></div>)}
+                    {msgRecipientType === 'role' && (<div style={{ marginTop: '0.75rem' }}><label style={labelStyle}>Which role</label><select value={msgRecipientRole} onChange={e => setMsgRecipientRole(e.target.value)} style={inputStyle}>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>)}
+                    {msgRecipientType === 'volunteer' && (<div style={{ marginTop: '0.75rem' }}><label style={labelStyle}>Which volunteer</label><select value={msgRecipientVolId} onChange={e => setMsgRecipientVolId(e.target.value)} style={inputStyle}><option value="">— Select volunteer —</option>{volunteers.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}</select></div>)}
                   </div>
-
-                  <div>
-                    <label style={labelStyle}>Message</label>
-                    <textarea value={msgBody} onChange={e => setMsgBody(e.target.value)} rows={4} placeholder="Write your message..." style={{ ...inputStyle, resize: 'vertical' }} />
-                  </div>
-
-                  {/* Image attachment */}
+                  <div><label style={labelStyle}>Message</label><textarea value={msgBody} onChange={e => setMsgBody(e.target.value)} rows={4} placeholder="Write your message..." style={{ ...inputStyle, resize: 'vertical' }} /></div>
                   <div>
                     <label style={labelStyle}>Attach image <span style={{ textTransform: 'none', fontSize: '0.72rem', color: 'var(--muted)' }}>(optional · max 5 MB)</span></label>
                     {msgImagePreview ? (
@@ -1664,13 +1105,10 @@ export default function AdminPage() {
                         <button type="button" onClick={clearImage} style={{ position: 'absolute', top: '6px', right: '6px', background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', borderRadius: '50%', width: '24px', height: '24px', cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                       </div>
                     ) : (
-                      <button type="button" onClick={() => fileInputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1rem', background: 'var(--bg)', border: '1px dashed var(--border)', borderRadius: '8px', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'DM Sans, sans-serif', width: '100%', justifyContent: 'center' }}>
-                        📎 Choose image
-                      </button>
+                      <button type="button" onClick={() => fileInputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1rem', background: 'var(--bg)', border: '1px dashed var(--border)', borderRadius: '8px', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'DM Sans, sans-serif', width: '100%', justifyContent: 'center' }}>📎 Choose image</button>
                     )}
                     <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleImageSelect} style={{ display: 'none' }} />
                   </div>
-
                   <button type="submit" disabled={sendingMsg || uploadingImage || (!msgBody.trim() && !msgImageFile) || (msgRecipientType === 'volunteer' && !msgRecipientVolId)}
                     style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: sendingMsg ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                     {uploadingImage ? 'Uploading image...' : sendingMsg ? 'Sending...' : 'Send Message'}
@@ -1678,6 +1116,30 @@ export default function AdminPage() {
                 </form>
               </div>
             )}
+          </div>
+        )}
+
+        {/* CREATE TAB */}
+        {tab === 'create' && (
+          <div style={card}>
+            <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Create Volunteer Account</h2>
+            <form onSubmit={handleCreateVolunteer} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div><label style={labelStyle}>Full Name</label><input value={newName} onChange={e => setNewName(e.target.value)} required placeholder="Jane Smith" style={inputStyle} /></div>
+                <div><label style={labelStyle}>Email</label><input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} required placeholder="jane@example.com" style={inputStyle} /></div>
+                <div><label style={labelStyle}>Temporary Password</label><input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required placeholder="Min 6 characters" style={inputStyle} /></div>
+                <div><label style={labelStyle}>Phone</label><input value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="xxx-xxx-xxxx" style={inputStyle} /></div>
+                <div><label style={labelStyle}>Affiliation</label><select value={newAffiliation} onChange={e => setNewAffiliation(e.target.value)} style={inputStyle}><option value="">— Select —</option><option value="missionary">Missionary</option><option value="student">Student</option><option value="volunteer">Volunteer</option><option value="provider">Provider</option></select></div>
+                <div><label style={labelStyle}>Credentials / Skills</label><input type="text" value={newCredentials} onChange={e => setNewCredentials(e.target.value)} placeholder="e.g. EMT, Phlebotomy" style={inputStyle} /></div>
+                <div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Languages Spoken</label><input value={newLanguages} onChange={e => setNewLanguages(e.target.value)} placeholder="e.g. Spanish, Mandarin" style={inputStyle} /></div>
+                <div><label style={labelStyle}>Role</label><select value={newRole} onChange={e => setNewRole(e.target.value)} style={inputStyle}><option value="volunteer">Volunteer</option><option value="admin">Admin</option></select></div>
+                <div><label style={labelStyle}>Default Position</label><select value={newDefaultRole} onChange={e => setNewDefaultRole(e.target.value)} style={inputStyle}><option value="">— None —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+                <div><label style={labelStyle}>Birthday</label><input type="date" value={newBirthday} onChange={e => setNewBirthday(e.target.value)} style={inputStyle} /></div>
+                {newAffiliation === 'missionary' && <><div><label style={labelStyle}>SMA Name</label><input value={newSmaName} onChange={e => setNewSmaName(e.target.value)} placeholder="SMA full name" style={inputStyle} /></div><div><label style={labelStyle}>SMA Contact</label><input value={newSmaContact} onChange={e => setNewSmaContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div></>}
+                {newAffiliation === 'student' && <><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>School</label><select value={newSchool} onChange={e => setNewSchool(e.target.value)} style={inputStyle}><option value="">— Select school —</option>{SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}</select></div><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Major</label><select value={newMajor} onChange={e => setNewMajor(e.target.value)} style={inputStyle}><option value="">— Select major —</option>{MAJORS.map(m => <option key={m} value={m}>{m}</option>)}</select></div></>}
+              </div>
+              <button type="submit" disabled={creating} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: creating ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{creating ? 'Creating...' : 'Create Account'}</button>
+            </form>
           </div>
         )}
 

@@ -42,6 +42,9 @@ export default function VolunteerPage() {
   const [sendingMsg, setSendingMsg] = useState(false)
   const [msgView, setMsgView] = useState('inbox')
 
+  // Unread tracking
+  const [readMessageIds, setReadMessageIds] = useState(new Set())
+
   // Image attachment state
   const [msgImageFile, setMsgImageFile] = useState(null)
   const [msgImagePreview, setMsgImagePreview] = useState(null)
@@ -73,11 +76,17 @@ export default function VolunteerPage() {
   // All shifts for total hours (no limit)
   const [allShifts, setAllShifts] = useState([])
 
-  useEffect(() => { init() }, [])
-
   const isAdmin = profile?.role === 'admin'
   const isClinicalSupervisor = profile?.default_role === 'Clinical Supervisor'
 
+  useEffect(() => { init() }, [])
+
+  // Mark all inbox messages as read when the user opens the messages tab to inbox
+  useEffect(() => {
+    if (tab === 'messages' && msgView === 'inbox' && user) {
+      markInboxAsRead()
+    }
+  }, [tab, msgView, user])
 
   async function init() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -114,7 +123,7 @@ export default function VolunteerPage() {
       .order('day_of_week')
     setSchedule(sched || [])
 
-    await loadMessages()
+    await loadMessages(user.id)
 
     const { data: openSubs } = await supabase
       .from('callouts')
@@ -142,13 +151,44 @@ export default function VolunteerPage() {
     setLoading(false)
   }
 
-  async function loadMessages() {
+  async function loadMessages(uid) {
+    const userId = uid || user?.id
     const { data: msgs } = await supabase
       .from('messages')
       .select('*, sender:profiles!messages_sender_id_fkey(full_name)')
       .order('created_at', { ascending: false })
       .limit(50)
     setMessages(msgs || [])
+
+    // Load which messages this user has already read
+    if (userId) {
+      const { data: reads } = await supabase
+        .from('message_reads')
+        .select('message_id')
+        .eq('user_id', userId)
+      setReadMessageIds(new Set((reads || []).map(r => r.message_id)))
+    }
+  }
+
+  // Insert read receipts for all current inbox messages
+  async function markInboxAsRead() {
+    if (!user) return
+    // Re-derive inbox using current state (same filter as render)
+    const inbox = messages.filter(m => {
+      if (m.sender_id === user.id) return false
+      if (m.recipient_type === 'affiliation_missionary' && profile?.affiliation !== 'missionary') return false
+      return true
+    })
+    const unreadInbox = inbox.filter(m => !readMessageIds.has(m.id))
+    if (unreadInbox.length === 0) return
+
+    const rows = unreadInbox.map(m => ({ user_id: user.id, message_id: m.id }))
+    await supabase.from('message_reads').upsert(rows, { onConflict: 'user_id,message_id' })
+    setReadMessageIds(prev => {
+      const next = new Set(prev)
+      unreadInbox.forEach(m => next.add(m.id))
+      return next
+    })
   }
 
   // ── Image helpers ─────────────────────────────────────────────────────────
@@ -156,10 +196,7 @@ export default function VolunteerPage() {
   function handleImageSelect(e) {
     const file = e.target.files?.[0]
     if (!file) return
-    if (file.size > MAX_FILE_SIZE) {
-      showToast('Image must be under 5 MB', 'error')
-      return
-    }
+    if (file.size > MAX_FILE_SIZE) { showToast('Image must be under 5 MB', 'error'); return }
     setMsgImageFile(file)
     setMsgImagePreview(URL.createObjectURL(file))
   }
@@ -180,9 +217,7 @@ export default function VolunteerPage() {
       .upload(path, msgImageFile, { contentType: msgImageFile.type, upsert: false })
     setUploadingImage(false)
     if (error) { showToast('Image upload failed: ' + error.message, 'error'); return null }
-    const { data: { publicUrl } } = supabase.storage
-      .from('message-images')
-      .getPublicUrl(path)
+    const { data: { publicUrl } } = supabase.storage.from('message-images').getPublicUrl(path)
     return publicUrl
   }
 
@@ -194,7 +229,7 @@ export default function VolunteerPage() {
     setSendingMsg(true)
 
     const imageUrl = await uploadImage(user.id)
-    if (msgImageFile && !imageUrl) { setSendingMsg(false); return } // upload failed
+    if (msgImageFile && !imageUrl) { setSendingMsg(false); return }
 
     const payload = {
       sender_id: user.id,
@@ -222,7 +257,7 @@ export default function VolunteerPage() {
     setSendingMsg(false)
   }
 
-  // ── Other handlers (unchanged) ────────────────────────────────────────────
+  // ── Other handlers ────────────────────────────────────────────────────────
 
   function getCurrentShiftWindow() {
     const now = new Date()
@@ -386,6 +421,8 @@ export default function VolunteerPage() {
     return true
   })
   const sentMessages = messages.filter(m => m.sender_id === user?.id)
+  const unreadCount = inboxMessages.filter(m => !readMessageIds.has(m.id)).length
+
   const myShiftCombos = schedule.reduce((acc, s) => {
     const key = `${s.day_of_week}|${s.shift_time}`
     if (!acc.find(x => x.key === key)) acc.push({ key, day: s.day_of_week, shift_time: s.shift_time, label: `${s.day_of_week.charAt(0).toUpperCase() + s.day_of_week.slice(1,3)} ${s.shift_time}` })
@@ -394,12 +431,16 @@ export default function VolunteerPage() {
   const myRoles = [...new Set(schedule.map(s => s.role))]
   const calloutSubmitDisabled = calloutMode === 'single' ? (!calloutDate || !calloutShift || !calloutRole) : (!calloutStartDate || !calloutEndDate)
 
-  // ── Shared message card renderer ─────────────────────────────────────────
+  // ── Shared message card renderer ──────────────────────────────────────────
   function MessageCard({ m }) {
+    const isUnread = !readMessageIds.has(m.id) && m.sender_id !== user?.id
     return (
-      <div style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+      <div style={{ padding: '0.75rem 1rem', background: isUnread ? 'rgba(2,65,107,0.04)' : 'var(--bg)', borderRadius: '8px', border: `1px solid ${isUnread ? 'rgba(2,65,107,0.35)' : 'var(--border)'}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
-          <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{m.sender?.full_name || 'Unknown'}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {isUnread && <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#ef4444', flexShrink: 0 }} />}
+            <span style={{ fontWeight: isUnread ? 700 : 600, fontSize: '0.9rem' }}>{m.sender?.full_name || 'Unknown'}</span>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>{recipientLabel(m)}</span>
             <span style={{ color: 'var(--muted)', fontSize: '0.78rem', fontFamily: 'DM Mono, monospace' }}>{formatDateTime(m.created_at)}</span>
@@ -429,64 +470,27 @@ export default function VolunteerPage() {
               Hey, {profile?.full_name?.split(' ')[0]}
             </h1>
             <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
-              {new Date().toLocaleDateString('en-US', {
-                timeZone: 'America/Denver',
-                weekday: 'long',
-                month: 'long',
-                day: 'numeric'
-              })}
+              {new Date().toLocaleDateString('en-US', { timeZone: 'America/Denver', weekday: 'long', month: 'long', day: 'numeric' })}
             </p>
           </div>
-
-          
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             {(profile?.role === 'admin' || profile?.default_role === 'Clinical Supervisor') && (
               <button
                 onClick={() => {
-                  // Clinical Supervisor gets priority routing
-                  if (profile?.default_role === 'Clinical Supervisor') {
-                    window.location.href = '/clinical-supervisor'
-                    return
-                  }
-        
-                  // Admin toggle
-                  if (window.location.pathname.includes('admin')) {
-                    window.location.href = '/volunteer'
-                  } else {
-                    window.location.href = '/admin'
-                  }
+                  if (profile?.default_role === 'Clinical Supervisor') { window.location.href = '/clinical-supervisor'; return }
+                  if (window.location.pathname.includes('admin')) { window.location.href = '/volunteer' } else { window.location.href = '/admin' }
                 }}
-                style={{
-                  background: 'none',
-                  border: '1px solid var(--border)',
-                  borderRadius: '8px',
-                  color: 'var(--muted)',
-                  padding: '0.4rem 0.9rem',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem'
-                }}
+                style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}
               >
                 Switch View
               </button>
             )}
-              <button
-                onClick={handleSignOut}
-                style={{
-                  background: 'none',
-                  border: '1px solid var(--border)',
-                  borderRadius: '8px',
-                  color: 'var(--muted)',
-                  padding: '0.4rem 0.9rem',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem'
-                }}
-              >
-                Sign out
-              </button>
-        
-            </div>
+            <button onClick={handleSignOut} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>
+              Sign out
+            </button>
+          </div>
         </div>
-        
+
         {/* Status banner */}
         <div style={{ ...card, marginBottom: '1.5rem', borderColor: activeShift ? 'var(--accent)' : 'var(--border)', background: activeShift ? 'rgba(74,222,128,0.05)' : 'var(--surface)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -498,7 +502,27 @@ export default function VolunteerPage() {
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
           {[['clock','Clock'],['schedule','Schedule'],['callout','Call-Out'],['messages','Messages'],['account','Account']].map(([key, label]) => (
-            <button key={key} onClick={() => setTab(key)} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: tab === key ? 'var(--accent)' : 'var(--surface)', color: tab === key ? '#fff' : 'var(--muted)', border: tab === key ? 'none' : '1px solid var(--border)' }}>{label}</button>
+            <button key={key} onClick={() => setTab(key)} style={{
+              position: 'relative', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500,
+              cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+              background: tab === key ? 'var(--accent)' : 'var(--surface)',
+              color: tab === key ? '#fff' : 'var(--muted)',
+              border: tab === key ? 'none' : '1px solid var(--border)',
+            }}>
+              {label}
+              {key === 'messages' && unreadCount > 0 && (
+                <span style={{
+                  position: 'absolute', top: '-5px', right: '-5px',
+                  background: '#ef4444', color: '#fff',
+                  borderRadius: '50%', width: '17px', height: '17px',
+                  fontSize: '0.65rem', fontWeight: 700,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  border: '2px solid var(--bg)', lineHeight: 1,
+                }}>
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
           ))}
         </div>
 
@@ -635,9 +659,11 @@ export default function VolunteerPage() {
                           <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{c.callout_date}<span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.82rem', color: 'var(--muted)' }}>{c.shift_time}</span></p>
                           <p style={{ color: 'var(--muted)', fontSize: '0.82rem', textTransform: 'capitalize' }}>{c.day_of_week}{c.role ? ` · ${c.role}` : ''}{c.profiles?.full_name ? ` · ${c.profiles.full_name} calling out` : ''}</p>
                         </div>
-                        {isApproved ? <span style={{ fontSize: '0.8rem', padding: '0.25rem 0.7rem', borderRadius: '100px', background: 'rgba(74,222,128,0.12)', color: 'var(--accent)', border: '1px solid rgba(74,222,128,0.3)', fontWeight: 600 }}>✓ You're covering</span>
-                          : myReq ? <span style={{ fontSize: '0.8rem', padding: '0.25rem 0.7rem', borderRadius: '100px', background: 'rgba(96,165,250,0.1)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)', fontWeight: 500 }}>Requested</span>
-                          : <button onClick={() => handleRequestCover(c.id)} disabled={requestingCoverId === c.id} style={{ padding: '0.35rem 0.9rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{requestingCoverId === c.id ? '...' : 'I can cover'}</button>}
+                        {isApproved
+                          ? <span style={{ fontSize: '0.8rem', padding: '0.25rem 0.7rem', borderRadius: '100px', background: 'rgba(74,222,128,0.12)', color: 'var(--accent)', border: '1px solid rgba(74,222,128,0.3)', fontWeight: 600 }}>✓ You're covering</span>
+                          : myReq
+                            ? <span style={{ fontSize: '0.8rem', padding: '0.25rem 0.7rem', borderRadius: '100px', background: 'rgba(96,165,250,0.1)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)', fontWeight: 500 }}>Requested</span>
+                            : <button onClick={() => handleRequestCover(c.id)} disabled={requestingCoverId === c.id} style={{ padding: '0.35rem 0.9rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{requestingCoverId === c.id ? '...' : 'I can cover'}</button>}
                       </div>
                     )
                   })}
@@ -718,12 +744,10 @@ export default function VolunteerPage() {
                       </div>
                     )}
                   </div>
-
                   <div>
                     <label style={labelStyle}>Message</label>
                     <textarea value={msgBody} onChange={e => setMsgBody(e.target.value)} rows={4} placeholder="Write your message..." style={{ ...inputStyle, resize: 'vertical' }} />
                   </div>
-
                   {/* Image attachment */}
                   <div>
                     <label style={labelStyle}>Attach image <span style={{ textTransform: 'none', fontSize: '0.72rem', color: 'var(--muted)' }}>(optional · max 5 MB)</span></label>
@@ -739,7 +763,6 @@ export default function VolunteerPage() {
                     )}
                     <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleImageSelect} style={{ display: 'none' }} />
                   </div>
-
                   <button type="submit"
                     disabled={sendingMsg || uploadingImage || (!msgBody.trim() && !msgImageFile) || (msgRecipientType === 'shift' && !msgSelectedShift) || (msgRecipientType === 'role' && !msgSelectedRole)}
                     style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: sendingMsg ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
