@@ -430,7 +430,7 @@ export default function AdminPage() {
     const { error } = await supabase
       .from('schedule')
       .delete()
-      .eq('profile_id', volunteerId)
+      .eq('volunteer_id', volunteerId)
 
     if (error) throw error
   }
