@@ -385,36 +385,37 @@ export default function AdminPage() {
         status_changed_at: new Date().toISOString(),
       })
       .eq('id', volunteerId)
+  
     if (error) {
       showMessage(error.message, 'error')
       setChangingStatus(false)
       return
     }
-    if (isDeactivating) {
-      const { error: shiftError } = await supabase
-        .from('shifts')
-        .delete()
-        .eq('profile_id', volunteerId)
   
-      if (shiftError) {
-        showMessage(shiftError.message, 'error')
+    if (isDeactivating) {
+      try {
+        await removeVolunteerFromSchedule(volunteerId)
+      } catch (err) {
+        showMessage(err.message, 'error')
         setChangingStatus(false)
         return
       }
     }
-      const { data: fresh } = await supabase
+  
+    const { data: fresh } = await supabase
       .from('profiles')
       .select('*, shifts(*)')
       .eq('id', volunteerId)
       .single()
-      await audit(
+  
+    await audit(
       isDeactivating ? 'deactivated_volunteer' : 'reactivated_volunteer',
       'volunteer',
       volunteerId,
       selectedVolunteer.full_name,
       reason || null
     )
-      showMessage(
+    showMessage(
       isDeactivating
         ? 'Volunteer deactivated and removed from schedule.'
         : 'Volunteer reactivated!',
