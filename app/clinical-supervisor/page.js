@@ -563,15 +563,6 @@ export default function CSPage() {
                 </div>
               )
             })()}
-
-            {/* Off-shift notice */}
-            {(!isWeekday || !currentShift) && (
-              <div style={card}>
-                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>
-                  {!isWeekday ? 'No shifts on weekends.' : 'Outside shift hours (shifts run 10–2 and 2–6 weekdays).'}
-                </p>
-              </div>
-            )}
           </div>
         )}
 
