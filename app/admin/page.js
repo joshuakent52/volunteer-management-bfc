@@ -373,13 +373,65 @@ export default function AdminPage() {
   }
   async function handleStatusChange(newStatus, reason) {
     setChangingStatus(true)
+
+    const volunteerId = selectedVolunteer.id
     const isDeactivating = newStatus === 'inactive'
-    const { error } = await supabase.from('profiles').update({ status: newStatus, status_reason: isDeactivating ? (reason || null) : null, status_changed_at: new Date().toISOString() }).eq('id', selectedVolunteer.id)
-    if (error) { showMessage(error.message, 'error'); setChangingStatus(false); return }
-    const { data: fresh } = await supabase.from('profiles').select('*, shifts(*)').eq('id', selectedVolunteer.id).single()
-    showMessage(isDeactivating ? 'Volunteer deactivated.' : 'Volunteer reactivated!', 'success')
-    await audit(isDeactivating ? 'deactivated_volunteer' : 'reactivated_volunteer', 'volunteer', selectedVolunteer.id, selectedVolunteer.full_name, reason || null)
-    setSelectedVolunteer(fresh); await loadVolunteers(); setChangingStatus(false)
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        status: newStatus,
+        status_reason: isDeactivating ? (reason || null) : null,
+        status_changed_at: new Date().toISOString(),
+      })
+      .eq('id', volunteerId)
+    if (error) {
+      showMessage(error.message, 'error')
+      setChangingStatus(false)
+      return
+    }
+    if (isDeactivating) {
+      const { error: shiftError } = await supabase
+        .from('shifts')
+        .delete()
+        .eq('profile_id', volunteerId)
+  
+      if (shiftError) {
+        showMessage(shiftError.message, 'error')
+        setChangingStatus(false)
+        return
+      }
+    }
+      const { data: fresh } = await supabase
+      .from('profiles')
+      .select('*, shifts(*)')
+      .eq('id', volunteerId)
+      .single()
+      await audit(
+      isDeactivating ? 'deactivated_volunteer' : 'reactivated_volunteer',
+      'volunteer',
+      volunteerId,
+      selectedVolunteer.full_name,
+      reason || null
+    )
+      showMessage(
+      isDeactivating
+        ? 'Volunteer deactivated and removed from schedule.'
+        : 'Volunteer reactivated!',
+      'success'
+    )
+    setSelectedVolunteer(fresh)
+    await loadVolunteers()
+    setChangingStatus(false)
+  }
+  
+  async function removeVolunteerFromSchedule(volunteerId) {
+    const { error } = await supabase
+      .from('shifts')
+      .delete()
+      .eq('profile_id', volunteerId)
+
+    if (error) throw error
   }
   async function handleSaveEdit() {
     setSaving(true)
