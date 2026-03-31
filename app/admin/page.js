@@ -459,7 +459,7 @@ export default function AdminPage() {
 
   const tzLabel = getMountainLabel()
   const volunteerList = volunteers.filter(v => v.role === 'volunteer' && (showInactive ? true : (v.status || 'active') === 'active')).sort((a, b) => { const ln = n => (n?.full_name?.split(' ').slice(-1)[0] || '').toLowerCase(); return ln(a).localeCompare(ln(b)) })
-const userList = volunteers
+  const userList = volunteers
   .filter(v => showInactive || (v.status || 'active') === 'active')
   .sort((a, b) => {
     const ln = n =>
