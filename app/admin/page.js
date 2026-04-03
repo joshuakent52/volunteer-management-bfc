@@ -920,7 +920,6 @@ export default function AdminPage() {
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                        <span style={{ fontSize: '1rem' }}>🕒</span>
                         <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Recent Shifts</span>
                         <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>last 10</span>
                       </div>
@@ -940,7 +939,6 @@ export default function AdminPage() {
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                        <span style={{ fontSize: '1rem' }}>📅</span>
                         <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Schedule</span>
                         <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>recurring</span>
                       </div>
