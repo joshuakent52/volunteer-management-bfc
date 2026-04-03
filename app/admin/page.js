@@ -38,6 +38,21 @@ export default function AdminPage() {
   const [editForm, setEditForm] = useState({})
   const [saving, setSaving] = useState(false)
 
+  // Volunteer list filters
+  const [filterAffiliation, setFilterAffiliation] = useState('all')
+  const [filterSchool, setFilterSchool] = useState('all')
+  const [filterRole, setFilterRole] = useState('all')
+  const [filterDefaultRole, setFilterDefaultRole] = useState('all')
+  const [filterSearch, setFilterSearch] = useState('')
+
+  // Volunteer detail expandable sections
+  const [showRecentShifts, setShowRecentShifts] = useState(false)
+  const [showScheduledShifts, setShowScheduledShifts] = useState(false)
+  const [recentShifts, setRecentShifts] = useState([])
+  const [scheduledShifts, setScheduledShifts] = useState([])
+  const [loadingRecentShifts, setLoadingRecentShifts] = useState(false)
+  const [loadingScheduledShifts, setLoadingScheduledShifts] = useState(false)
+
   const [newName, setNewName] = useState(''); const [newEmail, setNewEmail] = useState(''); const [newPassword, setNewPassword] = useState('')
   const [newRole, setNewRole] = useState('volunteer'); const [newAffiliation, setNewAffiliation] = useState(''); const [newCredentials, setNewCredentials] = useState('')
   const [newPhone, setNewPhone] = useState(''); const [newLanguages, setNewLanguages] = useState(''); const [newSmaName, setNewSmaName] = useState('')
@@ -54,16 +69,13 @@ export default function AdminPage() {
   const [sendingMsg, setSendingMsg] = useState(false)
   const [msgView, setMsgView] = useState('inbox')
 
-  // Unread tracking
   const [readMessageIds, setReadMessageIds] = useState(new Set())
 
-  // Image attachment
   const [msgImageFile, setMsgImageFile] = useState(null)
   const [msgImagePreview, setMsgImagePreview] = useState(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const fileInputRef = useRef(null)
 
-  // Lightbox
   const [lightboxUrl, setLightboxUrl] = useState(null)
 
   const [coverRequests, setCoverRequests] = useState([])
@@ -98,7 +110,6 @@ export default function AdminPage() {
     return () => clearInterval(interval)
   }, [])
 
-  // Mark inbox as read when admin opens the messages tab → inbox
   useEffect(() => {
     if (tab === 'messages' && msgView === 'inbox' && profile) {
       markInboxAsRead()
@@ -122,6 +133,30 @@ export default function AdminPage() {
     setCallouts((data || []).map(c => ({ ...c, profiles: c.volunteer, status: c.status ?? (c.is_read ? 'approved' : 'pending') })))
   }
   async function loadSchedule() { const { data } = await supabase.from('schedule').select('*, profiles(id, full_name)').order('role'); setSchedule(data || []) }
+
+  async function loadRecentShiftsForVolunteer(volunteerId) {
+    setLoadingRecentShifts(true)
+    const { data } = await supabase
+      .from('shifts')
+      .select('*')
+      .eq('volunteer_id', volunteerId)
+      .not('clock_out', 'is', null)
+      .order('clock_in', { ascending: false })
+      .limit(10)
+    setRecentShifts(data || [])
+    setLoadingRecentShifts(false)
+  }
+
+  async function loadScheduledShiftsForVolunteer(volunteerId) {
+    setLoadingScheduledShifts(true)
+    const { data } = await supabase
+      .from('schedule')
+      .select('*')
+      .eq('volunteer_id', volunteerId)
+      .order('day_of_week')
+    setScheduledShifts(data || [])
+    setLoadingScheduledShifts(false)
+  }
 
   async function loadAdminMessages(uid) {
     const userId = uid || profile?.id
@@ -160,9 +195,7 @@ export default function AdminPage() {
 
   async function loadAuditLogs() {
     setAuditLoading(true)
-
     const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
-
     let query = supabase
       .from('audit_logs')
       .select('*, admin:profiles!audit_logs_admin_id_fkey(full_name)')
@@ -174,7 +207,6 @@ export default function AdminPage() {
     if (auditFilterFrom) query = query.gte('created_at', auditFilterFrom + 'T00:00:00Z')
     if (auditFilterTo) query = query.lte('created_at', auditFilterTo + 'T23:59:59Z')
     const { data } = await query
-
     const filteredData = (data || []).filter(log => log.action !== 'sent_message')
     setAuditLogs(filteredData)
     setAuditLoading(false)
@@ -184,7 +216,6 @@ export default function AdminPage() {
     try { await supabase.from('audit_logs').insert({ admin_id: profile.id, action, target_type, target_id: target_id ? String(target_id) : null, target_name: target_name || null, details: details || null }) } catch (e) { console.error('audit log failed:', e) }
   }
 
-  // ── Image helpers ─────────────────────────────────────────────────────────
   function handleImageSelect(e) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -205,7 +236,6 @@ export default function AdminPage() {
     return publicUrl
   }
 
-  // ── Message sending ───────────────────────────────────────────────────────
   async function handleAdminSendMessage(e) {
     e.preventDefault()
     if (!msgBody.trim() && !msgImageFile) return
@@ -230,79 +260,21 @@ export default function AdminPage() {
     setSendingMsg(false)
   }
 
-  // ── All other action handlers ─────────────────────────────────────────────
   const expectedVolunteers = (() => {
-    const todayMtnStr = new Date().toLocaleDateString('en-CA', {
-      timeZone: 'America/Denver'
-    })
-
+    const todayMtnStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
     const mtnNow = getMountainNow()
     const dayIndex = mtnNow.getDay()
     const isWeekday = dayIndex >= 1 && dayIndex <= 5
-
     const h = mtnNow.getHours() + mtnNow.getMinutes() / 60
-    const currentShift =
-      h >= 10 && h < 14 ? '10-2' :
-      h >= 14 && h < 18 ? '2-6' :
-      null
-
-    const currentDay = [
-      'sunday','monday','tuesday','wednesday',
-      'thursday','friday','saturday'
-    ][dayIndex]
-
+    const currentShift = h >= 10 && h < 14 ? '10-2' : h >= 14 && h < 18 ? '2-6' : null
+    const currentDay = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
     if (!isWeekday || !currentShift) return []
-
-    const calledOutIds = new Set(
-      callouts
-        .filter(c =>
-          c.callout_date === todayMtnStr &&
-          c.shift_time === currentShift &&
-          c.status === 'approved'
-        )
-        .map(c => c.volunteer_id)
-    )
-  
-    const coverIds = new Set(
-      callouts
-        .filter(c =>
-          c.callout_date === todayMtnStr &&
-          c.shift_time === currentShift &&
-          c.covered_by
-        )
-        .map(c => c.covered_by)
-    )
-  
-    const scheduled = schedule.filter(s =>
-      s.day_of_week === currentDay &&
-      s.shift_time === currentShift &&
-      (!s.start_date || s.start_date <= todayMtnStr) &&
-      (!s.end_date || s.end_date >= todayMtnStr)
-    )
-  
-    const expectedIds = new Set([
-      ...scheduled.filter(s => !calledOutIds.has(s.volunteer_id)).map(s => s.volunteer_id),
-      ...coverIds
-    ])
-  
-    const clockedInIds = new Set(
-      activeShifts.map(s => s.profiles?.id).filter(Boolean)
-    )
-  
-    return [...expectedIds]
-      .filter(id => !clockedInIds.has(id))
-      .map(id => {
-        const vol = volunteers.find(v => v.id === id)
-        const entry = scheduled.find(s => s.volunteer_id === id)
-        if (!vol) return null
-  
-        return {
-          ...vol,
-          role: entry?.role || '—',
-          notes: entry?.notes || null
-        }
-      })
-      .filter(Boolean)
+    const calledOutIds = new Set(callouts.filter(c => c.callout_date === todayMtnStr && c.shift_time === currentShift && c.status === 'approved').map(c => c.volunteer_id))
+    const coverIds = new Set(callouts.filter(c => c.callout_date === todayMtnStr && c.shift_time === currentShift && c.covered_by).map(c => c.covered_by))
+    const scheduled = schedule.filter(s => s.day_of_week === currentDay && s.shift_time === currentShift && (!s.start_date || s.start_date <= todayMtnStr) && (!s.end_date || s.end_date >= todayMtnStr))
+    const expectedIds = new Set([...scheduled.filter(s => !calledOutIds.has(s.volunteer_id)).map(s => s.volunteer_id), ...coverIds])
+    const clockedInIds = new Set(activeShifts.map(s => s.profiles?.id).filter(Boolean))
+    return [...expectedIds].filter(id => !clockedInIds.has(id)).map(id => { const vol = volunteers.find(v => v.id === id); const entry = scheduled.find(s => s.volunteer_id === id); if (!vol) return null; return { ...vol, role: entry?.role || '—', notes: entry?.notes || null } }).filter(Boolean)
   })()
 
   async function approveCallout(callout) {
@@ -418,70 +390,51 @@ export default function AdminPage() {
     setTab('volunteers'); setSelectedVolunteer(v)
     setEditForm({ full_name: v.full_name||'', email: v.email||'', phone: v.phone||'', affiliation: v.affiliation||'', credentials: v.credentials||'', languages: v.languages||'', role: v.role||'volunteer', sma_name: v.sma_name||'', sma_contact: v.sma_contact||'', school: v.school||'', default_role: v.default_role||'', birthday: v.birthday||'' })
     setStatusForm({ status: v.status || 'active', status_reason: v.status_reason || '' }); setEditing(false)
+    // Reset expandable sections when opening a new volunteer
+    setShowRecentShifts(false)
+    setShowScheduledShifts(false)
+    setRecentShifts([])
+    setScheduledShifts([])
   }
+
+  function handleToggleRecentShifts(volunteerId) {
+    if (!showRecentShifts) {
+      setShowRecentShifts(true)
+      loadRecentShiftsForVolunteer(volunteerId)
+    } else {
+      setShowRecentShifts(false)
+    }
+  }
+
+  function handleToggleScheduledShifts(volunteerId) {
+    if (!showScheduledShifts) {
+      setShowScheduledShifts(true)
+      loadScheduledShiftsForVolunteer(volunteerId)
+    } else {
+      setShowScheduledShifts(false)
+    }
+  }
+
   async function handleStatusChange(newStatus, reason) {
     setChangingStatus(true)
-
     const volunteerId = selectedVolunteer.id
     const isDeactivating = newStatus === 'inactive'
-
-    const { error } = await supabase
-      .from('profiles')
-      .update({
-        status: newStatus,
-        status_reason: isDeactivating ? (reason || null) : null,
-        status_changed_at: new Date().toISOString(),
-      })
-      .eq('id', volunteerId)
-  
-    if (error) {
-      showMessage(error.message, 'error')
-      setChangingStatus(false)
-      return
-    }
-  
+    const { error } = await supabase.from('profiles').update({ status: newStatus, status_reason: isDeactivating ? (reason || null) : null, status_changed_at: new Date().toISOString() }).eq('id', volunteerId)
+    if (error) { showMessage(error.message, 'error'); setChangingStatus(false); return }
     if (isDeactivating) {
-      try {
-        await removeVolunteerFromSchedule(volunteerId)
-      } catch (err) {
-        showMessage(err.message, 'error')
-        setChangingStatus(false)
-        return
-      }
+      try { await removeVolunteerFromSchedule(volunteerId) } catch (err) { showMessage(err.message, 'error'); setChangingStatus(false); return }
     }
-  
-    const { data: fresh } = await supabase
-      .from('profiles')
-      .select('*, shifts(*)')
-      .eq('id', volunteerId)
-      .single()
-  
-    await audit(
-      isDeactivating ? 'deactivated_volunteer' : 'reactivated_volunteer',
-      'volunteer',
-      volunteerId,
-      selectedVolunteer.full_name,
-      reason || null
-    )
-    showMessage(
-      isDeactivating
-        ? 'Volunteer deactivated and removed from schedule.'
-        : 'Volunteer reactivated!',
-      'success'
-    )
-    setSelectedVolunteer(fresh)
-    await loadVolunteers()
-    setChangingStatus(false)
+    const { data: fresh } = await supabase.from('profiles').select('*, shifts(*)').eq('id', volunteerId).single()
+    await audit(isDeactivating ? 'deactivated_volunteer' : 'reactivated_volunteer', 'volunteer', volunteerId, selectedVolunteer.full_name, reason || null)
+    showMessage(isDeactivating ? 'Volunteer deactivated and removed from schedule.' : 'Volunteer reactivated!', 'success')
+    setSelectedVolunteer(fresh); await loadVolunteers(); setChangingStatus(false)
   }
-  {/* Failed, Will fix later */}
-  async function removeVolunteerFromSchedule(volunteerId) {
-    const { error } = await supabase
-      .from('schedule')
-      .delete()
-      .eq('volunteer_id', volunteerId)
 
+  async function removeVolunteerFromSchedule(volunteerId) {
+    const { error } = await supabase.from('schedule').delete().eq('volunteer_id', volunteerId)
     if (error) throw error
   }
+
   async function handleSaveEdit() {
     setSaving(true)
     const { error } = await supabase.from('profiles').update({ full_name: editForm.full_name, phone: editForm.phone, affiliation: editForm.affiliation || null, credentials: editForm.credentials || null, languages: editForm.languages, role: editForm.role, sma_name: editForm.affiliation === 'missionary' ? (editForm.sma_name||null) : null, sma_contact: editForm.affiliation === 'missionary' ? (editForm.sma_contact||null) : null, school: editForm.affiliation === 'student' ? (editForm.school||null) : null, major: editForm.affiliation === 'student' ? (editForm.major||null) : null, default_role: editForm.default_role || null, birthday: editForm.birthday || null }).eq('id', selectedVolunteer.id)
@@ -490,6 +443,7 @@ export default function AdminPage() {
     showMessage('Profile updated!', 'success'); await audit('edited_volunteer', 'volunteer', selectedVolunteer.id, selectedVolunteer.full_name)
     setEditing(false); setSelectedVolunteer(fresh); await loadVolunteers(); setSaving(false)
   }
+
   async function handleCreateVolunteer(e) {
     e.preventDefault(); setCreating(true)
     const { data, error } = await supabase.auth.signUp({ email: newEmail, password: newPassword })
@@ -529,6 +483,9 @@ export default function AdminPage() {
     })
   }
 
+  // Day ordering helper for schedule display
+  const DAY_ORDER = { monday: 0, tuesday: 1, wednesday: 2, thursday: 3, friday: 4, saturday: 5, sunday: 6 }
+
   if (loading) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}><p style={{ color: 'var(--muted)' }}>Loading...</p></div>
 
   const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }
@@ -539,23 +496,38 @@ export default function AdminPage() {
   const pillBtn = (active, mono) => ({ padding: '0.45rem 0.85rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: mono ? 'DM Mono, monospace' : 'DM Sans, sans-serif', background: active ? (mono ? '#1e40af' : 'var(--accent)') : 'var(--surface)', color: active ? (mono ? '#bfdbfe' : '#0a0f0a') : 'var(--muted)', border: active ? 'none' : '1px solid var(--border)' })
 
   const tzLabel = getMountainLabel()
-  const volunteerList = volunteers.filter(v => v.role === 'volunteer' && (showInactive ? true : (v.status || 'active') === 'active')).sort((a, b) => { const ln = n => (n?.full_name?.split(' ').slice(-1)[0] || '').toLowerCase(); return ln(a).localeCompare(ln(b)) })
-  const userList = volunteers
-  .filter(v => showInactive || (v.status || 'active') === 'active')
-  .sort((a, b) => {
-    const ln = n =>
-      (n?.full_name?.split(' ').slice(-1)[0] || '').toLowerCase()
-    return ln(a).localeCompare(ln(b))
-  })   
   const adminList = volunteers.filter(v => v.role === 'admin')
   const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-  const messages24h = adminMessages.filter(m => m.created_at >= cutoff24h && m.sender_id !== profile?.id).length
   const dayShiftCombos = DAYS.flatMap(d => SHIFTS.map(s => ({ day: d, shift: s, label: `${d.charAt(0).toUpperCase() + d.slice(1,3)} ${s}` })))
   const filteredShifts = shiftFilterVolId ? allShifts.filter(s => s.volunteer_id === shiftFilterVolId) : allShifts
 
-  // Unread count for badge — messages sent to admin inbox that haven't been read
   const inboxMessages = adminMessages.filter(m => m.sender_id !== profile?.id)
   const unreadCount = inboxMessages.filter(m => !readMessageIds.has(m.id)).length
+
+  // ── Volunteer list filtering ───────────────────────────────────────────────
+  const userList = volunteers
+    .filter(v => showInactive || (v.status || 'active') === 'active')
+    .filter(v => {
+      if (filterSearch) {
+        const q = filterSearch.toLowerCase()
+        if (!(v.full_name || '').toLowerCase().includes(q) && !(v.email || '').toLowerCase().includes(q)) return false
+      }
+      if (filterRole !== 'all' && v.role !== filterRole) return false
+      if (filterAffiliation !== 'all') {
+        if (filterAffiliation === 'missionary' && v.affiliation !== 'missionary') return false
+        if (filterAffiliation === 'student' && v.affiliation !== 'student') return false
+        if (filterAffiliation === 'volunteer' && v.affiliation !== 'volunteer') return false
+        if (filterAffiliation === 'provider' && v.affiliation !== 'provider') return false
+        if (filterAffiliation === 'BYU' && v.school !== 'BYU') return false
+        if (filterAffiliation === 'UVU' && v.school !== 'UVU') return false
+      }
+      if (filterDefaultRole !== 'all' && v.default_role !== filterDefaultRole) return false
+      return true
+    })
+    .sort((a, b) => {
+      const ln = n => (n?.full_name?.split(' ').slice(-1)[0] || '').toLowerCase()
+      return ln(a).localeCompare(ln(b))
+    })
 
   // ── Shared message card renderer ──────────────────────────────────────────
   function MessageCard({ m }) {
@@ -581,6 +553,41 @@ export default function AdminPage() {
     )
   }
 
+  // ── Expandable section component ──────────────────────────────────────────
+  function ExpandableSection({ label, isOpen, onToggle, loading: isLoading, children, count }) {
+    return (
+      <div style={{ borderRadius: '10px', border: `1px solid ${isOpen ? 'var(--accent)' : 'var(--border)'}`, overflow: 'hidden', transition: 'border-color 0.15s' }}>
+        <button
+          onClick={onToggle}
+          style={{
+            width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '0.85rem 1rem', background: isOpen ? 'rgba(2,65,107,0.05)' : 'var(--bg)',
+            border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+            color: isOpen ? 'var(--accent)' : 'var(--text)', transition: 'background 0.15s',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <span style={{ display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', fontSize: '0.85rem', color: 'var(--muted)' }}>›</span>
+            <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{label}</span>
+            {count !== undefined && count !== null && (
+              <span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: isOpen ? 'rgba(2,65,107,0.15)' : 'var(--surface)', color: isOpen ? 'var(--accent)' : 'var(--muted)', border: '1px solid var(--border)', fontFamily: 'DM Mono, monospace' }}>
+                {count}
+              </span>
+            )}
+          </div>
+          {isLoading && <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>Loading...</span>}
+        </button>
+        {isOpen && (
+          <div style={{ padding: '0 1rem 1rem', background: 'var(--bg)', borderTop: '1px solid var(--border)' }}>
+            <div style={{ paddingTop: '0.75rem' }}>
+              {children}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
       <div style={{ maxWidth: '960px', margin: '0 auto' }}>
@@ -593,44 +600,8 @@ export default function AdminPage() {
           </div>
           {profile?.role === 'admin' && (
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-             <button
-                onClick={() => {
-                  if (window.location.pathname.includes('admin')) {
-                    window.location.href = '/volunteer'
-                  } else {
-                    window.location.href = '/admin'
-                 }
-                }}
-                style={{
-                  background: 'none',
-                  border: '1px solid var(--border)',
-                  borderRadius: '8px',
-                  color: 'var(--muted)',
-                  padding: '0.4rem 0.9rem',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem'
-                }}
-              >
-                Volunteer View
-              </button>
-            
-              <button
-               onClick={async () => {
-                 await supabase.auth.signOut()
-                  window.location.href = '/'
-                }}
-                style={{
-                  background: 'none',
-                  border: '1px solid var(--border)',
-                  borderRadius: '8px',
-                  color: 'var(--muted)',
-                  padding: '0.4rem 0.9rem',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem'
-                }}
-             >
-                Sign out
-             </button>
+              <button onClick={() => { if (window.location.pathname.includes('admin')) { window.location.href = '/volunteer' } else { window.location.href = '/admin' } }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>Volunteer View</button>
+              <button onClick={async () => { await supabase.auth.signOut(); window.location.href = '/' }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>Sign out</button>
             </div>
           )}
         </div>
@@ -638,9 +609,9 @@ export default function AdminPage() {
         {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
           {[
-            {label: 'Not Clocked In', value: expectedVolunteers.length, warn: expectedVolunteers.length > 0 },
+            { label: 'Not Clocked In', value: expectedVolunteers.length, warn: expectedVolunteers.length > 0 },
             { label: 'Pending Call-Outs', value: callouts.filter(c => !c.status || c.status === 'pending').length, warn: callouts.filter(c => !c.status || c.status === 'pending').length > 0 },
-            {label: 'Pending Hours', value: hoursSubmissions.filter(h => !h.status || h.status === 'pending').length, warn: hoursSubmissions.some(h => !h.status || h.status === 'pending').length > 0 },
+            { label: 'Pending Hours', value: hoursSubmissions.filter(h => !h.status || h.status === 'pending').length, warn: hoursSubmissions.some(h => !h.status || h.status === 'pending').length > 0 },
           ].map(s => (
             <div key={s.label} style={{ ...card, textAlign: 'center', borderColor: s.accent ? 'var(--accent)' : s.warn ? 'var(--warn)' : s.info ? '#60a5fa' : 'var(--border)' }}>
               <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: s.accent ? 'var(--accent)' : s.warn ? 'var(--warn)' : s.info ? '#60a5fa' : 'var(--text)' }}>{s.value}</p>
@@ -666,14 +637,7 @@ export default function AdminPage() {
             }}>
               {label}
               {key === 'messages' && unreadCount > 0 && (
-                <span style={{
-                  position: 'absolute', top: '-5px', right: '-5px',
-                  background: '#ef4444', color: '#fff',
-                  borderRadius: '50%', width: '17px', height: '17px',
-                  fontSize: '0.65rem', fontWeight: 700,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  border: '2px solid var(--bg)', lineHeight: 1,
-                }}>
+                <span style={{ position: 'absolute', top: '-5px', right: '-5px', background: '#ef4444', color: '#fff', borderRadius: '50%', width: '17px', height: '17px', fontSize: '0.65rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--bg)', lineHeight: 1 }}>
                   {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
               )}
@@ -688,7 +652,7 @@ export default function AdminPage() {
           const h = mtnNow.getHours() + mtnNow.getMinutes() / 60
           const currentShift = h >= 10 && h < 14 ? '10-2' : h >= 14 && h < 18 ? '2-6' : null
           const currentDay = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
-          const expectedVolunteers = isWeekday && currentShift ? (() => {
+          const expectedVols = isWeekday && currentShift ? (() => {
             const calledOutIds = new Set(callouts.filter(c => c.callout_date === todayMtnStr && c.shift_time === currentShift && c.status === 'approved').map(c => c.volunteer_id))
             const coverIds = new Set(callouts.filter(c => c.callout_date === todayMtnStr && c.shift_time === currentShift && c.covered_by).map(c => c.covered_by))
             const scheduled = schedule.filter(s => s.day_of_week === currentDay && s.shift_time === currentShift && (!s.start_date || s.start_date <= todayMtnStr) && (!s.end_date || s.end_date >= todayMtnStr))
@@ -699,9 +663,9 @@ export default function AdminPage() {
           return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {isWeekday && currentShift && (
-                <div style={{ ...card, borderColor: expectedVolunteers.length > 0 ? 'var(--danger)' : 'rgba(2,65,107,0.4)', background: expectedVolunteers.length > 0 ? 'rgba(239,68,68,0.03)' : 'rgba(2,65,107,0.03)' }}>
-                  <h2 style={{ fontWeight: 600, marginBottom: expectedVolunteers.length > 0 ? '1rem' : 0, fontSize: '1rem' }}>{expectedVolunteers.length > 0 ? `${expectedVolunteers.length} volunteer${expectedVolunteers.length !== 1 ? 's' : ''} not yet clocked in — ${currentDay} ${currentShift}` : `All expected volunteers clocked in — ${currentDay} ${currentShift}`}</h2>
-                  {expectedVolunteers.length > 0 && <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>{expectedVolunteers.map(v => (<div key={v.id} onClick={() => openVolunteer(v)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'rgba(239,68,68,0.06)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer' }} onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'} onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(239,68,68,0.2)'}><span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{v.full_name}</span>{v.notes && <span style={{ fontSize: '0.78rem', color: '#60a5fa', fontStyle: 'italic' }}>({v.notes})</span>}<span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{v.role}</span></div>))}</div>}
+                <div style={{ ...card, borderColor: expectedVols.length > 0 ? 'var(--danger)' : 'rgba(2,65,107,0.4)', background: expectedVols.length > 0 ? 'rgba(239,68,68,0.03)' : 'rgba(2,65,107,0.03)' }}>
+                  <h2 style={{ fontWeight: 600, marginBottom: expectedVols.length > 0 ? '1rem' : 0, fontSize: '1rem' }}>{expectedVols.length > 0 ? `${expectedVols.length} volunteer${expectedVols.length !== 1 ? 's' : ''} not yet clocked in — ${currentDay} ${currentShift}` : `All expected volunteers clocked in — ${currentDay} ${currentShift}`}</h2>
+                  {expectedVols.length > 0 && <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>{expectedVols.map(v => (<div key={v.id} onClick={() => openVolunteer(v)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'rgba(239,68,68,0.06)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer' }} onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'} onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(239,68,68,0.2)'}><span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{v.full_name}</span>{v.notes && <span style={{ fontSize: '0.78rem', color: '#60a5fa', fontStyle: 'italic' }}>({v.notes})</span>}<span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{v.role}</span></div>))}</div>}
                 </div>
               )}
               <div style={card}>
@@ -791,31 +755,113 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* VOLUNTEERS TAB */}
+        {/* VOLUNTEERS TAB — LIST */}
         {tab === 'volunteers' && !selectedVolunteer && (
-          <div style={card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-              <h2 style={{ fontWeight: 600 }}>All Volunteers <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: '0.85rem' }}>— click to view or edit</span></h2>
-              <button onClick={() => setShowInactive(s => !s)} style={{ padding: '0.35rem 0.85rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showInactive ? 'rgba(156,163,175,0.15)' : 'var(--surface)', color: showInactive ? 'var(--text)' : 'var(--muted)', border: '1px solid var(--border)' }}>{showInactive ? 'Hide Inactive' : 'Show Inactive'}</button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {/* Filter bar */}
+            <div style={{ ...card, padding: '1rem 1.25rem' }}>
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                {/* Search */}
+                <div style={{ flex: '1 1 180px', minWidth: '150px' }}>
+                  <label style={labelStyle}>Search</label>
+                  <input
+                    type="text"
+                    placeholder="Name or email…"
+                    value={filterSearch}
+                    onChange={e => setFilterSearch(e.target.value)}
+                    style={{ ...inputStyle, padding: '0.55rem 0.85rem', fontSize: '0.875rem' }}
+                  />
+                </div>
+
+                {/* Affiliation / School filter */}
+                <div style={{ flex: '1 1 150px', minWidth: '130px' }}>
+                  <label style={labelStyle}>Affiliation</label>
+                  <select value={filterAffiliation} onChange={e => setFilterAffiliation(e.target.value)} style={{ ...inputStyle, padding: '0.55rem 0.85rem', fontSize: '0.875rem' }}>
+                    <option value="all">All affiliations</option>
+                    <option value="missionary">Missionary</option>
+                    <option value="student">Student</option>
+                    <option value="BYU">BYU</option>
+                    <option value="UVU">UVU</option>
+                    <option value="volunteer">Volunteer</option>
+                    <option value="provider">Provider</option>
+                  </select>
+                </div>
+
+                {/* System role filter */}
+                <div style={{ flex: '1 1 130px', minWidth: '110px' }}>
+                  <label style={labelStyle}>Role</label>
+                  <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={{ ...inputStyle, padding: '0.55rem 0.85rem', fontSize: '0.875rem' }}>
+                    <option value="all">All roles</option>
+                    <option value="volunteer">Volunteer</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+
+                {/* Default position filter */}
+                <div style={{ flex: '1 1 160px', minWidth: '140px' }}>
+                  <label style={labelStyle}>Position</label>
+                  <select value={filterDefaultRole} onChange={e => setFilterDefaultRole(e.target.value)} style={{ ...inputStyle, padding: '0.55rem 0.85rem', fontSize: '0.875rem' }}>
+                    <option value="all">All positions</option>
+                    {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+
+                {/* Show inactive toggle */}
+                <button
+                  onClick={() => setShowInactive(s => !s)}
+                  style={{ padding: '0.55rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showInactive ? 'rgba(156,163,175,0.15)' : 'var(--bg)', color: showInactive ? 'var(--text)' : 'var(--muted)', border: '1px solid var(--border)', whiteSpace: 'nowrap', alignSelf: 'flex-end' }}
+                >
+                  {showInactive ? 'Hide Inactive' : 'Show Inactive'}
+                </button>
+
+                {/* Reset filters */}
+                {(filterSearch || filterAffiliation !== 'all' || filterRole !== 'all' || filterDefaultRole !== 'all') && (
+                  <button
+                    onClick={() => { setFilterSearch(''); setFilterAffiliation('all'); setFilterRole('all'); setFilterDefaultRole('all') }}
+                    style={{ padding: '0.55rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--bg)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', whiteSpace: 'nowrap', alignSelf: 'flex-end' }}
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+
+              {/* Result count */}
+              <p style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: '0.75rem' }}>
+                Showing <span style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: 'var(--text)' }}>{userList.length}</span> of <span style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: 'var(--text)' }}>{volunteers.filter(v => showInactive || (v.status || 'active') === 'active').length}</span> volunteers
+              </p>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {userList.map(v => {
-                const isInactive = (v.status || 'active') === 'inactive'
-                return (
-                  <div key={v.id} onClick={() => openVolunteer(v)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: isInactive ? 'rgba(156,163,175,0.06)' : 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', cursor: 'pointer', opacity: isInactive ? 0.7 : 1 }} onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'} onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: isInactive ? 'var(--muted)' : 'var(--accent)' }}>{v.full_name?.charAt(0)}</div>
-                      <div><p style={{ fontWeight: 500, color: isInactive ? 'var(--muted)' : 'var(--text)' }}>{v.full_name}</p><p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{v.email}</p></div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      {isInactive && <span style={badgeStyle('#9ca3af')}>inactive</span>}
-                      {v.affiliation && <span style={badgeStyle(affiliationColor[v.affiliation] || '#9ca3af')}>{v.affiliation}</span>}
-                      <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', color: isInactive ? 'var(--muted)' : 'var(--accent)' }}>{totalHours(v.shifts)}h</span>
-                      <span style={{ color: 'var(--muted)' }}>›</span>
-                    </div>
-                  </div>
-                )
-              })}
+
+            {/* Volunteer list */}
+            <div style={card}>
+              <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Volunteers <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: '0.85rem' }}>— click to view or edit</span></h2>
+              {userList.length === 0 ? (
+                <p style={{ color: 'var(--muted)', fontSize: '0.9rem', fontStyle: 'italic' }}>No volunteers match these filters.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {userList.map(v => {
+                    const isInactive = (v.status || 'active') === 'inactive'
+                    return (
+                      <div key={v.id} onClick={() => openVolunteer(v)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: isInactive ? 'rgba(156,163,175,0.06)' : 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', cursor: 'pointer', opacity: isInactive ? 0.7 : 1 }} onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'} onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: isInactive ? 'var(--muted)' : 'var(--accent)' }}>{v.full_name?.charAt(0)}</div>
+                          <div>
+                            <p style={{ fontWeight: 500, color: isInactive ? 'var(--muted)' : 'var(--text)' }}>{v.full_name}</p>
+                            <p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{v.email}</p>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          {isInactive && <span style={badgeStyle('#9ca3af')}>inactive</span>}
+                          {v.role === 'admin' && <span style={badgeStyle('#f59e0b')}>admin</span>}
+                          {v.affiliation && <span style={badgeStyle(affiliationColor[v.affiliation] || '#9ca3af')}>{v.affiliation}</span>}
+                          {v.default_role && <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontStyle: 'italic', display: 'none' }}></span>}
+                          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', color: isInactive ? 'var(--muted)' : 'var(--accent)' }}>{totalHours(v.shifts)}h</span>
+                          <span style={{ color: 'var(--muted)' }}>›</span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -827,20 +873,152 @@ export default function AdminPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                 <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '1.3rem', color: 'var(--accent)', border: '2px solid var(--accent)' }}>{selectedVolunteer.full_name?.charAt(0)}</div>
-                <div><h2 style={{ fontWeight: 600, fontSize: '1.2rem' }}>{selectedVolunteer.full_name}</h2><p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{selectedVolunteer.email}</p></div>
+                <div>
+                  <h2 style={{ fontWeight: 600, fontSize: '1.2rem' }}>{selectedVolunteer.full_name}</h2>
+                  <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{selectedVolunteer.email}</p>
+                </div>
               </div>
               <button onClick={() => setEditing(!editing)} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: editing ? 'var(--surface)' : 'var(--accent)', color: editing ? 'var(--muted)' : '#0a0f0a', border: editing ? '1px solid var(--border)' : 'none' }}>{editing ? 'Cancel' : 'Edit'}</button>
             </div>
+
             {!editing ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                  {[{ label: 'Phone', value: selectedVolunteer.phone }, { label: 'Affiliation', value: selectedVolunteer.affiliation }, { label: 'Credentials / Skills', value: selectedVolunteer.credentials }, { label: 'Languages', value: selectedVolunteer.languages }, { label: 'Total Hours', value: totalHours(selectedVolunteer.shifts) + 'h' }, { label: 'Role', value: selectedVolunteer.role }, { label: 'Default Position', value: selectedVolunteer.default_role }, { label: 'Birthday', value: selectedVolunteer.birthday }, ...(selectedVolunteer.affiliation === 'missionary' ? [{ label: 'SMA Name', value: selectedVolunteer.sma_name }, { label: 'SMA Contact', value: selectedVolunteer.sma_contact }] : []), ...(selectedVolunteer.affiliation === 'student' ? [{ label: 'School', value: selectedVolunteer.school }, { label: 'Major', value: selectedVolunteer.major }] : [])].map(({ label, value }) => (
+                  {[
+                    { label: 'Phone', value: selectedVolunteer.phone },
+                    { label: 'Affiliation', value: selectedVolunteer.affiliation },
+                    { label: 'Credentials / Skills', value: selectedVolunteer.credentials },
+                    { label: 'Languages', value: selectedVolunteer.languages },
+                    { label: 'Total Hours', value: totalHours(selectedVolunteer.shifts) + 'h' },
+                    { label: 'Role', value: selectedVolunteer.role },
+                    { label: 'Default Position', value: selectedVolunteer.default_role },
+                    { label: 'Birthday', value: selectedVolunteer.birthday },
+                    ...(selectedVolunteer.affiliation === 'missionary' ? [{ label: 'SMA Name', value: selectedVolunteer.sma_name }, { label: 'SMA Contact', value: selectedVolunteer.sma_contact }] : []),
+                    ...(selectedVolunteer.affiliation === 'student' ? [{ label: 'School', value: selectedVolunteer.school }, { label: 'Major', value: selectedVolunteer.major }] : [])
+                  ].map(({ label, value }) => (
                     <div key={label} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                       <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>{label}</p>
                       <p style={{ fontWeight: 500, color: value ? 'var(--text)' : 'var(--muted)', fontStyle: value ? 'normal' : 'italic' }}>{value || 'Not set'}</p>
                     </div>
                   ))}
                 </div>
+
+                {/* ── Recent Shifts expandable ── */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+
+                    {/* Recent Shifts button */}
+                    <button
+                      onClick={() => handleToggleRecentShifts(selectedVolunteer.id)}
+                      style={{
+                        flex: 1, minWidth: '180px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem',
+                        padding: '0.75rem 1rem', borderRadius: '10px', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                        background: showRecentShifts ? 'rgba(2,65,107,0.08)' : 'var(--bg)',
+                        border: `1px solid ${showRecentShifts ? 'var(--accent)' : 'var(--border)'}`,
+                        color: showRecentShifts ? 'var(--accent)' : 'var(--text)',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        <span style={{ fontSize: '1rem' }}>🕒</span>
+                        <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Recent Shifts</span>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>last 10</span>
+                      </div>
+                      <span style={{ display: 'inline-block', transform: showRecentShifts ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', color: 'var(--muted)', fontSize: '1rem' }}>›</span>
+                    </button>
+
+                    {/* Scheduled Shifts button */}
+                    <button
+                      onClick={() => handleToggleScheduledShifts(selectedVolunteer.id)}
+                      style={{
+                        flex: 1, minWidth: '180px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem',
+                        padding: '0.75rem 1rem', borderRadius: '10px', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                        background: showScheduledShifts ? 'rgba(2,65,107,0.08)' : 'var(--bg)',
+                        border: `1px solid ${showScheduledShifts ? 'var(--accent)' : 'var(--border)'}`,
+                        color: showScheduledShifts ? 'var(--accent)' : 'var(--text)',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        <span style={{ fontSize: '1rem' }}>📅</span>
+                        <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Schedule</span>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>recurring</span>
+                      </div>
+                      <span style={{ display: 'inline-block', transform: showScheduledShifts ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', color: 'var(--muted)', fontSize: '1rem' }}>›</span>
+                    </button>
+                  </div>
+
+                  {/* Recent shifts list */}
+                  {showRecentShifts && (
+                    <div style={{ borderRadius: '10px', border: '1px solid var(--accent)', overflow: 'hidden', background: 'var(--bg)' }}>
+                      <div style={{ padding: '0.65rem 1rem', background: 'rgba(2,65,107,0.06)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--accent)' }}>Recent Shifts</span>
+                        {!loadingRecentShifts && <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>{recentShifts.length} shown</span>}
+                        {loadingRecentShifts && <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>Loading…</span>}
+                      </div>
+                      {loadingRecentShifts ? (
+                        <div style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.85rem' }}>Loading…</div>
+                      ) : recentShifts.length === 0 ? (
+                        <div style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>No completed shifts on record.</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          {recentShifts.map((s, i) => {
+                            const hours = calcShiftHours(s.clock_in, s.clock_out)
+                            return (
+                              <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.65rem 1rem', borderBottom: i < recentShifts.length - 1 ? '1px solid var(--border)' : 'none', gap: '0.75rem', flexWrap: 'wrap' }}>
+                                <div>
+                                  <p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.82rem', color: 'var(--text)' }}>{formatDateTime(s.clock_in)}</p>
+                                  {s.role && <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.15rem' }}>{s.role}</p>}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  {hours && (
+                                    <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.88rem', fontWeight: 600, color: 'var(--accent)' }}>{hours}h</span>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Scheduled shifts list */}
+                  {showScheduledShifts && (
+                    <div style={{ borderRadius: '10px', border: '1px solid var(--accent)', overflow: 'hidden', background: 'var(--bg)' }}>
+                      <div style={{ padding: '0.65rem 1rem', background: 'rgba(2,65,107,0.06)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--accent)' }}>Recurring Schedule</span>
+                        {!loadingScheduledShifts && <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>{scheduledShifts.length} slot{scheduledShifts.length !== 1 ? 's' : ''}</span>}
+                        {loadingScheduledShifts && <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>Loading…</span>}
+                      </div>
+                      {loadingScheduledShifts ? (
+                        <div style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.85rem' }}>Loading…</div>
+                      ) : scheduledShifts.length === 0 ? (
+                        <div style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>Not assigned to any recurring shifts.</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          {[...scheduledShifts].sort((a, b) => (DAY_ORDER[a.day_of_week] ?? 9) - (DAY_ORDER[b.day_of_week] ?? 9) || a.shift_time.localeCompare(b.shift_time)).map((s, i) => (
+                            <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.65rem 1rem', borderBottom: i < scheduledShifts.length - 1 ? '1px solid var(--border)' : 'none', gap: '0.75rem', flexWrap: 'wrap' }}>
+                              <div>
+                                <p style={{ fontWeight: 500, fontSize: '0.88rem', textTransform: 'capitalize' }}>{s.day_of_week}</p>
+                                <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.1rem' }}>{s.role || 'No role'}</p>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.82rem', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', padding: '0.2rem 0.55rem', borderRadius: '6px', border: '1px solid rgba(2,65,107,0.3)' }}>{s.shift_time}</span>
+                                {s.week_pattern && s.week_pattern !== 'every' && (
+                                  <span style={{ fontSize: '0.72rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', padding: '0.15rem 0.45rem', borderRadius: '5px', border: '1px solid rgba(96,165,250,0.3)' }}>{s.week_pattern === 'odd' ? '1st & 3rd' : '2nd & 4th'}</span>
+                                )}
+                                {s.notes && <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontStyle: 'italic' }}>({s.notes})</span>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Status management */}
                 {(() => {
                   const isInactive = (selectedVolunteer.status || 'active') === 'inactive'
                   return (
@@ -1063,109 +1241,47 @@ export default function AdminPage() {
         {tab === 'audit' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={card}>
-              <p style={{ 
-                fontSize: '0.9rem', 
-                color: 'var(--muted)', 
-                lineHeight: 1.5,
-                maxWidth: '600px'
-              }}>
+              <p style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.5, maxWidth: '600px' }}>
                 This tool helps maintain consistency across shifts by tracking administrative actions and providing clear visibility into changes.
               </p>
             </div>
-
-            {/* Filters */}
             <div style={card}>
               <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Filters</h2>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                <div>
-                  <label style={labelStyle}>Admin</label>
-                  <select value={auditFilterAdmin} onChange={e => setAuditFilterAdmin(e.target.value)} style={inputStyle}>
-                    <option value="">All admins</option>
-                    {adminList.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={labelStyle}>Action type</label>
-                  <select value={auditFilterAction} onChange={e => setAuditFilterAction(e.target.value)} style={inputStyle}>
-                    <option value="">All actions</option>
-                    {Object.entries(ACTION_LABELS).map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label style={labelStyle}>From date</label>
-                  <input type="date" value={auditFilterFrom} onChange={e => setAuditFilterFrom(e.target.value)} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>To date</label>
-                  <input type="date" value={auditFilterTo} onChange={e => setAuditFilterTo(e.target.value)} style={inputStyle} />
-                </div>
+                <div><label style={labelStyle}>Admin</label><select value={auditFilterAdmin} onChange={e => setAuditFilterAdmin(e.target.value)} style={inputStyle}><option value="">All admins</option>{adminList.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}</select></div>
+                <div><label style={labelStyle}>Action type</label><select value={auditFilterAction} onChange={e => setAuditFilterAction(e.target.value)} style={inputStyle}><option value="">All actions</option>{Object.entries(ACTION_LABELS).map(([value, label]) => (<option key={value} value={value}>{label}</option>))}</select></div>
+                <div><label style={labelStyle}>From date</label><input type="date" value={auditFilterFrom} onChange={e => setAuditFilterFrom(e.target.value)} style={inputStyle} /></div>
+                <div><label style={labelStyle}>To date</label><input type="date" value={auditFilterTo} onChange={e => setAuditFilterTo(e.target.value)} style={inputStyle} /></div>
               </div>
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
-                <button onClick={loadAuditLogs} disabled={auditLoading} style={{ padding: '0.75rem 1.5rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: auditLoading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
-                  {auditLoading ? 'Loading...' : 'Apply Filters'}
-                </button>
-                <button onClick={() => {
-                  setAuditFilterAdmin('')
-                  setAuditFilterAction('')
-                  setAuditFilterFrom('')
-                  setAuditFilterTo('')
-                  setTimeout(loadAuditLogs, 50)
-                }} style={{ padding: '0.75rem 1rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '8px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
-                  Reset
-                </button>
+                <button onClick={loadAuditLogs} disabled={auditLoading} style={{ padding: '0.75rem 1.5rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: auditLoading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{auditLoading ? 'Loading...' : 'Apply Filters'}</button>
+                <button onClick={() => { setAuditFilterAdmin(''); setAuditFilterAction(''); setAuditFilterFrom(''); setAuditFilterTo(''); setTimeout(loadAuditLogs, 50) }} style={{ padding: '0.75rem 1rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '8px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>Reset</button>
               </div>
             </div>
-
-            {/* Log entries */}
             <div style={card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-                <h2 style={{ fontWeight: 600 }}>
-                  Activity Log
-                  {auditLogs.length > 0 && (
-                    <span style={{ marginLeft: '0.5rem', color: 'var(--muted)', fontWeight: 400, fontSize: '0.85rem' }}>— {auditLogs.length} entries</span>
-                  )}
-                </h2>
+                <h2 style={{ fontWeight: 600 }}>Activity Log{auditLogs.length > 0 && <span style={{ marginLeft: '0.5rem', color: 'var(--muted)', fontWeight: 400, fontSize: '0.85rem' }}>— {auditLogs.length} entries</span>}</h2>
                 <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>Last 2 weeks by default</span>
               </div>
-              {auditLoading ? (
-                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading...</p>
-              ) : auditLogs.length === 0 ? (
-                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No activity found for the selected filters.</p>
-              ) : (
+              {auditLoading ? (<p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading...</p>) : auditLogs.length === 0 ? (<p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No activity found for the selected filters.</p>) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                   {auditLogs.map(log => {
                     const color = ACTION_COLORS[log.action] || '#94a3b8'
                     const label = ACTION_LABELS[log.action] || log.action
                     return (
                       <div key={log.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                        {/* Color dot */}
                         <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: color, flexShrink: 0, marginTop: '0.35rem' }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.4rem' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                              <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', fontWeight: 600, background: color + '18', color, border: `1px solid ${color}44` }}>
-                                {label}
-                              </span>
-                              {log.target_name && (
-                                <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{log.target_name}</span>
-                              )}
+                              <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', fontWeight: 600, background: color + '18', color, border: `1px solid ${color}44` }}>{label}</span>
+                              {log.target_name && <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{log.target_name}</span>}
                             </div>
-                            <span style={{ color: 'var(--muted)', fontSize: '0.78rem', fontFamily: 'DM Mono, monospace', whiteSpace: 'nowrap' }}>
-                              {formatDateTime(log.created_at)}
-                            </span>
+                            <span style={{ color: 'var(--muted)', fontSize: '0.78rem', fontFamily: 'DM Mono, monospace', whiteSpace: 'nowrap' }}>{formatDateTime(log.created_at)}</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
-                            <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
-                              by Admin
-                            </span>
-                            {log.details && (
-                              <>
-                                <span style={{ color: 'var(--border)' }}>·</span>
-                                <span style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic' }}>{log.details}</span>
-                              </>
-                            )}
+                            <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>by Admin</span>
+                            {log.details && (<><span style={{ color: 'var(--border)' }}>·</span><span style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic' }}>{log.details}</span></>)}
                           </div>
                         </div>
                       </div>
