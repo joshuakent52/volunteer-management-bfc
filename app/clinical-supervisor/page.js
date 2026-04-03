@@ -3,29 +3,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
-
-function getMountainNow() {
-  const str = new Date().toLocaleString('en-US', { timeZone: 'America/Denver' })
-  return new Date(str)
-}
-
-function getMountainLabel() {
-  const now = new Date()
-  const mtnStr = now.toLocaleString('en-US', { timeZone: 'America/Denver' })
-  const mtnDate = new Date(mtnStr)
-  const mtnOffset = (now - mtnDate) / 60000
-  return mtnOffset <= 360 ? 'MDT' : 'MST'
-}
-
-function asUTC(ts) {
-  if (!ts) return null
-  return /Z|[+-]\d{2}:\d{2}$/.test(ts) ? new Date(ts) : new Date(ts + 'Z')
-}
-
-function formatMountain(ts) {
-  if (!ts) return '—'
-  return asUTC(ts).toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit' })
-}
+import { getMountainNow, getMountainLabel, asUTC, formatMountain } from '../../lib/timeUtils'
 
 function minutesSince(ts) {
   if (!ts) return null
