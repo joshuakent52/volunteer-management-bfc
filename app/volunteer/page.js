@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
-import { DAYS, SHIFTS, ROLES, MAX_FILE_SIZE } from '../lib/constants'
+import { DAYS, SHIFTS, ROLES, MAX_FILE_SIZE } from '../../lib/constants'
 export const dynamic = 'force-dynamic'
 
 export default function VolunteerPage() {

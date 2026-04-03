@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
-import { SHIFTS, ROLES, ROLE_SUGGESTIONS, SCHOOLS, MAJORS, MAX_FILE_SIZE, ACTION_LABELS, ACTION_COLORS } from '../lib/constants'
+import { SHIFTS, ROLES, ROLE_SUGGESTIONS, SCHOOLS, MAJORS, MAX_FILE_SIZE, ACTION_LABELS, ACTION_COLORS } from '../../lib/constants'
 
 
 export const dynamic = 'force-dynamic'
