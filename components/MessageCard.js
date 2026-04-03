@@ -1,4 +1,8 @@
-export function MessageCard({ m }) {
+import { formatDateTime } from '../../lib/timeUtils'
+import { recipientLabel } from '../../lib/messageUtils'
+
+
+export function MessageCard({ m, readMessageIds, user, setLightboxUrl }) {
   const isUnread = !readMessageIds.has(m.id) && m.sender_id !== user?.id
   return (
     <div style={{ padding: '0.75rem 1rem', background: isUnread ? 'rgba(2,65,107,0.04)' : 'var(--bg)', borderRadius: '8px', border: `1px solid ${isUnread ? 'rgba(2,65,107,0.35)' : 'var(--border)'}` }}>

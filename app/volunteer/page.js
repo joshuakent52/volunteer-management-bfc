@@ -378,16 +378,6 @@ export default function VolunteerPage() {
   function calcHours(clock_in, clock_out) { if (!clock_out) return 'Active'; return ((asUTC(clock_out) - asUTC(clock_in)) / 3600000).toFixed(1) + 'h' }
   function totalHours() { return allShifts.reduce((acc, s) => acc + (asUTC(s.clock_out) - asUTC(s.clock_in)) / 3600000, 0).toFixed(1) }
 
-  function recipientLabel(msg) {
-    if (msg.recipient_type === 'everyone') return 'Everyone'
-    if (msg.recipient_type === 'admin') return 'Admin'
-    if (msg.recipient_type === 'volunteer') return 'You'
-    if (msg.recipient_type === 'shift') return `${msg.recipient_day ? msg.recipient_day.slice(0,3) + ' ' : ''}${msg.recipient_shift}`
-    if (msg.recipient_type === 'affiliation_missionary') return 'Missionaries'
-    if (msg.recipient_type === 'role') return `${msg.recipient_role}`
-    return msg.recipient_type
-  }
-
   async function handleSignOut() { await supabase.auth.signOut(); window.location.href = '/' }
 
   if (loading) return (
