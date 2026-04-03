@@ -1,19 +1,8 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
-
+import { DAYS, SHIFTS, ROLES, MAX_FILE_SIZE } from '../lib/constants'
 export const dynamic = 'force-dynamic'
-
-const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday']
-const SHIFTS = ['10-2','2-6']
-const ROLES = [
-  'Clinical Staff','Scribe','Receptionist','Lab','Pharmacy',
-  'Clinical Supervisor','Patient Nav.','Mental Health','Support Center',
-  'Young Support','Float','OSSM','Information Systems',
-  'Credentialing','Media','Provider', 'Director'
-]
-
-const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5 MB
 
 export default function VolunteerPage() {
   const [user, setUser] = useState(null)

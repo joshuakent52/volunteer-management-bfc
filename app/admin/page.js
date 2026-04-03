@@ -1,43 +1,12 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
+import { SHIFTS, ROLES, ROLE_SUGGESTIONS, SCHOOLS, MAJORS, MAX_FILE_SIZE, ACTION_LABELS, ACTION_COLORS } from '../lib/constants'
+
 
 export const dynamic = 'force-dynamic'
 
 const DAYS = ['monday','tuesday','wednesday','thursday','friday']
-const SHIFTS = ['10-2','2-6']
-const ROLES = [
-  'Clinical Staff','Scribe','Receptionist','Lab','Pharmacy',
-  'Clinical Supervisor','Patient Nav.','Mental Health','Support Center',
-  'Young Support','Float','OSSM','Information Systems',
-  'Credentialing','Media','Provider', 'Director'
-]
-const ROLE_SUGGESTIONS = {
-  'Clinical Supervisor': 1, 'Credentialing': 1, 'Float': 1, 'Lab': 2,
-  'Mental Health': 1, 'Patient Nav.': 2, 'Pharmacy': 2, 'Receptionist': 2,
-  'Scribe': 3, 'Support Center': 2, 'Clinical Staff': 4,
-}
-const SCHOOLS = ['BYU', 'UVU', 'Norda', 'SLCC', 'U of U', 'Other']
-const MAJORS = ['Pre-Med', 'Pre-Nursing', 'Pre-PA', 'Pre-Dental', 'Pre-Pharmacy', 'Pre-PT', 'Other Pre-Health', 'Biology', 'Chemistry', 'Biochemistry', 'Neuroscience', 'Public Health', 'Health Administration', 'Nutrition / Dietetics', 'Psychology', 'Social Work', 'Computer Science', 'Data Science','Biomedical Engineering', 'Other STEM', 'Business', 'Finance', 'Marketing', 'Management','English', 'Political Science', 'Sociology', 'Communications','Other']
-
-const ACTION_LABELS = {
-  approved_callout: 'Approved callout', denied_callout: 'Denied callout',
-  approved_cover: 'Approved cover', denied_cover: 'Denied cover',
-  approved_hours: 'Approved hours', rejected_hours: 'Rejected hours',
-  deleted_shift: 'Deleted shift', edited_shift: 'Edited shift', created_shift: 'Created shift',
-  edited_volunteer: 'Edited volunteer', deactivated_volunteer: 'Deactivated volunteer',
-  reactivated_volunteer: 'Reactivated volunteer', assigned_schedule: 'Assigned to schedule',
-  removed_schedule: 'Removed from schedule', sent_message: 'Sent message', created_volunteer: 'Created volunteer',
-}
-const ACTION_COLORS = {
-  approved_callout: '#4ade80', denied_callout: '#ef4444', approved_cover: '#4ade80', denied_cover: '#ef4444',
-  approved_hours: '#4ade80', rejected_hours: '#ef4444', deleted_shift: '#ef4444', edited_shift: '#60a5fa',
-  created_shift: '#60a5fa', edited_volunteer: '#60a5fa', deactivated_volunteer: '#f87171',
-  reactivated_volunteer: '#4ade80', assigned_schedule: '#a78bfa', removed_schedule: '#f87171',
-  sent_message: '#94a3b8', created_volunteer: '#a78bfa',
-}
-
-const MAX_FILE_SIZE = 5 * 1024 * 1024
 
 function getMountainNow() {
   const str = new Date().toLocaleString('en-US', { timeZone: 'America/Denver' })
