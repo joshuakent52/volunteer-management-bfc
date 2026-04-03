@@ -1,5 +1,5 @@
-import { formatDateTime } from '../../lib/timeUtils'
-import { recipientLabel } from '../../lib/messageUtils'
+import { formatDateTime } from '../lib/timeUtils'
+import { recipientLabel } from '../lib/messageUtils'
 
 
 export function MessageCard({ m, readMessageIds, user, setLightboxUrl }) {
