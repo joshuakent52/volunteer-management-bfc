@@ -160,14 +160,23 @@ export default function AdminPage() {
 
   async function loadAuditLogs() {
     setAuditLoading(true)
+
     const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
-    let query = supabase.from('audit_logs').select('*, admin:profiles!audit_logs_admin_id_fkey(full_name)').order('created_at', { ascending: false }).limit(500).gte('created_at', twoWeeksAgo)
+
+    let query = supabase
+      .from('audit_logs')
+      .select('*, admin:profiles!audit_logs_admin_id_fkey(full_name)')
+      .order('created_at', { ascending: false })
+      .limit(500)
+      .gte('created_at', twoWeeksAgo)
     if (auditFilterAdmin) query = query.eq('admin_id', auditFilterAdmin)
     if (auditFilterAction) query = query.eq('action', auditFilterAction)
     if (auditFilterFrom) query = query.gte('created_at', auditFilterFrom + 'T00:00:00Z')
     if (auditFilterTo) query = query.lte('created_at', auditFilterTo + 'T23:59:59Z')
     const { data } = await query
-    setAuditLogs(data || [])
+
+    const filteredData = (data || []).filter(log => log.action !== 'sent_message')
+    setAuditLogs(filteredData)
     setAuditLoading(false)
   }
 
