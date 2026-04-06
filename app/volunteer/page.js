@@ -634,7 +634,7 @@ export default function VolunteerPage() {
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Inbox</h2>
                 {inboxMessages.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No messages yet.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {inboxMessages.map(m => <MessageCard key={m.id} m={m} />)}
+                    {inboxMessages.map(m => <MessageCard key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />)}
                   </div>
                 )}
               </div>
@@ -645,7 +645,7 @@ export default function VolunteerPage() {
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Sent Messages</h2>
                 {sentMessages.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No sent messages yet.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {sentMessages.map(m => <MessageCard key={m.id} m={m} />)}
+                    {sentMessages.map(m => <MessageCard key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />)}
                   </div>
                 )}
               </div>
