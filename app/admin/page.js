@@ -1281,7 +1281,7 @@ export default function AdminPage() {
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>All Messages</h2>
                 {inboxMessages.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No messages yet.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {inboxMessages.map(m => <MessageCard key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />)}
+                    {inboxMessages.map(m => <MessageCard key={m.id} m={m} readMessageIds={readMessageIds} user={profile} setLightboxUrl={setLightboxUrl} />)}
                   </div>
                 )}
               </div>
@@ -1291,7 +1291,7 @@ export default function AdminPage() {
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Sent Messages</h2>
                 {adminMessages.filter(m => m.sender_id === profile?.id).length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No sent messages yet.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {adminMessages.filter(m => m.sender_id === profile?.id).map(m => <MessageCard key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />)}
+                    {adminMessages.filter(m => m.sender_id === profile?.id).map(m => <MessageCard key={m.id} m={m} readMessageIds={readMessageIds} user={profile} setLightboxUrl={setLightboxUrl} />)}
                   </div>
                 )}
               </div>
