@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { DAYS, SHIFTS, ROLES, MAX_FILE_SIZE } from '../../lib/constants'
 import { formatDate, formatTime, asUTC, formatDateTime } from '../../lib/timeUtils'
+import { getInboxMessages } from '../../lib/messageUtils'
 import { MessageCard } from '../../components/MessageCard'
 
 export const dynamic = 'force-dynamic'
@@ -389,12 +390,7 @@ export default function VolunteerPage() {
   const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }
   const inputStyle = { width: '100%', padding: '0.75rem 1rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '0.95rem', outline: 'none', fontFamily: 'DM Sans, sans-serif' }
   const labelStyle = { display: 'block', fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
-
-  const inboxMessages = messages.filter(m => {
-    if (m.sender_id === user?.id) return false
-    if (m.recipient_type === 'affiliation_missionary' && profile?.affiliation !== 'missionary') return false
-    return true
-  })
+  const inboxMessages = getInboxMessages(messages, user, profile)
   const sentMessages = messages.filter(m => m.sender_id === user?.id)
   const unreadCount = inboxMessages.filter(m => !readMessageIds.has(m.id)).length
 
