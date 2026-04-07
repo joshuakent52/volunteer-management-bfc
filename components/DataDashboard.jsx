@@ -98,7 +98,7 @@ export default function DataDashboard({ supabase }) {
   useEffect(() => {
     supabase
       .from('profiles')
-      .select('id, full_name, affiliation, sma_name, school, birthday, role')
+      .select('id, full_name, affiliation, sma_name, school, birthday, role, status')
       .then(({ data }) => setProfiles(data || []))
   }, [supabase])
 
@@ -193,6 +193,11 @@ export default function DataDashboard({ supabase }) {
       (scheduledWithNotes || []).map(r => r.volunteer_id).filter(Boolean)
     )
 
+    // Build a set of inactive volunteer IDs so they are hidden from both lists
+    const inactiveIds = new Set(
+      profiles.filter(p => p.status === 'inactive').map(p => p.id)
+    )
+
     // No-shows — from ATTENDANCE_CUTOFF onward, paginated
     const absentData = await fetchAllRows(supabase, 'attendance_records', (q) =>
       q.select('volunteer_id, shift_date, shift_time, role, profiles(full_name)')
@@ -204,6 +209,7 @@ export default function DataDashboard({ supabase }) {
     const absentMap = {}
     ;(absentData || []).forEach(r => {
       if (excusedIds.has(r.volunteer_id)) return
+      if (inactiveIds.has(r.volunteer_id)) return
       if (!absentMap[r.volunteer_id]) absentMap[r.volunteer_id] = { records: [], name: null }
       if (!absentMap[r.volunteer_id].name) {
         absentMap[r.volunteer_id].name =
@@ -231,6 +237,7 @@ export default function DataDashboard({ supabase }) {
     const lateMap = {}
     ;(lateData || []).forEach(r => {
       if (excusedIds.has(r.volunteer_id)) return
+      if (inactiveIds.has(r.volunteer_id)) return
       if (!lateMap[r.volunteer_id]) {
         lateMap[r.volunteer_id] = {
           records: [],
