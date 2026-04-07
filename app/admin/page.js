@@ -4,6 +4,8 @@ import { supabase } from '../../lib/supabase'
 import { SHIFTS, ROLES, ROLE_SUGGESTIONS, SCHOOLS, MAJORS, MAX_FILE_SIZE, ACTION_LABELS, ACTION_COLORS } from '../../lib/constants'
 import { getMountainNow, getMountainLabel, asUTC, formatMountain, formatDateMountain, formatDateTime, toMountainInputValue, fromMountainInputValue } from '../../lib/timeUtils'
 import { MessageCard } from '../../components/MessageCard'
+import DataDashboard from '../../components/DataDashboard'
+
 
 export const dynamic = 'force-dynamic'
 
@@ -599,7 +601,7 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-          {[['dashboard','Live'],['schedule','Schedule'],['volunteers','Volunteers'],['shifts','Shifts'],['callouts','Call-Outs'],['messages','Messages'],['hours','Hours'],['audit','Recent Activity'],['create','Add Volunteer']].map(([key, label]) => (
+          {[['dashboard','Live'],['schedule','Schedule'],['volunteers','Volunteers'],['shifts','Shifts'],['callouts','Call-Outs'],['messages','Messages'],['hours','Hours'],['audit','Recent Activity'],['create','Add Volunteer'],['data','Data']].map(([key, label]) => (
             <button key={key} onClick={() => {
               setTab(key); setSelectedVolunteer(null); setAddingRole(null)
               if (key === 'shifts' && allShifts.length === 0) loadAllShifts()
@@ -1356,6 +1358,11 @@ export default function AdminPage() {
               <button type="submit" disabled={creating} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: creating ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{creating ? 'Creating...' : 'Create Account'}</button>
             </form>
           </div>
+        )}
+
+        {/* DATA DASHBOARD TAB */}
+        {tab === 'data' && (
+          <DataDashboard supabase={supabase} />
         )}
 
         {/* Toast */}
