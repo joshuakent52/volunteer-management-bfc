@@ -101,7 +101,7 @@ export default function AdminPage() {
     const { data: p } = await supabase.from('profiles').select('*').eq('id', user.id).single()
     if (p?.role !== 'admin') { window.location.href = '/volunteer'; return }
     setProfile(p)
-    await Promise.all([loadVolunteers(), loadActiveShifts(), loadCallouts(), loadSchedule(), loadAdminMessages(p.id), loadCoverRequests()])
+    await Promise.all([loadVolunteers(), loadActiveShifts(), loadCallouts(), loadSchedule(), loadCoverRequests()])
     setLoading(false)
   }
 
@@ -436,8 +436,6 @@ export default function AdminPage() {
   const dayShiftCombos = DAYS.flatMap(d => SHIFTS.map(s => ({ day: d, shift: s, label: `${d.charAt(0).toUpperCase() + d.slice(1,3)} ${s}` })))
   const filteredShifts = shiftFilterVolId ? allShifts.filter(s => s.volunteer_id === shiftFilterVolId) : allShifts
 
-  const inboxMessages = adminMessages.filter(m => m.sender_id !== profile?.id)
-  const unreadCount = inboxMessages.filter(m => !readMessageIds.has(m.id)).length
 
   // ── Volunteer list filtering ───────────────────────────────────────────────
   const userList = volunteers
@@ -533,7 +531,7 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-          {[['dashboard','Live'],['schedule','Schedule'],['volunteers','Volunteers'],['shifts','Shifts'],['callouts','Call-Outs'],['messages','Messages'],['hours','Hours'],['audit','Recent Activity'],['create','Add Volunteer'],['data','Data']].map(([key, label]) => (
+          {[['dashboard','Live'],['schedule','Schedule'],['volunteers','Volunteers'],['shifts','Shifts'],['callouts','Call-Outs'],['hours','Hours'],['audit','Recent Activity'],['create','Add Volunteer'],['data','Data']].map(([key, label]) => (
             <button key={key} onClick={() => {
               setTab(key); setSelectedVolunteer(null); setAddingRole(null)
               if (key === 'shifts' && allShifts.length === 0) loadAllShifts()
