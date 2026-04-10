@@ -716,6 +716,11 @@ export default function AdminPage() {
                                 {approvedCallout && <span style={{ fontSize: '0.7rem' }}>out</span>}
                                 <span style={{ textDecoration: approvedCallout ? 'line-through' : 'none', opacity: approvedCallout ? 0.6 : 1 }}>{entry.profiles?.full_name}</span>
                                 {entry.notes && <span style={{ fontSize: '0.65rem', color: 'var(--muted)', fontStyle: 'italic' }}>({entry.notes})</span>}
+                                {(entry.start_date || entry.end_date) && (
+                                  <span style={{ fontSize: '0.65rem', color: 'var(--muted)', fontStyle: 'italic' }}>
+                                    ({entry.start_date ?? '...'} → {entry.end_date ?? '...'})
+                                  </span>
+                                )}
                                 {entry.week_pattern && entry.week_pattern !== 'every' && (<span style={{ fontSize: '0.65rem', background: 'rgba(96,165,250,0.15)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>{entry.week_pattern === 'odd' ? '1st&3rd' : '2nd&4th'}</span>)}
                                 <button onClick={() => handleRemoveEntry(entry.id)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 2px' }}>✕</button>
                               </div>
