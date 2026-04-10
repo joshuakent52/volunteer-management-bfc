@@ -5,6 +5,7 @@ import { DAYS, SHIFTS, ROLES, MAX_FILE_SIZE } from '../../lib/constants'
 import { formatDate, formatTime, asUTC, formatDateTime } from '../../lib/timeUtils'
 import { getInboxMessages } from '../../lib/messageUtils'
 import { MessageCard } from '../../components/MessageCard'
+import { subscribeToPush, unsubscribeFromPush } from '../../lib/pushNotifications'
 
 export const dynamic = 'force-dynamic'
 
@@ -94,6 +95,15 @@ export default function VolunteerPage() {
     const { data: profileData } = await supabase
       .from('profiles').select('*').eq('id', user.id).single()
     setProfile(profileData)
+
+    // Add to state
+    const [pushEnabled, setPushEnabled] = useState(false)
+    const [pushLoading, setPushLoading] = useState(false)
+
+    // Check on load — add inside init() after setProfile:
+    const reg = await navigator.serviceWorker?.ready
+    const sub = await reg?.pushManager?.getSubscription()
+    setPushEnabled(!!sub)
 
     const { data: open } = await supabase
       .from('shifts').select('*')
@@ -255,45 +265,48 @@ export default function VolunteerPage() {
   // ── Messaging ─────────────────────────────────────────────────────────────
 
   async function handleSendMessage(e) {
-    e.preventDefault()
+  e.preventDefault()
     if (!msgBody.trim() && !msgImageFile) return
     setSendingMsg(true)
 
+    // Image upload still happens client-side (needs the user's own JWT for Storage)
     const imageUrl = await uploadImage(user.id)
     if (msgImageFile && !imageUrl) { setSendingMsg(false); return }
 
-    // FIX: for non-admin shift selection, read from msgSelectedShift (the button-picker
-    // state); for admin shift selection, read from msgRecipientDay/msgRecipientShift
-    // (the dropdown-based state). Role always comes from msgRecipientRole since the
-    // <select> is wired to that state for both admin and volunteer paths.
-    const resolvedDay = msgRecipientType === 'shift'
-      ? (isAdmin ? msgRecipientDay : msgSelectedShift?.day ?? null)
-      : null
+    // Resolve the recipient fields the same way as before
+    const resolvedDay   = msgRecipientType === 'shift'
+      ? (isAdmin ? msgRecipientDay   : msgSelectedShift?.day   ?? null) : null
     const resolvedShift = msgRecipientType === 'shift'
-      ? (isAdmin ? msgRecipientShift : msgSelectedShift?.shift ?? null)
-      : null
-    const resolvedRole = msgRecipientType === 'role'
-      ? (msgRecipientRole || null)
-      : null
-
-    // FIX: the button uses value 'user' but the DB/payload expects 'volunteer'.
-    // Normalise here so individual messages always route correctly.
+      ? (isAdmin ? msgRecipientShift : msgSelectedShift?.shift ?? null) : null
+    const resolvedRole  = msgRecipientType === 'role'
+      ? (msgRecipientRole || null) : null
     const recipientType = msgRecipientType === 'user' ? 'volunteer' : msgRecipientType
-
-    const payload = {
-      sender_id: user.id,
-      recipient_type: recipientType,
-      body: msgBody.trim(),
-      image_url: imageUrl || null,
-      recipient_shift: resolvedShift,
-      recipient_day: resolvedDay,
-      recipient_role: resolvedRole,
-      recipient_volunteer_id: recipientType === 'volunteer' ? (msgRecipientVolId || null) : null,
-    }
-
-    const { error } = await supabase.from('messages').insert(payload)
-    if (error) showToast(error.message, 'error')
-    else {
+  
+    // Get the user's JWT so the API route can verify who is sending
+    const { data: { session } } = await supabase.auth.getSession()
+  
+    const res = await fetch('/api/send-message', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        recipient_type:          recipientType,
+        recipient_day:           resolvedDay,
+        recipient_shift:         resolvedShift,
+        recipient_role:          resolvedRole,
+        recipient_volunteer_id:  recipientType === 'volunteer' ? (msgRecipientVolId || null) : null,
+        body:                    msgBody.trim(),
+        image_url:               imageUrl || null,
+      }),
+    })
+  
+    const result = await res.json().catch(() => ({}))
+  
+    if (!res.ok) {
+      showToast(result.error || 'Failed to send message', 'error')
+    } else {
       showToast('Message sent!', 'success')
       setMsgBody('')
       clearImage()
@@ -306,6 +319,7 @@ export default function VolunteerPage() {
       setMsgView('inbox')
       await loadMessages()
     }
+  
     setSendingMsg(false)
   }
 
@@ -952,6 +966,36 @@ export default function VolunteerPage() {
                   ))}
                 </div>
               )}
+            </div>
+            // In Account tab JSX, add a new card:
+            <div style={card}>
+             <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Notifications</h2>
+             <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
+               Get notified about new messages and shift updates.
+             </p>
+             <button
+               onClick={async () => {
+                 setPushLoading(true)
+                 if (pushEnabled) {
+                   await unsubscribeFromPush(supabase, user.id)
+                   setPushEnabled(false)
+                 } else {
+                   const sub = await subscribeToPush(supabase, user.id)
+                   setPushEnabled(!!sub)
+                   if (!sub) showToast('Notification permission denied', 'error')
+                 }
+                 setPushLoading(false)
+               }}
+               disabled={pushLoading}
+               style={{
+                 padding: '0.85rem', width: '100%', border: 'none', borderRadius: '8px', fontWeight: 600,
+                 cursor: pushLoading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif',
+                 background: pushEnabled ? 'var(--danger)' : 'var(--accent)',
+                 color: pushEnabled ? '#fff' : '#0a0f0a',
+               }}
+             >
+               {pushLoading ? 'Working...' : pushEnabled ? 'Turn off notifications' : 'Turn on notifications'}
+             </button>
             </div>
             <div style={card}>
               <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Change Password</h2>
