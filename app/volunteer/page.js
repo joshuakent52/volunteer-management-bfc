@@ -94,11 +94,18 @@ export default function VolunteerPage() {
       .from('profiles').select('*').eq('id', user.id).single()
     setProfile(profileData)
 
-// Check if push is already subscribed
+    // Check if push is already subscribed — with timeout so it can't hang init()
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-      const reg = await navigator.serviceWorker.ready.catch(() => null)
-      const sub = await reg?.pushManager?.getSubscription().catch(() => null)
-      setPushEnabled(!!sub)
+      try {
+        const reg = await Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('SW timeout')), 3000))
+        ])
+        const sub = await reg?.pushManager?.getSubscription().catch(() => null)
+        setPushEnabled(!!sub)
+      } catch {
+        setPushEnabled(false)
+      }
     }
 
     const { data: open } = await supabase
