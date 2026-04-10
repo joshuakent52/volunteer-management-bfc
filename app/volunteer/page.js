@@ -155,11 +155,15 @@ export default function VolunteerPage() {
     combos.sort((a, b) => dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day) || a.shift.localeCompare(b.shift))
     setAllDayShiftCombos(combos)
 
+    // RLS now enforces role eligibility server-side, so this query only returns
+    // callouts the current user is actually allowed to cover.
+    // We still need the callout's `role` field so the UI can display it.
     const { data: openSubs } = await supabase
       .from('callouts')
       .select('*, volunteer:profiles!callouts_volunteer_id_fkey(full_name)')
       .eq('status', 'approved')
       .is('covered_by', null)
+      .neq('volunteer_id', user.id)          // never show your own callout to yourself
       .gte('callout_date', new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }))
       .order('callout_date', { ascending: true })
     setOpenShifts((openSubs || []).map(c => ({ ...c, profiles: c.volunteer })))
@@ -400,7 +404,21 @@ export default function VolunteerPage() {
     setChangingPassword(false)
   }
 
+  // Returns true if this volunteer is eligible to cover the given callout.
+  // Mirrors the RLS logic: same default_role, same role in schedule, or admin.
+  function isEligibleToCover(callout) {
+    if (!callout.role) return true
+    if (isAdmin) return true
+    if (profile?.default_role === callout.role) return true
+    return schedule.some(s => s.role === callout.role)
+  }
+
   async function handleRequestCover(calloutId) {
+    const callout = openShifts.find(c => c.id === calloutId)
+    if (callout && !isEligibleToCover(callout)) {
+      showToast('You are not eligible to cover this shift.', 'error')
+      return
+    }
     setRequestingCoverId(calloutId)
     const { error } = await supabase.from('shift_cover_requests').insert({ callout_id: calloutId, volunteer_id: user.id })
     if (error) showToast(error.message, 'error')
