@@ -67,6 +67,258 @@ async function fetchAllRows(supabase, table, buildQuery, pageSize = 1000) {
   return allRows
 }
 
+// ── Excuse Modal ─────────────────────────────────────────────────────────────
+function ExcuseModal({ record, onClose, onExcused, supabase }) {
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError]   = useState(null)
+
+  async function handleExcuse() {
+    if (!reason.trim()) { setError('Please enter a reason.'); return }
+    setSaving(true)
+    setError(null)
+    try {
+      // Update the existing attendance_records row — status becomes 'excused'
+      let query = supabase
+        .from('attendance_records')
+        .update({
+          status:        'excused',
+          excuse_reason: reason.trim(),
+          excused_at:    new Date().toISOString(),
+        })
+        .eq('volunteer_id', record.volunteer_id)
+        .eq('shift_date',   record.shift_date)
+
+      // shift_time may be null — only filter on it when present
+      if (record.shift_time) {
+        query = query.eq('shift_time', record.shift_time)
+      } else {
+        query = query.is('shift_time', null)
+      }
+
+      const { error: err } = await query
+      if (err) throw err
+      onExcused(record)
+    } catch (e) {
+      setError(e.message || 'Failed to save excuse.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '1rem',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: '14px', padding: '1.5rem', width: '100%', maxWidth: '420px',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+        }}
+      >
+        <div style={{ marginBottom: '1rem' }}>
+          <p style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text)', marginBottom: '0.25rem' }}>
+            Excuse Absence
+          </p>
+          <p style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>
+            {record.name} · {fmtDate(record.shift_date)}
+            {record.shift_time ? ` · ${record.shift_time}` : ''}
+          </p>
+        </div>
+
+        <textarea
+          placeholder="Reason for excuse…"
+          value={reason}
+          onChange={e => setReason(e.target.value)}
+          rows={3}
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            padding: '0.65rem 0.85rem',
+            background: 'var(--bg)', border: `1px solid ${error ? '#ef4444' : 'var(--border)'}`,
+            borderRadius: '8px', color: 'var(--text)', fontSize: '0.88rem',
+            fontFamily: 'DM Sans, sans-serif', resize: 'vertical', outline: 'none',
+          }}
+        />
+        {error && <p style={{ color: '#ef4444', fontSize: '0.78rem', marginTop: '0.35rem' }}>{error}</p>}
+
+        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', justifyContent: 'flex-end' }}>
+          <button
+            onClick={onClose}
+            style={{
+              padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid var(--border)',
+              background: 'var(--bg)', color: 'var(--muted)', fontSize: '0.85rem',
+              cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleExcuse}
+            disabled={saving}
+            style={{
+              padding: '0.5rem 1.1rem', borderRadius: '8px', border: 'none',
+              background: saving ? 'rgba(2,65,107,0.4)' : 'var(--accent)',
+              color: '#fff', fontSize: '0.85rem', fontWeight: 600,
+              cursor: saving ? 'not-allowed' : 'pointer',
+              fontFamily: 'DM Sans, sans-serif',
+            }}
+          >
+            {saving ? 'Saving…' : 'Excuse'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Person Detail Drawer ──────────────────────────────────────────────────────
+function PersonDrawer({ person, allExcusedRecordKeys, onClose, onExcuseClick }) {
+  if (!person) return null
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 900,
+        background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(3px)',
+        display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+        padding: '0',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: '16px 16px 0 0', padding: '1.5rem',
+          width: '100%', maxWidth: '560px',
+          maxHeight: '70vh', overflowY: 'auto',
+          boxShadow: '0 -10px 40px rgba(0,0,0,0.2)',
+        }}
+      >
+        {/* Handle bar */}
+        <div style={{ width: '40px', height: '4px', borderRadius: '2px', background: 'var(--border)', margin: '0 auto 1.25rem' }} />
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <div>
+            <p style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--text)' }}>{person.name}</p>
+            <p style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: '0.1rem' }}>
+              {person.records.length} absence{person.records.length !== 1 ? 's' : ''} since {fmtDate(ATTENDANCE_CUTOFF)}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'var(--bg)', border: '1px solid var(--border)',
+              borderRadius: '8px', padding: '0.35rem 0.7rem',
+              color: 'var(--muted)', cursor: 'pointer', fontSize: '0.85rem',
+              fontFamily: 'DM Sans, sans-serif',
+            }}
+          >✕</button>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {person.records.map((r, idx) => {
+            const key = `${r.volunteer_id}|${r.shift_date}|${r.shift_time ?? ''}`
+            const isExcused = allExcusedRecordKeys.has(key)
+            return (
+              <div
+                key={idx}
+                style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '0.65rem 1rem', borderRadius: '8px', gap: '0.75rem',
+                  background: isExcused ? 'rgba(74,222,128,0.05)' : 'var(--bg)',
+                  border: `1px solid ${isExcused ? 'rgba(74,222,128,0.3)' : 'var(--border)'}`,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                  <span style={{ fontWeight: 500, fontSize: '0.88rem', color: 'var(--text)' }}>
+                    {fmtDate(r.shift_date)}
+                  </span>
+                  {r.shift_time && (
+                    <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{r.shift_time}</span>
+                  )}
+                  {r.role && (
+                    <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontStyle: 'italic' }}>{r.role}</span>
+                  )}
+                </div>
+
+                {isExcused ? (
+                  <span style={{ ...pillStyle('#4ade80'), fontSize: '0.72rem' }}>Excused</span>
+                ) : (
+                  <button
+                    onClick={() => onExcuseClick({ ...r, name: person.name })}
+                    style={{
+                      padding: '0.35rem 0.85rem', borderRadius: '6px',
+                      border: '1px solid rgba(2,65,107,0.35)',
+                      background: 'rgba(2,65,107,0.08)',
+                      color: 'var(--accent)', fontSize: '0.78rem', fontWeight: 600,
+                      cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Excuse
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── No-Show Row ───────────────────────────────────────────────────────────────
+function NoShowRow({ v, isHigh, onNameClick }) {
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      padding: '0.65rem 1rem', borderRadius: '8px', gap: '0.75rem', flexWrap: 'wrap',
+      background: isHigh ? 'rgba(239,68,68,0.05)' : 'var(--bg)',
+      border: `1px solid ${isHigh ? 'rgba(239,68,68,0.3)' : 'var(--border)'}`,
+      marginBottom: '0.4rem',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+        {isHigh && (
+          <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.35)', fontWeight: 700 }}>
+            FLAGGED
+          </span>
+        )}
+        <button
+          onClick={() => onNameClick(v)}
+          style={{
+            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+            fontWeight: isHigh ? 700 : 500, fontSize: '0.9rem',
+            color: isHigh ? '#ef4444' : 'var(--accent)',
+            fontFamily: 'DM Sans, sans-serif',
+            textDecoration: 'underline', textDecorationColor: 'transparent',
+            transition: 'text-decoration-color 0.15s',
+          }}
+          onMouseEnter={e => e.target.style.textDecorationColor = 'currentColor'}
+          onMouseLeave={e => e.target.style.textDecorationColor = 'transparent'}
+        >
+          {v.name}
+        </button>
+      </div>
+      <span style={{
+        fontFamily: 'DM Mono, monospace', fontSize: '0.85rem', fontWeight: 700,
+        color: isHigh ? '#ef4444' : 'var(--muted)',
+      }}>
+        {v.count} absence{v.count !== 1 ? 's' : ''}
+      </span>
+    </div>
+  )
+}
+
 export default function DataDashboard({ supabase }) {
   // ── Filter / collapse state ───────────────────────────────
   const [hoursMonth,  setHoursMonth]  = useState(new Date().getMonth() + 1)
@@ -85,14 +337,20 @@ export default function DataDashboard({ supabase }) {
   const [missingOpen, setMissingOpen] = useState(false)
 
   // ── Data state ────────────────────────────────────────────
-  const [loading,       setLoading]       = useState(true)
-  const [totalHoursVal, setTotalHoursVal] = useState(0)
-  const [shiftCount,    setShiftCount]    = useState(0)
-  const [noShows,       setNoShows]       = useState([])
-  const [latePeople,    setLatePeople]    = useState([])
-  const [topHours,      setTopHours]      = useState([])
-  const [missingInfo,   setMissingInfo]   = useState([])
-  const [profiles,      setProfiles]      = useState([])
+  const [loading,         setLoading]         = useState(true)
+  const [totalHoursVal,   setTotalHoursVal]   = useState(0)
+  const [shiftCount,      setShiftCount]      = useState(0)
+  const [noShowsAll,      setNoShowsAll]      = useState([])   // all-time
+  const [noShowsWeek,     setNoShowsWeek]     = useState([])   // past week
+  const [latePeople,      setLatePeople]      = useState([])
+  const [topHours,        setTopHours]        = useState([])
+  const [missingInfo,     setMissingInfo]     = useState([])
+  const [profiles,        setProfiles]        = useState([])
+
+  // ── Excuse / drawer state ─────────────────────────────────
+  const [drawerPerson,     setDrawerPerson]     = useState(null)   // { id, name, records[] }
+  const [excuseTarget,     setExcuseTarget]     = useState(null)   // single attendance_record
+  const [excusedRecordKeys, setExcusedRecordKeys] = useState(new Set()) // "vol|date|time"
 
   // Load ALL profiles (no role filter) so any affiliation resolves names
   useEffect(() => {
@@ -193,7 +451,29 @@ export default function DataDashboard({ supabase }) {
       (scheduledWithNotes || []).map(r => r.volunteer_id).filter(Boolean)
     )
 
-    // Build a set of inactive volunteer IDs so they are hidden from both lists
+    // Also load fine-grained excuse keys from absence_excuses
+    const { data: excuseRows } = await supabase
+      .from('attendance_records')
+      .select('volunteer_id, shift_date, shift_time')
+      .eq('status', 'excused')
+    const excuseKeySet = new Set(
+      (excuseRows || []).map(r => `${r.volunteer_id}|${r.shift_date}|${r.shift_time ?? ''}`)
+    )
+
+    const now = new Date()
+    const day = now.getDay()
+
+    const thisMonday = new Date(now)
+    thisMonday.setDate(now.getDate() - (day === 0 ? 6 : day - 1))
+    thisMonday.setHours(0, 0, 0, 0)
+
+    const monday = new Date(thisMonday)
+    monday.setDate(thisMonday.getDate() - 7)
+
+    const friday = new Date(monday)
+    friday.setDate(monday.getDate() + 4)
+    friday.setHours(23, 59, 59, 999)
+
     const inactiveIds = new Set(
       profiles.filter(p => p.status === 'inactive').map(p => p.id)
     )
@@ -210,6 +490,9 @@ export default function DataDashboard({ supabase }) {
     ;(absentData || []).forEach(r => {
       if (excusedIds.has(r.volunteer_id)) return
       if (inactiveIds.has(r.volunteer_id)) return
+      // Skip individually excused records
+      const key = `${r.volunteer_id}|${r.shift_date}|${r.shift_time ?? ''}`
+      if (excuseKeySet.has(key)) return
       if (!absentMap[r.volunteer_id]) absentMap[r.volunteer_id] = { records: [], name: null }
       if (!absentMap[r.volunteer_id].name) {
         absentMap[r.volunteer_id].name =
@@ -220,11 +503,27 @@ export default function DataDashboard({ supabase }) {
       absentMap[r.volunteer_id].records.push(r)
     })
 
-    setNoShows(
-      Object.entries(absentMap)
-        .map(([id, { name, records }]) => ({ id, name, count: records.length, records }))
-        .sort((a, b) => b.count - a.count)
-    )
+    const allTime = []
+    const pastWeek = []
+
+    Object.entries(absentMap).forEach(([id, { name, records }]) => {
+      const weekRecords = records.filter(r => {
+        const date = new Date(r.shift_date + 'T00:00:00')
+        return date >= monday && date <= friday
+      })
+
+      allTime.push({ id, name, count: records.length, records })
+
+      if (weekRecords.length > 0) {
+        pastWeek.push({ id, name, count: weekRecords.length, records: weekRecords })
+      }
+    })
+
+    allTime.sort((a, b) => b.count - a.count)
+    pastWeek.sort((a, b) => b.count - a.count)
+
+    setNoShowsAll(allTime)
+    setNoShowsWeek(pastWeek)
 
     // Late arrivals — from ATTENDANCE_CUTOFF onward, paginated
     const lateData = await fetchAllRows(supabase, 'attendance_records', (q) =>
@@ -300,6 +599,37 @@ export default function DataDashboard({ supabase }) {
   useEffect(() => { if (profiles.length) loadHours()    }, [hoursMonth, hoursYear, hoursAff, loadHours])
   useEffect(() => { if (profiles.length) loadTopHours() }, [topMonth, topYear, topAff, topCount, loadTopHours])
 
+  // ── Excuse handlers ───────────────────────────────────────
+  function handleExcused(record) {
+    const key = `${record.volunteer_id}|${record.shift_date}|${record.shift_time ?? ''}`
+    setExcusedRecordKeys(prev => new Set([...prev, key]))
+    setExcuseTarget(null)
+    // Optimistically remove excused record from both lists
+    const filterExcused = (list) =>
+      list
+        .map(v => ({
+          ...v,
+          records: v.records.filter(r => `${r.volunteer_id}|${r.shift_date}|${r.shift_time ?? ''}` !== key),
+        }))
+        .filter(v => v.records.length > 0)
+        .map(v => ({ ...v, count: v.records.length }))
+
+    setNoShowsAll(prev => filterExcused(prev))
+    setNoShowsWeek(prev => filterExcused(prev))
+
+    // Update drawer person if open
+    if (drawerPerson && drawerPerson.id === record.volunteer_id) {
+      setDrawerPerson(prev => {
+        const updated = {
+          ...prev,
+          records: prev.records.filter(r => `${r.volunteer_id}|${r.shift_date}|${r.shift_time ?? ''}` !== key),
+        }
+        if (updated.records.length === 0) return null
+        return { ...updated, count: updated.records.length }
+      })
+    }
+  }
+
   // ── Shared styles ─────────────────────────────────────────
   const card = {
     background: 'var(--surface)', border: '1px solid var(--border)',
@@ -323,255 +653,297 @@ export default function DataDashboard({ supabase }) {
   )
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+    <>
+      {/* ── Modals / Drawers ───────────────────────────────── */}
+      {drawerPerson && (
+        <PersonDrawer
+          person={drawerPerson}
+          allExcusedRecordKeys={excusedRecordKeys}
+          onClose={() => setDrawerPerson(null)}
+          onExcuseClick={setExcuseTarget}
+        />
+      )}
+      {excuseTarget && (
+        <ExcuseModal
+          record={excuseTarget}
+          supabase={supabase}
+          onClose={() => setExcuseTarget(null)}
+          onExcused={handleExcused}
+        />
+      )}
 
-      {/* ── 1. Hours Served (collapsible) ───────────────────── */}
-      <div style={card}>
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-          flexWrap: 'wrap', gap: '0.75rem',
-          marginBottom: hoursOpen ? '1.25rem' : 0,
-        }}>
-          <button onClick={() => setHoursOpen(s => !s)} style={collapseBtn}>
-            <Chevron open={hoursOpen} />
-            <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>Hours Served</span>
-          </button>
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <select value={hoursMonth} onChange={e => setHoursMonth(Number(e.target.value))} style={sel}>
-              {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-            </select>
-            <select value={hoursYear} onChange={e => setHoursYear(Number(e.target.value))} style={sel}>
-              {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
-            <select value={hoursAff} onChange={e => setHoursAff(e.target.value)} style={sel}>
-              {AFFILIATIONS.map(a => <option key={a} value={a}>{a === 'All' ? 'All affiliations' : a}</option>)}
-            </select>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+        {/* ── 1. Hours Served (collapsible) ───────────────────── */}
+        <div style={card}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+            flexWrap: 'wrap', gap: '0.75rem',
+            marginBottom: hoursOpen ? '1.25rem' : 0,
+          }}>
+            <button onClick={() => setHoursOpen(s => !s)} style={collapseBtn}>
+              <Chevron open={hoursOpen} />
+              <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>Hours Served</span>
+            </button>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <select value={hoursMonth} onChange={e => setHoursMonth(Number(e.target.value))} style={sel}>
+                {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+              <select value={hoursYear} onChange={e => setHoursYear(Number(e.target.value))} style={sel}>
+                {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <select value={hoursAff} onChange={e => setHoursAff(e.target.value)} style={sel}>
+                {AFFILIATIONS.map(a => <option key={a} value={a}>{a === 'All' ? 'All affiliations' : a}</option>)}
+              </select>
+            </div>
           </div>
+          {hoursOpen && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
+              <div style={{ padding: '1.25rem', background: 'rgba(2,65,107,0.06)', borderRadius: '10px', border: '1px solid rgba(2,65,107,0.25)' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem' }}>Total Hours</p>
+                <p style={{ fontSize: '2.2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: 'var(--accent)', lineHeight: 1 }}>
+                  {totalHoursVal}<span style={{ fontSize: '1rem', color: 'var(--muted)', fontWeight: 400, marginLeft: '0.25rem' }}>h</span>
+                </p>
+              </div>
+              <div style={{ padding: '1.25rem', background: 'var(--bg)', borderRadius: '10px', border: '1px solid var(--border)' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem' }}>Shift Records</p>
+                <p style={{ fontSize: '2.2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: 'var(--text)', lineHeight: 1 }}>{shiftCount}</p>
+              </div>
+            </div>
+          )}
         </div>
-        {hoursOpen && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
-            <div style={{ padding: '1.25rem', background: 'rgba(2,65,107,0.06)', borderRadius: '10px', border: '1px solid rgba(2,65,107,0.25)' }}>
-              <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem' }}>Total Hours</p>
-              <p style={{ fontSize: '2.2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: 'var(--accent)', lineHeight: 1 }}>
-                {totalHoursVal}<span style={{ fontSize: '1rem', color: 'var(--muted)', fontWeight: 400, marginLeft: '0.25rem' }}>h</span>
-              </p>
-            </div>
-            <div style={{ padding: '1.25rem', background: 'var(--bg)', borderRadius: '10px', border: '1px solid var(--border)' }}>
-              <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem' }}>Shift Records</p>
-              <p style={{ fontSize: '2.2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: 'var(--text)', lineHeight: 1 }}>{shiftCount}</p>
-            </div>
+
+        {/* ── 2. No-Shows (collapsible, two banners) ──────────── */}
+        <div style={card}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            marginBottom: noShowOpen ? '1rem' : 0,
+          }}>
+            <button onClick={() => setNoShowOpen(s => !s)} style={collapseBtn}>
+              <Chevron open={noShowOpen} />
+              <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>No-Shows</span>
+              {(noShowsAll.length > 0 || noShowsWeek.length > 0) && (
+                <span style={{ ...pillStyle('#ef4444') }}>
+                  {noShowsAll.length}
+                </span>
+              )}
+            </button>
+            <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>
+              Click a name to view &amp; excuse absences
+            </span>
           </div>
-        )}
-      </div>
 
-      {/* ── 2. No-Shows (collapsible) ────────────────────────── */}
-      <div style={card}>
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          marginBottom: noShowOpen && noShows.length > 0 ? '1rem' : 0,
-        }}>
-          <button onClick={() => setNoShowOpen(s => !s)} style={collapseBtn}>
-            <Chevron open={noShowOpen} />
-            <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>No-Shows</span>
-            {noShows.length > 0 && (
-              <span style={{ ...pillStyle('#ef4444'), fontWeight: 700 }}>{noShows.length}</span>
-            )}
-          </button>
-          <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>Since Mar 29 · unexcused absences</span>
-        </div>
-        {noShowOpen && (
-          noShows.length === 0 ? (
-            <p style={{ color: 'var(--muted)', fontSize: '0.9rem', marginTop: '0.75rem' }}>No unexcused absences recorded.</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {noShows.map(v => {
-                const isHigh = v.count >= 3
-                return (
-                  <div key={v.id} style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: '0.65rem 1rem', borderRadius: '8px', gap: '0.75rem', flexWrap: 'wrap',
-                    background: isHigh ? 'rgba(239,68,68,0.05)' : 'var(--bg)',
-                    border: `1px solid ${isHigh ? 'rgba(239,68,68,0.3)' : 'var(--border)'}`,
-                  }}>
-                    {/* No badge — just red name for high count */}
-                    <span style={{ fontWeight: isHigh ? 700 : 500, fontSize: '0.9rem', color: isHigh ? '#ef4444' : 'var(--text)' }}>
-                      {v.name}
-                    </span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                      <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.88rem', fontWeight: 700, color: isHigh ? '#ef4444' : 'var(--muted)' }}>
-                        {v.count} absent
-                      </span>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
-                        Last: {fmtDate(v.records[0]?.shift_date)}
-                      </span>
-                    </div>
-                  </div>
-                )
-              })}
+          {noShowOpen && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+
+              {/* ── All Time banner ── */}
+              <div style={{
+                borderRadius: '10px', border: '1px solid var(--border)',
+                background: 'var(--bg)', padding: '1rem',
+              }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem',
+                }}>
+                  <span style={{ fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)' }}>
+                    All Time
+                  </span>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontStyle: 'italic' }}>
+                    since {fmtDate(ATTENDANCE_CUTOFF)}
+                  </span>
+                  {noShowsAll.length > 0 && (
+                    <span style={{ ...pillStyle('#9ca3af') }}>{noShowsAll.length}</span>
+                  )}
+                </div>
+                {noShowsAll.length === 0 ? (
+                  <p style={{ color: 'var(--muted)', fontSize: '0.88rem' }}>No absences recorded.</p>
+                ) : (
+                  noShowsAll.map(v => (
+                    <NoShowRow
+                      key={v.id}
+                      v={v}
+                      isHigh={v.count >= 3}
+                      onNameClick={setDrawerPerson}
+                    />
+                  ))
+                )}
+              </div>
+
             </div>
-          )
-        )}
-      </div>
-
-      {/* ── 3. Repeat Late (collapsible) ────────────────────── */}
-      <div style={card}>
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          marginBottom: lateOpen && latePeople.length > 0 ? '1rem' : 0,
-        }}>
-          <button onClick={() => setLateOpen(s => !s)} style={collapseBtn}>
-            <Chevron open={lateOpen} />
-            <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>Repeat Late Arrivals</span>
-            {latePeople.length > 0 && (
-              <span style={{ ...pillStyle('#f59e0b') }}>{latePeople.length}</span>
-            )}
-          </button>
-          <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>≥2 times · since Mar 29</span>
+          )}
         </div>
-        {lateOpen && (
-          latePeople.length === 0 ? (
-            <p style={{ color: 'var(--muted)', fontSize: '0.9rem', marginTop: '0.75rem' }}>No repeat late arrivals since Mar 29.</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {latePeople.map(v => {
-                const isHigh = v.count >= 4
-                return (
-                  <div key={v.id} style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: '0.65rem 1rem', borderRadius: '8px', gap: '0.75rem', flexWrap: 'wrap',
-                    background: isHigh ? 'rgba(245,158,11,0.05)' : 'var(--bg)',
-                    border: `1px solid ${isHigh ? 'rgba(245,158,11,0.35)' : 'var(--border)'}`,
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                      {isHigh && (
-                        <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.35)', fontWeight: 700 }}>
-                          PATTERN
-                        </span>
-                      )}
-                      <span style={{ fontWeight: isHigh ? 700 : 500, fontSize: '0.9rem', color: isHigh ? '#f59e0b' : 'var(--text)' }}>{v.name}</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                      <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.85rem', fontWeight: 700, color: isHigh ? '#f59e0b' : 'var(--muted)' }}>
-                        {v.count}× late
-                      </span>
-                      <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>avg {v.avgLate}m</span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )
-        )}
-      </div>
 
-      {/* ── 4. Top Volunteers Leaderboard (collapsible) ─────── */}
-      <div style={card}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem' }}>
-          <button onClick={() => setTopOpen(s => !s)} style={collapseBtn}>
-            <Chevron open={topOpen} />
-            <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>Top Volunteers by Hours</span>
-          </button>
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            <select value={topCount} onChange={e => setTopCount(Number(e.target.value))} style={sel}>
-              {TOP_COUNT_OPTIONS.map(n => <option key={n} value={n}>Top {n}</option>)}
-            </select>
-            <select value={topMonth} onChange={e => setTopMonth(Number(e.target.value))} style={sel}>
-              {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-            </select>
-            <select value={topYear} onChange={e => setTopYear(Number(e.target.value))} style={sel}>
-              {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
-            <select value={topAff} onChange={e => setTopAff(e.target.value)} style={sel}>
-              {AFFILIATIONS.map(a => <option key={a} value={a}>{a === 'All' ? 'All affiliations' : a}</option>)}
-            </select>
+        {/* ── 3. Repeat Late (collapsible) ────────────────────── */}
+        <div style={card}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            marginBottom: lateOpen && latePeople.length > 0 ? '1rem' : 0,
+          }}>
+            <button onClick={() => setLateOpen(s => !s)} style={collapseBtn}>
+              <Chevron open={lateOpen} />
+              <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>Repeat Late Arrivals</span>
+              {latePeople.length > 0 && (
+                <span style={{ ...pillStyle('#f59e0b') }}>{latePeople.length}</span>
+              )}
+            </button>
+            <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>≥2 times · since Mar 29</span>
           </div>
-        </div>
-        {topOpen && (
-          <div style={{ marginTop: '1.25rem' }}>
-            {topHours.length === 0 ? (
-              <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No hours recorded for this period.</p>
+          {lateOpen && (
+            latePeople.length === 0 ? (
+              <p style={{ color: 'var(--muted)', fontSize: '0.9rem', marginTop: '0.75rem' }}>No repeat late arrivals since Mar 29.</p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                {topHours.map((v, i) => {
-                  const maxHrs = parseFloat(topHours[0]?.hours || 1)
-                  const pct = Math.round((parseFloat(v.hours) / maxHrs) * 100)
-                  const isFirst = i === 0
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {latePeople.map(v => {
+                  const isHigh = v.count >= 4
                   return (
-                    <div key={v.id} style={{ padding: '0.6rem 1rem', background: isFirst ? 'rgba(2,65,107,0.06)' : 'var(--bg)', borderRadius: '8px', border: `1px solid ${isFirst ? 'rgba(2,65,107,0.3)' : 'var(--border)'}` }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.75rem', color: 'var(--muted)', width: '20px', textAlign: 'right' }}>#{i + 1}</span>
-                          <span style={{ fontWeight: isFirst ? 700 : 500, fontSize: '0.88rem', color: isFirst ? 'var(--accent)' : 'var(--text)' }}>{v.name}</span>
-                        </div>
-                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', fontWeight: 700, color: isFirst ? 'var(--accent)' : 'var(--text)' }}>
-                          {v.hours}h
-                        </span>
+                    <div key={v.id} style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '0.65rem 1rem', borderRadius: '8px', gap: '0.75rem', flexWrap: 'wrap',
+                      background: isHigh ? 'rgba(245,158,11,0.05)' : 'var(--bg)',
+                      border: `1px solid ${isHigh ? 'rgba(245,158,11,0.35)' : 'var(--border)'}`,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        {isHigh && (
+                          <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.35)', fontWeight: 700 }}>
+                            PATTERN
+                          </span>
+                        )}
+                        <span style={{ fontWeight: isHigh ? 700 : 500, fontSize: '0.9rem', color: isHigh ? '#f59e0b' : 'var(--text)' }}>{v.name}</span>
                       </div>
-                      <div style={{ height: '4px', borderRadius: '2px', background: 'var(--border)', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${pct}%`, background: isFirst ? 'var(--accent)' : 'rgba(2,65,107,0.35)', borderRadius: '2px', transition: 'width 0.4s ease' }} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.85rem', fontWeight: 700, color: isHigh ? '#f59e0b' : 'var(--muted)' }}>
+                          {v.count}× late
+                        </span>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>avg {v.avgLate}m</span>
                       </div>
                     </div>
                   )
                 })}
               </div>
-            )}
-          </div>
-        )}
-      </div>
+            )
+          )}
+        </div>
 
-      {/* ── 5. Missing Profile Info (collapsible) ───────────── */}
-      <div style={card}>
-        <button
-          onClick={() => setMissingOpen(s => !s)}
-          style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'DM Sans, sans-serif' }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <Chevron open={missingOpen} />
-            <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>Missing Profile Information</span>
-            {missingInfo.length > 0 && (
-              <span style={{ ...pillStyle('#9ca3af'), fontWeight: 600 }}>{missingInfo.length}</span>
-            )}
+        {/* ── 4. Volunteer Hours by Period (data reporting) ───── */}
+        <div style={card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <button onClick={() => setTopOpen(s => !s)} style={collapseBtn}>
+                <Chevron open={topOpen} />
+                <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>Volunteer Hours Report</span>
+              </button>
+              <span style={{ fontSize: '0.75rem', color: 'var(--muted)', marginLeft: '1.6rem' }}>
+                Hours logged per volunteer for the selected period
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <select value={topCount} onChange={e => setTopCount(Number(e.target.value))} style={sel}>
+                {TOP_COUNT_OPTIONS.map(n => <option key={n} value={n}>Show {n}</option>)}
+              </select>
+              <select value={topMonth} onChange={e => setTopMonth(Number(e.target.value))} style={sel}>
+                {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+              <select value={topYear} onChange={e => setTopYear(Number(e.target.value))} style={sel}>
+                {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <select value={topAff} onChange={e => setTopAff(e.target.value)} style={sel}>
+                {AFFILIATIONS.map(a => <option key={a} value={a}>{a === 'All' ? 'All affiliations' : a}</option>)}
+              </select>
+            </div>
           </div>
-          <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>
-            missionaries: sma · students: school · all: birthday
-          </span>
-        </button>
-        {missingOpen && (
-          <div style={{ marginTop: '1.25rem' }}>
-            {missingInfo.length === 0 ? (
-              <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>All volunteers have complete profile information.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 80px 80px', gap: '0.5rem', padding: '0.35rem 1rem' }}>
-                  {['Name','SMA','School','Birthday'].map(h => (
-                    <span key={h} style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</span>
+          {topOpen && (
+            <div style={{ marginTop: '1.25rem' }}>
+              {topHours.length === 0 ? (
+                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No hours recorded for this period.</p>
+              ) : (
+                <>
+                  {/* Column headers */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr 60px', gap: '0.5rem', padding: '0.25rem 1rem', marginBottom: '0.25rem' }}>
+                    {['#', 'Volunteer', 'Hours'].map(h => (
+                      <span key={h} style={{ fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: h === 'Hours' ? 'right' : 'left' }}>{h}</span>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    {topHours.map((v, i) => {
+                      const maxHrs = parseFloat(topHours[0]?.hours || 1)
+                      const pct = Math.round((parseFloat(v.hours) / maxHrs) * 100)
+                      return (
+                        <div key={v.id} style={{ padding: '0.6rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                              <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.75rem', color: 'var(--muted)', width: '20px', textAlign: 'right' }}>{i + 1}</span>
+                              <span style={{ fontWeight: 500, fontSize: '0.88rem', color: 'var(--text)' }}>{v.name}</span>
+                            </div>
+                            <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', fontWeight: 700, color: 'var(--text)' }}>
+                              {v.hours}h
+                            </span>
+                          </div>
+                          <div style={{ height: '4px', borderRadius: '2px', background: 'var(--border)', overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${pct}%`, background: 'rgba(2,65,107,0.45)', borderRadius: '2px', transition: 'width 0.4s ease' }} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── 5. Missing Profile Info (collapsible) ───────────── */}
+        <div style={card}>
+          <button
+            onClick={() => setMissingOpen(s => !s)}
+            style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'DM Sans, sans-serif' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <Chevron open={missingOpen} />
+              <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>Missing Profile Information</span>
+              {missingInfo.length > 0 && (
+                <span style={{ ...pillStyle('#9ca3af'), fontWeight: 600 }}>{missingInfo.length}</span>
+              )}
+            </div>
+            <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>
+              missionaries: sma · students: school · all: birthday
+            </span>
+          </button>
+          {missingOpen && (
+            <div style={{ marginTop: '1.25rem' }}>
+              {missingInfo.length === 0 ? (
+                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>All volunteers have complete profile information.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 80px 80px', gap: '0.5rem', padding: '0.35rem 1rem' }}>
+                    {['Name','SMA','School','Birthday'].map(h => (
+                      <span key={h} style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</span>
+                    ))}
+                  </div>
+                  {missingInfo.map(v => (
+                    <div key={v.id} style={{ display: 'grid', gridTemplateColumns: '1fr 100px 80px 80px', gap: '0.5rem', padding: '0.55rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', alignItems: 'center' }}>
+                      <div>
+                        <span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{v.name}</span>
+                        {v.affiliation && (
+                          <span style={{ marginLeft: '0.4rem', fontSize: '0.7rem', color: 'var(--muted)', fontStyle: 'italic' }}>{v.affiliation}</span>
+                        )}
+                      </div>
+                      <span style={{ fontSize: '0.75rem', ...(v.smaNA ? { color: 'var(--muted)', fontStyle: 'italic' } : v.missingSma ? { color: '#ef4444', fontWeight: 600 } : { color: '#4ade80' }) }}>
+                        {v.smaNA ? 'N/A' : v.missingSma ? 'Missing' : '✓'}
+                      </span>
+                      <span style={{ fontSize: '0.75rem', ...(v.schoolNA ? { color: 'var(--muted)', fontStyle: 'italic' } : v.missingSchool ? { color: '#ef4444', fontWeight: 600 } : { color: '#4ade80' }) }}>
+                        {v.schoolNA ? 'N/A' : v.missingSchool ? 'Missing' : '✓'}
+                      </span>
+                      <span style={{ fontSize: '0.75rem', ...(v.missingBirthday ? { color: '#ef4444', fontWeight: 600 } : { color: '#4ade80' }) }}>
+                        {v.missingBirthday ? 'Missing' : '✓'}
+                      </span>
+                    </div>
                   ))}
                 </div>
-                {missingInfo.map(v => (
-                  <div key={v.id} style={{ display: 'grid', gridTemplateColumns: '1fr 100px 80px 80px', gap: '0.5rem', padding: '0.55rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', alignItems: 'center' }}>
-                    <div>
-                      <span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{v.name}</span>
-                      {v.affiliation && (
-                        <span style={{ marginLeft: '0.4rem', fontSize: '0.7rem', color: 'var(--muted)', fontStyle: 'italic' }}>{v.affiliation}</span>
-                      )}
-                    </div>
-                    <span style={{ fontSize: '0.75rem', ...(v.smaNA ? { color: 'var(--muted)', fontStyle: 'italic' } : v.missingSma ? { color: '#ef4444', fontWeight: 600 } : { color: '#4ade80' }) }}>
-                      {v.smaNA ? 'N/A' : v.missingSma ? 'Missing' : '✓'}
-                    </span>
-                    <span style={{ fontSize: '0.75rem', ...(v.schoolNA ? { color: 'var(--muted)', fontStyle: 'italic' } : v.missingSchool ? { color: '#ef4444', fontWeight: 600 } : { color: '#4ade80' }) }}>
-                      {v.schoolNA ? 'N/A' : v.missingSchool ? 'Missing' : '✓'}
-                    </span>
-                    <span style={{ fontSize: '0.75rem', ...(v.missingBirthday ? { color: '#ef4444', fontWeight: 600 } : { color: '#4ade80' }) }}>
-                      {v.missingBirthday ? 'Missing' : '✓'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+              )}
+            </div>
+          )}
+        </div>
 
-    </div>
+      </div>
+    </>
   )
 }
