@@ -3,7 +3,6 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { SHIFTS, ROLES, ROLE_SUGGESTIONS, SCHOOLS, MAJORS, MAX_FILE_SIZE, ACTION_LABELS, ACTION_COLORS } from '../../lib/constants'
 import { getMountainNow, getMountainLabel, asUTC, formatMountain, formatDateMountain, formatDateTime, toMountainInputValue, fromMountainInputValue } from '../../lib/timeUtils'
-import { MessageCard } from '../../components/MessageCard'
 import DataDashboard from '../../components/DataDashboard'
 
 
@@ -62,23 +61,6 @@ export default function AdminPage() {
   const [newSmaContact, setNewSmaContact] = useState(''); const [newSchool, setNewSchool] = useState(''); const [newMajor, setNewMajor] = useState('')
   const [newBirthday, setNewBirthday] = useState(''); const [newDefaultRole, setNewDefaultRole] = useState(''); const [creating, setCreating] = useState(false)
 
-  const [adminMessages, setAdminMessages] = useState([])
-  const [msgBody, setMsgBody] = useState('')
-  const [msgRecipientType, setMsgRecipientType] = useState('everyone')
-  const [msgRecipientShift, setMsgRecipientShift] = useState('10-2')
-  const [msgRecipientDay, setMsgRecipientDay] = useState('monday')
-  const [msgRecipientRole, setMsgRecipientRole] = useState('Clinical Staff')
-  const [msgRecipientVolId, setMsgRecipientVolId] = useState('')
-  const [sendingMsg, setSendingMsg] = useState(false)
-  const [msgView, setMsgView] = useState('inbox')
-
-  const [readMessageIds, setReadMessageIds] = useState(new Set())
-
-  const [msgImageFile, setMsgImageFile] = useState(null)
-  const [msgImagePreview, setMsgImagePreview] = useState(null)
-  const [uploadingImage, setUploadingImage] = useState(false)
-  const fileInputRef = useRef(null)
-
   const [lightboxUrl, setLightboxUrl] = useState(null)
 
   const [coverRequests, setCoverRequests] = useState([])
@@ -112,12 +94,6 @@ export default function AdminPage() {
     const interval = setInterval(() => setCurrentTime(getMountainNow()), 60000)
     return () => clearInterval(interval)
   }, [])
-
-  useEffect(() => {
-    if (tab === 'messages' && msgView === 'inbox' && profile) {
-      markInboxAsRead()
-    }
-  }, [tab, msgView, profile])
 
   async function init() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -159,38 +135,6 @@ export default function AdminPage() {
       .order('day_of_week')
     setScheduledShifts(data || [])
     setLoadingScheduledShifts(false)
-  }
-
-  async function loadAdminMessages(uid) {
-    const userId = uid || profile?.id
-    const { data: msgs } = await supabase
-      .from('messages')
-      .select('*, sender:profiles!messages_sender_id_fkey(full_name)')
-      .order('created_at', { ascending: false })
-      .limit(100)
-    setAdminMessages(msgs || [])
-
-    if (userId) {
-      const { data: reads } = await supabase
-        .from('message_reads')
-        .select('message_id')
-        .eq('user_id', userId)
-      setReadMessageIds(new Set((reads || []).map(r => r.message_id)))
-    }
-  }
-
-  async function markInboxAsRead() {
-    if (!profile) return
-    const inbox = adminMessages.filter(m => m.sender_id !== profile.id)
-    const unread = inbox.filter(m => !readMessageIds.has(m.id))
-    if (unread.length === 0) return
-    const rows = unread.map(m => ({ user_id: profile.id, message_id: m.id }))
-    await supabase.from('message_reads').upsert(rows, { onConflict: 'user_id,message_id' })
-    setReadMessageIds(prev => {
-      const next = new Set(prev)
-      unread.forEach(m => next.add(m.id))
-      return next
-    })
   }
 
   async function loadCoverRequests() { const { data } = await supabase.from('shift_cover_requests').select('*, profiles(full_name)').order('requested_at', { ascending: false }); setCoverRequests(data || []) }
@@ -237,30 +181,6 @@ export default function AdminPage() {
     if (error) { showMessage('Image upload failed: ' + error.message, 'error'); return null }
     const { data: { publicUrl } } = supabase.storage.from('message-images').getPublicUrl(path)
     return publicUrl
-  }
-
-  async function handleAdminSendMessage(e) {
-    e.preventDefault()
-    if (!msgBody.trim() && !msgImageFile) return
-    setSendingMsg(true)
-    const imageUrl = await uploadImage(profile.id)
-    if (msgImageFile && !imageUrl) { setSendingMsg(false); return }
-    const payload = {
-      sender_id: profile.id, recipient_type: msgRecipientType, body: msgBody.trim(), image_url: imageUrl || null,
-      recipient_shift: msgRecipientType === 'shift' ? msgRecipientShift : null,
-      recipient_day: msgRecipientType === 'shift' ? msgRecipientDay : null,
-      recipient_role: msgRecipientType === 'role' ? msgRecipientRole : msgRecipientType === 'affiliation_missionary' ? 'missionary' : null,
-      recipient_volunteer_id: msgRecipientType === 'volunteer' ? msgRecipientVolId : null,
-    }
-    const { error } = await supabase.from('messages').insert(payload)
-    if (error) showMessage(error.message, 'error')
-    else {
-      showMessage('Message sent!', 'success')
-      await audit('sent_message', 'message', null, null, `To: ${msgRecipientType}`)
-      setMsgBody(''); clearImage(); setMsgView('inbox')
-      await loadAdminMessages()
-    }
-    setSendingMsg(false)
   }
 
   const expectedVolunteers = (() => {
@@ -1284,72 +1204,6 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
-          </div>
-        )}
-
-        {/* MESSAGES TAB */}
-        {tab === 'messages' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              {[['inbox','Inbox'],['sent','Sent'],['compose','Compose']].map(([key, label]) => (
-                <button key={key} onClick={() => setMsgView(key)} style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: msgView === key ? 'var(--accent)' : 'var(--surface)', color: msgView === key ? '#0a0f0a' : 'var(--muted)', border: msgView === key ? 'none' : '1px solid var(--border)' }}>{label}</button>
-              ))}
-            </div>
-            {msgView === 'inbox' && (
-              <div style={card}>
-                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>All Messages</h2>
-                {inboxMessages.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No messages yet.</p> : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {inboxMessages.map(m => <MessageCard key={m.id} m={m} readMessageIds={readMessageIds} user={profile} setLightboxUrl={setLightboxUrl} />)}
-                  </div>
-                )}
-              </div>
-            )}
-            {msgView === 'sent' && (
-              <div style={card}>
-                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Sent Messages</h2>
-                {adminMessages.filter(m => m.sender_id === profile?.id).length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No sent messages yet.</p> : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {adminMessages.filter(m => m.sender_id === profile?.id).map(m => <MessageCard key={m.id} m={m} readMessageIds={readMessageIds} user={profile} setLightboxUrl={setLightboxUrl} />)}
-                  </div>
-                )}
-              </div>
-            )}
-            {msgView === 'compose' && (
-              <div style={card}>
-                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>New Message</h2>
-                <form onSubmit={handleAdminSendMessage} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div>
-                    <label style={labelStyle}>Send to</label>
-                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      {[{ value: 'everyone', label: 'Everyone' }, { value: 'affiliation_missionary', label: 'Missionaries' }, { value: 'admin', label: 'Admins' }, { value: 'shift', label: 'Shift' }, { value: 'role', label: 'Role' }, { value: 'volunteer', label: 'Individual' }].map(opt => (
-                        <button key={opt.value} type="button" onClick={() => setMsgRecipientType(opt.value)} style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: msgRecipientType === opt.value ? 'var(--accent)' : 'var(--surface)', color: msgRecipientType === opt.value ? '#0a0f0a' : 'var(--muted)', border: msgRecipientType === opt.value ? 'none' : '1px solid var(--border)' }}>{opt.label}</button>
-                      ))}
-                    </div>
-                    {msgRecipientType === 'shift' && (<div style={{ marginTop: '0.75rem' }}><label style={labelStyle}>Which shift</label><div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>{dayShiftCombos.map(({ day, shift, label }) => { const active = msgRecipientDay === day && msgRecipientShift === shift; return <button key={label} type="button" onClick={() => { setMsgRecipientDay(day); setMsgRecipientShift(shift) }} style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Mono, monospace', background: active ? '#1e40af' : 'var(--surface)', color: active ? '#bfdbfe' : 'var(--muted)', border: active ? 'none' : '1px solid var(--border)' }}>{label}</button> })}</div></div>)}
-                    {msgRecipientType === 'role' && (<div style={{ marginTop: '0.75rem' }}><label style={labelStyle}>Which role</label><select value={msgRecipientRole} onChange={e => setMsgRecipientRole(e.target.value)} style={inputStyle}>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>)}
-                    {msgRecipientType === 'volunteer' && (<div style={{ marginTop: '0.75rem' }}><label style={labelStyle}>Which volunteer</label><select value={msgRecipientVolId} onChange={e => setMsgRecipientVolId(e.target.value)} style={inputStyle}><option value="">— Select volunteer —</option>{volunteers.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}</select></div>)}
-                  </div>
-                  <div><label style={labelStyle}>Message</label><textarea value={msgBody} onChange={e => setMsgBody(e.target.value)} rows={4} placeholder="Write your message..." style={{ ...inputStyle, resize: 'vertical' }} /></div>
-                  <div>
-                    <label style={labelStyle}>Attach image <span style={{ textTransform: 'none', fontSize: '0.72rem', color: 'var(--muted)' }}>(optional · max 5 MB)</span></label>
-                    {msgImagePreview ? (
-                      <div style={{ position: 'relative', display: 'inline-block' }}>
-                        <img src={msgImagePreview} alt="Preview" style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px', objectFit: 'cover', border: '1px solid var(--border)', display: 'block' }} />
-                        <button type="button" onClick={clearImage} style={{ position: 'absolute', top: '6px', right: '6px', background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', borderRadius: '50%', width: '24px', height: '24px', cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
-                      </div>
-                    ) : (
-                      <button type="button" onClick={() => fileInputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1rem', background: 'var(--bg)', border: '1px dashed var(--border)', borderRadius: '8px', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'DM Sans, sans-serif', width: '100%', justifyContent: 'center' }}>📎 Choose image</button>
-                    )}
-                    <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleImageSelect} style={{ display: 'none' }} />
-                  </div>
-                  <button type="submit" disabled={sendingMsg || uploadingImage || (!msgBody.trim() && !msgImageFile) || (msgRecipientType === 'volunteer' && !msgRecipientVolId)}
-                    style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: sendingMsg ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
-                    {uploadingImage ? 'Uploading image...' : sendingMsg ? 'Sending...' : 'Send Message'}
-                  </button>
-                </form>
-              </div>
-            )}
           </div>
         )}
 
