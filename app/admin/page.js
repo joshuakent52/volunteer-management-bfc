@@ -372,9 +372,21 @@ export default function AdminPage() {
   }
   async function handleAddEntry() {
     if (!addVolId) return; setAddingEntry(true)
+    
     const currentEntries = getEntries(scheduleDay, scheduleShift, addingRole)
+
+    const effectiveCount = currentEntries.reduce((sum, entry) => {
+      return sum + (entry.week_pattern === 'every' ? 1 : 0.5)
+    }, 0)
+
     const limit = ROLE_SUGGESTIONS[addingRole]
-    if (limit && currentEntries.length >= limit) { showMessage(`Limit reached for ${addingRole} (${limit})`, 'error'); setAddingEntry(false); return }
+      
+    if (limit && effectiveCount >= limit) {
+      showMessage(`Limit reached for ${addingRole} (${limit})`, 'error')
+      setAddingEntry(false)
+      return
+    }
+
     const exists = schedule.find(s => s.volunteer_id === addVolId && s.day_of_week === scheduleDay && s.shift_time === scheduleShift && s.role === addingRole)
     if (exists) { showMessage('Volunteer already assigned to this slot', 'error'); setAddingEntry(false); return }
     const vol = volunteers.find(v => v.id === addVolId)
