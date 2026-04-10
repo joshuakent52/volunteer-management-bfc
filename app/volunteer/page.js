@@ -723,6 +723,8 @@ export default function VolunteerPage() {
                         : [
                             { value: 'everyone', label: 'Everyone' },
                             { value: 'admin',    label: 'Admin'    },
+                            { value: 'volunteer',  label: 'Individual'  },
+                            { value: 'affiliation_missionary',  label: 'Missionaries'},
                             ...(dayShiftCombos.length > 0 ? [{ value: 'shift', label: 'My Shift' }] : []),
                             ...(myRoles.length  > 0 ? [{ value: 'role',  label: 'My Role'  }] : []),
                           ]
@@ -786,7 +788,7 @@ export default function VolunteerPage() {
                     )}
 
                     {/* Individual volunteer sub-selector — admin only */}
-                    {msgRecipientType === 'volunteer' && isAdmin && (
+                    {msgRecipientType === 'volunteer' && (
                       <div style={{ marginTop: '0.75rem' }}>
                         <label style={labelStyle}>Which volunteer</label>
                         <select value={msgRecipientVolId} onChange={e => setMsgRecipientVolId(e.target.value)} style={inputStyle}>
