@@ -1,6 +1,66 @@
 import { formatDateTime } from '../lib/timeUtils'
 import { recipientLabel } from '../lib/messageUtils'
 
+// Matches http/https URLs
+const URL_REGEX = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&/=]*)/g
+
+/**
+ * Converts a plain-text body into React nodes with:
+ *   - Preserved line breaks (\n → <br />)
+ *   - Clickable URLs
+ */
+function formatBody(text) {
+  if (!text) return null
+
+  const lines = text.split('\n')
+
+  return lines.map((line, lineIndex) => {
+    const parts = []
+    let lastIndex = 0
+    let match
+
+    URL_REGEX.lastIndex = 0
+
+    while ((match = URL_REGEX.exec(line)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(line.slice(lastIndex, match.index))
+      }
+      const url = match[0]
+      parts.push(
+        <a
+          key={`link-${lineIndex}-${match.index}`}
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            color: 'var(--accent)',
+            textDecoration: 'underline',
+            wordBreak: 'break-all',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+          {url}
+        </a>
+      )
+      lastIndex = match.index + url.length
+    }
+
+    if (lastIndex < line.length) {
+      parts.push(line.slice(lastIndex))
+    }
+
+    // Empty line — zero-width space preserves the line's height
+    const content = parts.length > 0 ? parts : ['\u200B']
+
+    return (
+      <span key={`line-${lineIndex}`}>
+        {content}
+        {lineIndex < lines.length - 1 && <br />}
+      </span>
+    )
+  })
+}
+
 export function MessageCard({ m, readMessageIds, user, setLightboxUrl }) {
   const isUnread =
     readMessageIds &&
@@ -81,10 +141,13 @@ export function MessageCard({ m, readMessageIds, user, setLightboxUrl }) {
           style={{
             fontSize: '0.9rem',
             lineHeight: 1.5,
+            margin: 0,
             marginBottom: m.image_url ? '0.75rem' : 0,
+            overflowWrap: 'break-word',
+            wordBreak: 'break-word',
           }}
         >
-          {m.body}
+          {formatBody(m.body)}
         </p>
       )}
 
