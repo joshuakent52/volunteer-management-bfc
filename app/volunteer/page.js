@@ -133,6 +133,13 @@ export default function VolunteerPage() {
       .order('full_name')
     setVolunteers(vols || [])
 
+    // Load volunteers list (for Individual recipient option)
+    const { data: recipientVols } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .order('full_name')
+    setVolunteers(vols || [])
+
     // Load all day/shift combos from schedule table (admin needs the full list)
     const { data: allSched } = await supabase
       .from('schedule')
@@ -788,12 +795,12 @@ export default function VolunteerPage() {
                     )}
 
                     {/* Individual volunteer sub-selector — admin only */}
-                    {msgRecipientType === 'volunteer' && (
+                    {(msgRecipientType === 'volunteer' || msgRecipientType === 'admin') && (
                       <div style={{ marginTop: '0.75rem' }}>
                         <label style={labelStyle}>Which volunteer</label>
                         <select value={msgRecipientVolId} onChange={e => setMsgRecipientVolId(e.target.value)} style={inputStyle}>
                           <option value="">— Select volunteer —</option>
-                          {volunteers.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}
+                          {recipientVols.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}
                         </select>
                       </div>
                     )}
