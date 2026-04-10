@@ -898,7 +898,7 @@ export default function DataDashboard({ supabase }) {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
               <Chevron open={missingOpen} />
-              <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>Missing Profile Information</span>
+              <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>Missing Profile Information (Volunteer)</span>
               {missingInfo.length > 0 && (
                 <span style={{ ...pillStyle('#9ca3af'), fontWeight: 600 }}>{missingInfo.length}</span>
               )}

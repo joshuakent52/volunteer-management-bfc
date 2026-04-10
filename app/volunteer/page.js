@@ -29,17 +29,11 @@ export default function VolunteerPage() {
   // Messaging state
   const [messages, setMessages] = useState([])
   const [msgBody, setMsgBody] = useState('')
-  const [msgRecipientType, setMsgRecipientType] = useState('everyone')
-  const [msgRecipientDay, setMsgRecipientDay] = useState(null)
-  const [msgRecipientShift, setMsgRecipientShift] = useState(null)
-  const [msgRecipientRole, setMsgRecipientRole] = useState(ROLES[0] || '')
-  const [msgRecipientVolId, setMsgRecipientVolId] = useState('')
+  const [msgRecipientType, setMsgRecipientType] = useState('admin')
   const [msgSelectedShift, setMsgSelectedShift] = useState(null)
+  const [msgSelectedRole, setMsgSelectedRole] = useState(null)
   const [sendingMsg, setSendingMsg] = useState(false)
   const [msgView, setMsgView] = useState('inbox')
-  // FIX: unified list of all users for the Individual recipient selector
-  const [allUsers, setAllUsers] = useState([])
-  const [allDayShiftCombos, setAllDayShiftCombos] = useState([])
 
   // Unread tracking
   const [readMessageIds, setReadMessageIds] = useState(new Set())
@@ -72,14 +66,19 @@ export default function VolunteerPage() {
   const [submittingHours, setSubmittingHours] = useState(false)
   const [myHoursSubmissions, setMyHoursSubmissions] = useState([])
 
-  // FIX: include id in allShifts so history rows have stable keys
+  // All shifts for total hours (no limit)
   const [allShifts, setAllShifts] = useState([])
+
+  // Push notification state — must live here at top level, NOT inside init()
+  const [pushEnabled, setPushEnabled] = useState(false)
+  const [pushLoading, setPushLoading] = useState(false)
 
   const isAdmin = profile?.role === 'admin'
   const isClinicalSupervisor = profile?.default_role === 'Clinical Supervisor'
 
   useEffect(() => { init() }, [])
 
+  // Mark all inbox messages as read when the user opens the messages tab to inbox
   useEffect(() => {
     if (tab === 'messages' && msgView === 'inbox' && user) {
       markInboxAsRead()
@@ -95,6 +94,13 @@ export default function VolunteerPage() {
       .from('profiles').select('*').eq('id', user.id).single()
     setProfile(profileData)
 
+// Check if push is already subscribed
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.ready.catch(() => null)
+      const sub = await reg?.pushManager?.getSubscription().catch(() => null)
+      setPushEnabled(!!sub)
+    }
+
     const { data: open } = await supabase
       .from('shifts').select('*')
       .eq('volunteer_id', user.id)
@@ -109,9 +115,8 @@ export default function VolunteerPage() {
       .limit(10)
     setShifts(history || [])
 
-    // FIX: select id so shift history rows have a stable key
     const { data: all } = await supabase
-      .from('shifts').select('id, clock_in, clock_out')
+      .from('shifts').select('clock_in, clock_out')
       .eq('volunteer_id', user.id)
       .not('clock_out', 'is', null)
     setAllShifts(all || [])
@@ -124,46 +129,11 @@ export default function VolunteerPage() {
 
     await loadMessages(user.id)
 
-    // FIX: load all profiles once into a single list for the Individual selector.
-    // The previous code ran two queries, saved them both to `volunteers`, and the
-    // second overwrote the first. `admins` was never defined, causing a ReferenceError
-    // in the compose form. Now we fetch all profiles in one query into `allUsers`.
-    const { data: allProfiles } = await supabase
-      .from('profiles')
-      .select('id, full_name')
-      .order('full_name')
-    setAllUsers(allProfiles || [])
-
-    const { data: allSched } = await supabase
-      .from('schedule')
-      .select('day_of_week, shift_time')
-    const seen = new Set()
-    const combos = []
-    ;(allSched || []).forEach(s => {
-      const key = `${s.day_of_week}|${s.shift_time}`
-      if (!seen.has(key)) {
-        seen.add(key)
-        combos.push({
-          key,
-          day: s.day_of_week,
-          shift: s.shift_time,
-          label: `${s.day_of_week.charAt(0).toUpperCase() + s.day_of_week.slice(1, 3)} ${s.shift_time}`,
-        })
-      }
-    })
-    const dayOrder = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
-    combos.sort((a, b) => dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day) || a.shift.localeCompare(b.shift))
-    setAllDayShiftCombos(combos)
-
-    // RLS now enforces role eligibility server-side, so this query only returns
-    // callouts the current user is actually allowed to cover.
-    // We still need the callout's `role` field so the UI can display it.
     const { data: openSubs } = await supabase
       .from('callouts')
       .select('*, volunteer:profiles!callouts_volunteer_id_fkey(full_name)')
       .eq('status', 'approved')
       .is('covered_by', null)
-      .neq('volunteer_id', user.id)          // never show your own callout to yourself
       .gte('callout_date', new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }))
       .order('callout_date', { ascending: true })
     setOpenShifts((openSubs || []).map(c => ({ ...c, profiles: c.volunteer })))
@@ -194,6 +164,7 @@ export default function VolunteerPage() {
       .limit(50)
     setMessages(msgs || [])
 
+    // Load which messages this user has already read
     if (userId) {
       const { data: reads } = await supabase
         .from('message_reads')
@@ -203,8 +174,10 @@ export default function VolunteerPage() {
     }
   }
 
+  // Insert read receipts for all current inbox messages
   async function markInboxAsRead() {
     if (!user) return
+    // Re-derive inbox using current state (same filter as render)
     const inbox = messages.filter(m => {
       if (m.sender_id === user.id) return false
       if (m.recipient_type === 'affiliation_missionary' && profile?.affiliation !== 'missionary') return false
@@ -262,33 +235,15 @@ export default function VolunteerPage() {
     const imageUrl = await uploadImage(user.id)
     if (msgImageFile && !imageUrl) { setSendingMsg(false); return }
 
-    // FIX: for non-admin shift selection, read from msgSelectedShift (the button-picker
-    // state); for admin shift selection, read from msgRecipientDay/msgRecipientShift
-    // (the dropdown-based state). Role always comes from msgRecipientRole since the
-    // <select> is wired to that state for both admin and volunteer paths.
-    const resolvedDay = msgRecipientType === 'shift'
-      ? (isAdmin ? msgRecipientDay : msgSelectedShift?.day ?? null)
-      : null
-    const resolvedShift = msgRecipientType === 'shift'
-      ? (isAdmin ? msgRecipientShift : msgSelectedShift?.shift ?? null)
-      : null
-    const resolvedRole = msgRecipientType === 'role'
-      ? (msgRecipientRole || null)
-      : null
-
-    // FIX: the button uses value 'user' but the DB/payload expects 'volunteer'.
-    // Normalise here so individual messages always route correctly.
-    const recipientType = msgRecipientType === 'user' ? 'volunteer' : msgRecipientType
-
     const payload = {
       sender_id: user.id,
-      recipient_type: recipientType,
+      recipient_type: msgRecipientType,
       body: msgBody.trim(),
       image_url: imageUrl || null,
-      recipient_shift: resolvedShift,
-      recipient_day: resolvedDay,
-      recipient_role: resolvedRole,
-      recipient_volunteer_id: recipientType === 'volunteer' ? (msgRecipientVolId || null) : null,
+      recipient_shift: msgRecipientType === 'shift' ? (msgSelectedShift?.shift_time || null) : null,
+      recipient_day: msgRecipientType === 'shift' ? (msgSelectedShift?.day || null) : null,
+      recipient_role: msgRecipientType === 'role' ? (msgSelectedRole || null) : null,
+      recipient_volunteer_id: null,
     }
 
     const { error } = await supabase.from('messages').insert(payload)
@@ -297,12 +252,9 @@ export default function VolunteerPage() {
       showToast('Message sent!', 'success')
       setMsgBody('')
       clearImage()
-      setMsgRecipientType('everyone')
-      setMsgRecipientDay(null)
-      setMsgRecipientShift(null)
-      setMsgRecipientRole(ROLES[0] || '')
-      setMsgRecipientVolId('')
+      setMsgRecipientType('admin')
       setMsgSelectedShift(null)
+      setMsgSelectedRole(null)
       setMsgView('inbox')
       await loadMessages()
     }
@@ -404,21 +356,7 @@ export default function VolunteerPage() {
     setChangingPassword(false)
   }
 
-  // Returns true if this volunteer is eligible to cover the given callout.
-  // Mirrors the RLS logic: same default_role, same role in schedule, or admin.
-  function isEligibleToCover(callout) {
-    if (!callout.role) return true
-    if (isAdmin) return true
-    if (profile?.default_role === callout.role) return true
-    return schedule.some(s => s.role === callout.role)
-  }
-
   async function handleRequestCover(calloutId) {
-    const callout = openShifts.find(c => c.id === calloutId)
-    if (callout && !isEligibleToCover(callout)) {
-      showToast('You are not eligible to cover this shift.', 'error')
-      return
-    }
     setRequestingCoverId(calloutId)
     const { error } = await supabase.from('shift_cover_requests').insert({ callout_id: calloutId, volunteer_id: user.id })
     if (error) showToast(error.message, 'error')
@@ -469,13 +407,10 @@ export default function VolunteerPage() {
 
   const myShiftCombos = schedule.reduce((acc, s) => {
     const key = `${s.day_of_week}|${s.shift_time}`
-    if (!acc.find(x => x.key === key)) acc.push({ key, day: s.day_of_week, shift: s.shift_time, label: `${s.day_of_week.charAt(0).toUpperCase() + s.day_of_week.slice(1, 3)} ${s.shift_time}` })
+    if (!acc.find(x => x.key === key)) acc.push({ key, day: s.day_of_week, shift_time: s.shift_time, label: `${s.day_of_week.charAt(0).toUpperCase() + s.day_of_week.slice(1,3)} ${s.shift_time}` })
     return acc
   }, [])
-
-  // Admins see all scheduled day/shift combos; volunteers see only their own
-  const dayShiftCombos = isAdmin ? allDayShiftCombos : myShiftCombos
-
+  const myRoles = [...new Set(schedule.map(s => s.role))]
   const calloutSubmitDisabled = calloutMode === 'single' ? (!calloutDate || !calloutShift || !calloutRole) : (!calloutStartDate || !calloutEndDate)
 
   return (
@@ -695,199 +630,98 @@ export default function VolunteerPage() {
         {/* MESSAGES TAB */}
         {tab === 'messages' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-
-            {/* Sub-tabs */}
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               {[['inbox','Inbox'],['sent','Sent'],['compose','Compose']].map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setMsgView(key)}
-                  style={{
-                    padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
-                    cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-                    background: msgView === key ? 'var(--accent)' : 'var(--surface)',
-                    color: msgView === key ? '#0a0f0a' : 'var(--muted)',
-                    border: msgView === key ? 'none' : '1px solid var(--border)',
-                  }}
-                >
-                  {label}
-                </button>
+                <button key={key} onClick={() => setMsgView(key)} style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: msgView === key ? 'var(--accent)' : 'var(--surface)', color: msgView === key ? '#0a0f0a' : 'var(--muted)', border: msgView === key ? 'none' : '1px solid var(--border)' }}>{label}</button>
               ))}
             </div>
 
-            {/* INBOX */}
             {msgView === 'inbox' && (
               <div style={card}>
-                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>All Messages</h2>
-                {inboxMessages.length === 0 ? (
-                  <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No messages yet.</p>
-                ) : (
+                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Inbox</h2>
+                {inboxMessages.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No messages yet.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {inboxMessages.map(m => (
-                      <MessageCard key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />
-                    ))}
+                    {inboxMessages.map(m => <MessageCard key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />)}
                   </div>
                 )}
               </div>
             )}
 
-            {/* SENT */}
             {msgView === 'sent' && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Sent Messages</h2>
-                {sentMessages.length === 0 ? (
-                  <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No sent messages yet.</p>
-                ) : (
+                {sentMessages.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No sent messages yet.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {sentMessages.map(m => (
-                      <MessageCard key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />
-                    ))}
+                    {sentMessages.map(m => <MessageCard key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />)}
                   </div>
                 )}
               </div>
             )}
 
-            {/* COMPOSE */}
             {msgView === 'compose' && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>New Message</h2>
-
                 <form onSubmit={handleSendMessage} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-
-                  {/* RECIPIENT TYPE */}
                   <div>
                     <label style={labelStyle}>Send to</label>
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                       {[
+                        { value: 'admin', label: 'Admin' },
                         { value: 'everyone', label: 'Everyone' },
-                        { value: 'admin',    label: 'Admins' },
-                        { value: 'role',     label: 'Role' },
-                        { value: 'shift',    label: 'Shift' },
-                        { value: 'user',     label: 'Individual' },
+                        ...(myShiftCombos.length > 0 ? [{ value: 'shift', label: 'My Shift' }] : []),
+                        ...(myRoles.length > 0 ? [{ value: 'role', label: 'My Role' }] : []),
                       ].map(opt => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => {
-                            setMsgRecipientType(opt.value)
-                            setMsgRecipientVolId('')
-                            setMsgRecipientRole(ROLES[0] || '')
-                            setMsgRecipientDay(null)
-                            setMsgRecipientShift(null)
-                            setMsgSelectedShift(null)
-                          }}
-                          style={{
-                            padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
-                            cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-                            background: msgRecipientType === opt.value ? 'var(--accent)' : 'var(--surface)',
-                            color: msgRecipientType === opt.value ? '#0a0f0a' : 'var(--muted)',
-                            border: msgRecipientType === opt.value ? 'none' : '1px solid var(--border)',
-                          }}
-                        >
-                          {opt.label}
-                        </button>
+                        <button key={opt.value} type="button" onClick={() => { setMsgRecipientType(opt.value); setMsgSelectedShift(null); setMsgSelectedRole(null) }}
+                          style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: msgRecipientType === opt.value ? 'var(--accent)' : 'var(--surface)', color: msgRecipientType === opt.value ? '#0a0f0a' : 'var(--muted)', border: msgRecipientType === opt.value ? 'none' : '1px solid var(--border)' }}>{opt.label}</button>
                       ))}
                     </div>
-
-                    {/* INDIVIDUAL — FIX: use allUsers (single unified list, no undefined `admins`) */}
-                    {msgRecipientType === 'user' && (
+                    {msgRecipientType === 'shift' && myShiftCombos.length > 0 && (
                       <div style={{ marginTop: '0.75rem' }}>
-                        <label style={labelStyle}>Select User</label>
-                        <select value={msgRecipientVolId} onChange={e => setMsgRecipientVolId(e.target.value)} style={inputStyle}>
-                          <option value="">— Select user —</option>
-                          {allUsers.map(v => (
-                            <option key={v.id} value={v.id}>{v.full_name}</option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-
-                    {/* ROLE — wired to msgRecipientRole */}
-                    {msgRecipientType === 'role' && (
-                      <div style={{ marginTop: '0.75rem' }}>
-                        <label style={labelStyle}>Select Role</label>
-                        <select value={msgRecipientRole} onChange={e => setMsgRecipientRole(e.target.value)} style={inputStyle}>
-                          <option value="">— Select role —</option>
-                          {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                        </select>
-                      </div>
-                    )}
-
-                    {/* SHIFT — button picker; selection stored in msgSelectedShift */}
-                    {msgRecipientType === 'shift' && (
-                      <div style={{ marginTop: '0.75rem' }}>
-                        <label style={labelStyle}>Select Shift</label>
+                        <label style={labelStyle}>Which shift</label>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                          {dayShiftCombos.map(combo => {
+                          {myShiftCombos.map(combo => {
                             const active = msgSelectedShift?.key === combo.key
-                            return (
-                              <button
-                                key={combo.key}
-                                type="button"
-                                onClick={() => setMsgSelectedShift(combo)}
-                                style={{
-                                  padding: '0.4rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500,
-                                  cursor: 'pointer', fontFamily: 'DM Mono, monospace',
-                                  background: active ? '#1e40af' : 'var(--surface)',
-                                  color: active ? '#bfdbfe' : 'var(--muted)',
-                                  border: active ? 'none' : '1px solid var(--border)',
-                                }}
-                              >
-                                {combo.label}
-                              </button>
-                            )
+                            return <button key={combo.key} type="button" onClick={() => setMsgSelectedShift(combo)} style={{ padding: '0.4rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Mono, monospace', background: active ? '#1e40af' : 'var(--surface)', color: active ? '#bfdbfe' : 'var(--muted)', border: active ? 'none' : '1px solid var(--border)' }}>{combo.label}</button>
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {msgRecipientType === 'role' && myRoles.length > 0 && (
+                      <div style={{ marginTop: '0.75rem' }}>
+                        <label style={labelStyle}>Which role</label>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          {myRoles.map(role => {
+                            const active = msgSelectedRole === role
+                            return <button key={role} type="button" onClick={() => setMsgSelectedRole(role)} style={{ padding: '0.4rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: active ? 'var(--accent)' : 'var(--surface)', color: active ? '#0a0f0a' : 'var(--muted)', border: active ? 'none' : '1px solid var(--border)' }}>{role}</button>
                           })}
                         </div>
                       </div>
                     )}
                   </div>
-
-                  {/* MESSAGE BODY */}
                   <div>
                     <label style={labelStyle}>Message</label>
-                    <textarea
-                      value={msgBody}
-                      onChange={e => setMsgBody(e.target.value)}
-                      rows={4}
-                      placeholder="Write your message..."
-                      style={{ ...inputStyle, resize: 'vertical' }}
-                    />
+                    <textarea value={msgBody} onChange={e => setMsgBody(e.target.value)} rows={4} placeholder="Write your message..." style={{ ...inputStyle, resize: 'vertical' }} />
                   </div>
-
-                  {/* IMAGE */}
+                  {/* Image attachment */}
                   <div>
-                    <label style={labelStyle}>
-                      Attach image <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>(optional · max 5 MB)</span>
-                    </label>
+                    <label style={labelStyle}>Attach image <span style={{ textTransform: 'none', fontSize: '0.72rem', color: 'var(--muted)' }}>(optional · max 5 MB)</span></label>
                     {msgImagePreview ? (
                       <div style={{ position: 'relative', display: 'inline-block' }}>
-                        <img src={msgImagePreview} style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px', border: '1px solid var(--border)' }} />
-                        <button type="button" onClick={clearImage} style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', borderRadius: '50%', width: 24, height: 24 }}>✕</button>
+                        <img src={msgImagePreview} alt="Preview" style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px', objectFit: 'cover', border: '1px solid var(--border)', display: 'block' }} />
+                        <button type="button" onClick={clearImage} style={{ position: 'absolute', top: '6px', right: '6px', background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', borderRadius: '50%', width: '24px', height: '24px', cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                       </div>
                     ) : (
-                      <button type="button" onClick={() => fileInputRef.current?.click()} style={{ width: '100%', padding: '0.6rem 1rem', border: '1px dashed var(--border)', borderRadius: '8px', background: 'var(--bg)', color: 'var(--muted)' }}>
+                      <button type="button" onClick={() => fileInputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1rem', background: 'var(--bg)', border: '1px dashed var(--border)', borderRadius: '8px', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'DM Sans, sans-serif', width: '100%', justifyContent: 'center' }}>
                         📎 Choose image
                       </button>
                     )}
-                    <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageSelect} style={{ display: 'none' }} />
+                    <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleImageSelect} style={{ display: 'none' }} />
                   </div>
-
-                  {/* SUBMIT */}
-                  <button
-                    type="submit"
-                    disabled={
-                      sendingMsg ||
-                      uploadingImage ||
-                      (!msgBody.trim() && !msgImageFile) ||
-                      (msgRecipientType === 'user'  && !msgRecipientVolId) ||
-                      (msgRecipientType === 'role'  && !msgRecipientRole) ||
-                      (msgRecipientType === 'shift' && !msgSelectedShift)
-                    }
-                    style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}
-                  >
-                    {sendingMsg ? 'Sending...' : 'Send Message'}
+                  <button type="submit"
+                    disabled={sendingMsg || uploadingImage || (!msgBody.trim() && !msgImageFile) || (msgRecipientType === 'shift' && !msgSelectedShift) || (msgRecipientType === 'role' && !msgSelectedRole)}
+                    style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: sendingMsg ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                    {uploadingImage ? 'Uploading image...' : sendingMsg ? 'Sending...' : 'Send Message'}
                   </button>
-
                 </form>
               </div>
             )}
@@ -915,7 +749,6 @@ export default function VolunteerPage() {
               {showShiftHistory && (
                 <div style={{ padding: '0 1.25rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {allShifts.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No shifts recorded yet.</p> : allShifts.map(s => (
-                    // FIX: s.id is now present because we select it in the query above
                     <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                       <div><p style={{ fontWeight: 500, fontSize: '0.9rem' }}>{formatDate(s.clock_in)}</p><p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{formatTime(s.clock_in)} → {formatTime(s.clock_out)}</p></div>
                       <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', color: s.clock_out ? 'var(--accent)' : 'var(--warn)' }}>{calcHours(s.clock_in, s.clock_out)}</span>
@@ -925,33 +758,58 @@ export default function VolunteerPage() {
               )}
             </div>
             <div style={card}>
-              <h2 style={{fontWeight:600,marginBottom:'0.4rem'}}>Submit Hours</h2>
-              <p style={{color:'var(--muted)',fontSize:'0.85rem',marginBottom:'1.25rem'}}>Submit hours worked outside of the clock-in system for admin approval.</p>
-
-              <form onSubmit={handleSubmitHours} style={{display:'flex',flexDirection:'column',gap:'1rem'}}>
-                <div><label style={labelStyle}>Date Worked</label><input type="date" value={hoursDate} onChange={e=>setHoursDate(e.target.value)} required style={inputStyle}/></div>
-                <div><label style={labelStyle}>Role</label><select value={hoursRole} onChange={e=>setHoursRole(e.target.value)} required style={inputStyle}><option value="">— Select role —</option>{ROLES.map(r=><option key={r} value={r}>{r}</option>)}</select></div>
-                <div><label style={labelStyle}>Hours Worked</label><input type="number" min="0.5" max="12" step="0.5" value={hoursWorked} onChange={e=>setHoursWorked(e.target.value)} required style={inputStyle}/></div>
-                <div><label style={labelStyle}>Notes (optional)</label><textarea value={hoursNotes} onChange={e=>setHoursNotes(e.target.value)} rows={2} style={{...inputStyle,resize:'vertical'}}/></div>
-                <button type="submit" disabled={submittingHours||!hoursDate||!hoursRole||!hoursWorked} style={{padding:'0.85rem',background:'var(--accent)',color:'#fff',border:0,borderRadius:8,fontWeight:600}}>
-                  {submittingHours?'Submitting...':'Submit Hours'}
-                </button>
+              <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Submit Hours</h2>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Submit hours worked outside of the clock-in system for admin approval.</p>
+              <form onSubmit={handleSubmitHours} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div><label style={labelStyle}>Date Worked</label><input type="date" value={hoursDate} onChange={e => setHoursDate(e.target.value)} required style={inputStyle} /></div>
+                <div><label style={labelStyle}>Role</label><select value={hoursRole} onChange={e => setHoursRole(e.target.value)} required style={inputStyle}><option value="">— Select role —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+                <div><label style={labelStyle}>Hours Worked</label><input type="number" min="0.5" max="12" step="0.5" value={hoursWorked} onChange={e => setHoursWorked(e.target.value)} required placeholder="e.g. 4" style={inputStyle} /></div>
+                <div><label style={labelStyle}>Notes (optional)</label><textarea value={hoursNotes} onChange={e => setHoursNotes(e.target.value)} rows={2} placeholder="Any context for the admin..." style={{ ...inputStyle, resize: 'vertical' }} /></div>
+                <button type="submit" disabled={submittingHours || !hoursDate || !hoursRole || !hoursWorked} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: submittingHours ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{submittingHours ? 'Submitting...' : 'Submit Hours'}</button>
               </form>
-
-              {myHoursSubmissions.length>0 && (
-                <div style={{marginTop:'1.25rem',display:'flex',flexDirection:'column',gap:'0.5rem'}}>
-                  <p style={{fontSize:'0.8rem',color:'var(--muted)',textTransform:'uppercase'}}>Your Submissions</p>
-                  {[...myHoursSubmissions].sort((a,b)=>new Date(b.work_date)-new Date(a.work_date)).map(h=>(
-                    <div key={h.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.6rem 0.9rem',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8}}>
-                      <div><span style={{fontWeight:500,fontSize:'0.9rem'}}>{h.work_date}</span><span style={{marginLeft:6,color:'var(--muted)',fontSize:'0.8rem'}}>{h.role}</span></div>
-                      <div style={{display:'flex',gap:'0.75rem',alignItems:'center'}}>
-                        <span style={{fontFamily:'monospace'}}>{h.hours}h</span>
-                        <span style={{fontSize:'0.75rem',padding:'2px 8px',borderRadius:999,background:h.status==='approved'?'rgba(74,222,128,0.12)':h.status==='rejected'?'rgba(239,68,68,0.1)':'rgba(251,191,36,0.12)',color:h.status==='approved'?'var(--accent)':h.status==='rejected'?'#ef4444':'var(--warn)'}}>{h.status}</span>
+              {myHoursSubmissions.length > 0 && (
+                <div style={{ marginTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>Your Submissions</p>
+                  {myHoursSubmissions.map(h => (
+                    <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <div><span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{h.work_date}</span><span style={{ color: 'var(--muted)', fontSize: '0.8rem', marginLeft: '0.5rem' }}>{h.role}</span></div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem' }}>{h.hours}h</span>
+                        <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', fontWeight: 500, background: h.status === 'approved' ? 'rgba(74,222,128,0.12)' : h.status === 'rejected' ? 'rgba(239,68,68,0.1)' : 'rgba(251,191,36,0.12)', color: h.status === 'approved' ? 'var(--accent)' : h.status === 'rejected' ? '#ef4444' : 'var(--warn)', border: `1px solid ${h.status === 'approved' ? 'rgba(74,222,128,0.3)' : h.status === 'rejected' ? 'rgba(239,68,68,0.25)' : 'rgba(251,191,36,0.3)'}` }}>{h.status}</span>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
+            </div>
+            <div style={card}>
+              <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Notifications</h2>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
+                Get notified about new messages and shift updates.
+              </p>
+              <button
+                onClick={async () => {
+                  setPushLoading(true)
+                  if (pushEnabled) {
+                    await unsubscribeFromPush(supabase, user.id)
+                    setPushEnabled(false)
+                  } else {
+                    const sub = await subscribeToPush(supabase, user.id)
+                    setPushEnabled(!!sub)
+                    if (!sub) showToast('Notification permission denied', 'error')
+                  }
+                  setPushLoading(false)
+                }}
+                disabled={pushLoading}
+                style={{
+                  padding: '0.85rem', width: '100%', border: 'none', borderRadius: '8px', fontWeight: 600,
+                  cursor: pushLoading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif',
+                  background: pushEnabled ? 'var(--danger)' : 'var(--accent)',
+                  color: pushEnabled ? '#fff' : '#0a0f0a',
+                }}
+              >
+                {pushLoading ? 'Working...' : pushEnabled ? 'Turn off notifications' : 'Turn on notifications'}
+              </button>
             </div>
             <div style={card}>
               <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Change Password</h2>

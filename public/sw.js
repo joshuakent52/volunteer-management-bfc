@@ -27,3 +27,27 @@ self.addEventListener('fetch', event => {
     )
   }
 })
+
+self.addEventListener('push', event => {
+  const data = event.data?.json() ?? {}
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'New Message', {
+      body: data.body || '',
+      icon: '/icon-192.png',   // your existing PWA icon
+      badge: '/badge-72.png',
+      data: { url: data.url || '/volunteer' },
+    })
+  )
+})
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close()
+  event.waitUntil(
+    clients.matchAll({ type: 'window' }).then(clientList => {
+      const url = event.notification.data?.url || '/volunteer'
+      const existing = clientList.find(c => c.url.includes(url) && 'focus' in c)
+      if (existing) return existing.focus()
+      return clients.openWindow(url)
+    })
+  )
+})
