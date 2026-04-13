@@ -903,6 +903,7 @@ export default function AdminPage() {
                 <button onClick={handleSaveEdit} disabled={saving} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{saving ? 'Saving...' : 'Save Changes'}</button>
               </div>
             )}
+            <ProviderCredentialsBanner profile={profile} />
           </div>
         )}
 
