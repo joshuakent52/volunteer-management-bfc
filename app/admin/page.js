@@ -451,6 +451,7 @@ export default function AdminPage() {
         if (filterAffiliation === 'missionary' && v.affiliation !== 'missionary') return false
         if (filterAffiliation === 'student' && v.affiliation !== 'student') return false
         if (filterAffiliation === 'volunteer' && v.affiliation !== 'volunteer') return false
+        if (filterAffiliation === 'intern' && v.affiliation !== 'intern') return false
         if (filterAffiliation === 'provider' && v.affiliation !== 'provider') return false
         if (filterAffiliation === 'BYU' && v.school !== 'BYU') return false
         if (filterAffiliation === 'UVU' && v.school !== 'UVU') return false
@@ -725,6 +726,7 @@ export default function AdminPage() {
                         <option value="UVU">UVU</option>
                         <option value="volunteer">Volunteer</option>
                         <option value="provider">Provider</option>
+                        <option value="intern">Intern</option>
                       </select>
                     </div>
 
