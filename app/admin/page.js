@@ -1247,6 +1247,29 @@ export default function AdminPage() {
                 <div><label style={labelStyle}>Birthday</label><input type="date" value={newBirthday} onChange={e => setNewBirthday(e.target.value)} style={inputStyle} /></div>
                 {newAffiliation === 'missionary' && <><div><label style={labelStyle}>SMA Name</label><input value={newSmaName} onChange={e => setNewSmaName(e.target.value)} placeholder="SMA full name" style={inputStyle} /></div><div><label style={labelStyle}>SMA Contact</label><input value={newSmaContact} onChange={e => setNewSmaContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div></>}
                 {newAffiliation === 'student' && <><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>School</label><select value={newSchool} onChange={e => setNewSchool(e.target.value)} style={inputStyle}><option value="">— Select school —</option>{SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}</select></div><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Major</label><select value={newMajor} onChange={e => setNewMajor(e.target.value)} style={inputStyle}><option value="">— Select major —</option>{MAJORS.map(m => <option key={m} value={m}>{m}</option>)}</select></div></>}
+                {newAffiliation === 'intern' && (
+                  <>
+                    <div>
+                      <label style={labelStyle}>Advisor Name</label>
+                      <input
+                        value={newAdvisorName}
+                        onChange={e => setNewAdvisorName(e.target.value)}
+                        placeholder="Advisor full name"
+                        style={inputStyle}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={labelStyle}>Advisor Contact</label>
+                      <input
+                        value={newAdvisorContact}
+                        onChange={e => setNewAdvisorContact(e.target.value)}
+                        placeholder="Phone or email"
+                        style={inputStyle}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
               <button type="submit" disabled={creating} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: creating ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{creating ? 'Creating...' : 'Create Account'}</button>
             </form>
