@@ -770,6 +770,7 @@ export default function AdminPage() {
         {/* ─────────────────────────── VOLUNTEERS TAB ─────────────────────────── */}
         {tab === 'volunteers' && !selectedVolunteer && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <ProviderCredentialsSummaryBanner volunteers={volunteers} />
             <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
               <button onClick={() => setFiltersOpen(o => !o)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.25rem', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                 <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Filters</span>
@@ -974,7 +975,6 @@ export default function AdminPage() {
                 <button onClick={handleSaveEdit} disabled={saving} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{saving ? 'Saving...' : 'Save Changes'}</button>
               </div>
             )}
-            <ProviderCredentialsSummaryBanner volunteers={volunteers} />
           </div>
         )}
 
