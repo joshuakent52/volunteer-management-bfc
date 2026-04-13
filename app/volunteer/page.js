@@ -5,6 +5,7 @@ import { DAYS, SHIFTS, ROLES, MAX_FILE_SIZE } from '../../lib/constants'
 import { formatDate, formatTime, asUTC, formatDateTime } from '../../lib/timeUtils'
 import { getInboxMessages } from '../../lib/messageUtils'
 import { MessageCard } from '../../components/MessageCard'
+import { subscribeToPush, unsubscribeFromPush } from '../../lib/pushNotifications'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,6 +36,9 @@ export default function VolunteerPage() {
   const [msgRecipientRole, setMsgRecipientRole] = useState(ROLES[0] || '')
   const [msgRecipientVolId, setMsgRecipientVolId] = useState('')
   const [msgSelectedShift, setMsgSelectedShift] = useState(null)
+  const [msgSelectedRole, setMsgSelectedRole] = useState(null)
+  const [msgRecipientVolId, setMsgRecipientVolId] = useState('')
+  const [allUsers, setAllUsers] = useState([])
   const [sendingMsg, setSendingMsg] = useState(false)
   const [msgView, setMsgView] = useState('inbox')
   // FIX: unified list of all users for the Individual recipient selector
@@ -95,6 +99,20 @@ export default function VolunteerPage() {
       .from('profiles').select('*').eq('id', user.id).single()
     setProfile(profileData)
 
+    // Check if push is already subscribed — with timeout so it can't hang init()
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      try {
+        const reg = await Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('SW timeout')), 3000))
+        ])
+        const sub = await reg?.pushManager?.getSubscription().catch(() => null)
+        setPushEnabled(!!sub)
+      } catch {
+        setPushEnabled(false)
+      }
+    }
+
     const { data: open } = await supabase
       .from('shifts').select('*')
       .eq('volunteer_id', user.id)
@@ -124,40 +142,13 @@ export default function VolunteerPage() {
 
     await loadMessages(user.id)
 
-    // FIX: load all profiles once into a single list for the Individual selector.
-    // The previous code ran two queries, saved them both to `volunteers`, and the
-    // second overwrote the first. `admins` was never defined, causing a ReferenceError
-    // in the compose form. Now we fetch all profiles in one query into `allUsers`.
+    // Load all profiles for the Individual message recipient selector
     const { data: allProfiles } = await supabase
       .from('profiles')
       .select('id, full_name')
       .order('full_name')
     setAllUsers(allProfiles || [])
 
-    const { data: allSched } = await supabase
-      .from('schedule')
-      .select('day_of_week, shift_time')
-    const seen = new Set()
-    const combos = []
-    ;(allSched || []).forEach(s => {
-      const key = `${s.day_of_week}|${s.shift_time}`
-      if (!seen.has(key)) {
-        seen.add(key)
-        combos.push({
-          key,
-          day: s.day_of_week,
-          shift: s.shift_time,
-          label: `${s.day_of_week.charAt(0).toUpperCase() + s.day_of_week.slice(1, 3)} ${s.shift_time}`,
-        })
-      }
-    })
-    const dayOrder = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
-    combos.sort((a, b) => dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day) || a.shift.localeCompare(b.shift))
-    setAllDayShiftCombos(combos)
-
-    // RLS now enforces role eligibility server-side, so this query only returns
-    // callouts the current user is actually allowed to cover.
-    // We still need the callout's `role` field so the UI can display it.
     const { data: openSubs } = await supabase
       .from('callouts')
       .select('*, volunteer:profiles!callouts_volunteer_id_fkey(full_name)')
@@ -262,22 +253,7 @@ export default function VolunteerPage() {
     const imageUrl = await uploadImage(user.id)
     if (msgImageFile && !imageUrl) { setSendingMsg(false); return }
 
-    // FIX: for non-admin shift selection, read from msgSelectedShift (the button-picker
-    // state); for admin shift selection, read from msgRecipientDay/msgRecipientShift
-    // (the dropdown-based state). Role always comes from msgRecipientRole since the
-    // <select> is wired to that state for both admin and volunteer paths.
-    const resolvedDay = msgRecipientType === 'shift'
-      ? (isAdmin ? msgRecipientDay : msgSelectedShift?.day ?? null)
-      : null
-    const resolvedShift = msgRecipientType === 'shift'
-      ? (isAdmin ? msgRecipientShift : msgSelectedShift?.shift ?? null)
-      : null
-    const resolvedRole = msgRecipientType === 'role'
-      ? (msgRecipientRole || null)
-      : null
-
-    // FIX: the button uses value 'user' but the DB/payload expects 'volunteer'.
-    // Normalise here so individual messages always route correctly.
+    // Normalise 'user' → 'volunteer' so the DB recipient_type value is consistent
     const recipientType = msgRecipientType === 'user' ? 'volunteer' : msgRecipientType
 
     const payload = {
@@ -285,9 +261,9 @@ export default function VolunteerPage() {
       recipient_type: recipientType,
       body: msgBody.trim(),
       image_url: imageUrl || null,
-      recipient_shift: resolvedShift,
-      recipient_day: resolvedDay,
-      recipient_role: resolvedRole,
+      recipient_shift: msgRecipientType === 'shift' ? (msgSelectedShift?.shift_time || null) : null,
+      recipient_day: msgRecipientType === 'shift' ? (msgSelectedShift?.day || null) : null,
+      recipient_role: msgRecipientType === 'role' ? (msgSelectedRole || null) : null,
       recipient_volunteer_id: recipientType === 'volunteer' ? (msgRecipientVolId || null) : null,
     }
 
@@ -303,6 +279,8 @@ export default function VolunteerPage() {
       setMsgRecipientRole(ROLES[0] || '')
       setMsgRecipientVolId('')
       setMsgSelectedShift(null)
+      setMsgSelectedRole(null)
+      setMsgRecipientVolId('')
       setMsgView('inbox')
       await loadMessages()
     }
@@ -760,37 +738,34 @@ export default function VolunteerPage() {
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                       {[
                         { value: 'everyone', label: 'Everyone' },
-                        { value: 'admin',    label: 'Admins' },
-                        { value: 'role',     label: 'Role' },
-                        { value: 'shift',    label: 'Shift' },
-                        { value: 'user',     label: 'Individual' },
+                        ...(myShiftCombos.length > 0 ? [{ value: 'shift', label: 'My Shift' }] : []),
+                        ...(myRoles.length > 0 ? [{ value: 'role', label: 'My Role' }] : []),
+                        { value: 'user', label: 'Individual' },
                       ].map(opt => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => {
-                            setMsgRecipientType(opt.value)
-                            setMsgRecipientVolId('')
-                            setMsgRecipientRole(ROLES[0] || '')
-                            setMsgRecipientDay(null)
-                            setMsgRecipientShift(null)
-                            setMsgSelectedShift(null)
-                          }}
-                          style={{
-                            padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
-                            cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-                            background: msgRecipientType === opt.value ? 'var(--accent)' : 'var(--surface)',
-                            color: msgRecipientType === opt.value ? '#0a0f0a' : 'var(--muted)',
-                            border: msgRecipientType === opt.value ? 'none' : '1px solid var(--border)',
-                          }}
-                        >
-                          {opt.label}
-                        </button>
+                        <button key={opt.value} type="button" onClick={() => {
+                          setMsgRecipientType(opt.value)
+                          setMsgSelectedShift(null)
+                          setMsgSelectedRole(null)
+                          setMsgRecipientVolId('')
+                        }}
+                          style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: msgRecipientType === opt.value ? 'var(--accent)' : 'var(--surface)', color: msgRecipientType === opt.value ? '#0a0f0a' : 'var(--muted)', border: msgRecipientType === opt.value ? 'none' : '1px solid var(--border)' }}>{opt.label}</button>
                       ))}
                     </div>
 
-                    {/* INDIVIDUAL — FIX: use allUsers (single unified list, no undefined `admins`) */}
+                    {/* Individual user selector */}
                     {msgRecipientType === 'user' && (
+                      <div style={{ marginTop: '0.75rem' }}>
+                        <label style={labelStyle}>Select user</label>
+                        <select value={msgRecipientVolId} onChange={e => setMsgRecipientVolId(e.target.value)} style={inputStyle}>
+                          <option value="">— Select user —</option>
+                          {allUsers.filter(u => u.id !== user?.id).map(v => (
+                            <option key={v.id} value={v.id}>{v.full_name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {msgRecipientType === 'shift' && myShiftCombos.length > 0 && (
                       <div style={{ marginTop: '0.75rem' }}>
                         <label style={labelStyle}>Select User</label>
                         <select value={msgRecipientVolId} onChange={e => setMsgRecipientVolId(e.target.value)} style={inputStyle}>
@@ -871,21 +846,17 @@ export default function VolunteerPage() {
                     )}
                     <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageSelect} style={{ display: 'none' }} />
                   </div>
-
-                  {/* SUBMIT */}
-                  <button
-                    type="submit"
+                  <button type="submit"
                     disabled={
                       sendingMsg ||
                       uploadingImage ||
                       (!msgBody.trim() && !msgImageFile) ||
-                      (msgRecipientType === 'user'  && !msgRecipientVolId) ||
-                      (msgRecipientType === 'role'  && !msgRecipientRole) ||
-                      (msgRecipientType === 'shift' && !msgSelectedShift)
+                      (msgRecipientType === 'shift' && !msgSelectedShift) ||
+                      (msgRecipientType === 'role' && !msgSelectedRole) ||
+                      (msgRecipientType === 'user' && !msgRecipientVolId)
                     }
-                    style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}
-                  >
-                    {sendingMsg ? 'Sending...' : 'Send Message'}
+                    style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: sendingMsg ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                    {uploadingImage ? 'Uploading image...' : sendingMsg ? 'Sending...' : 'Send Message'}
                   </button>
 
                 </form>
