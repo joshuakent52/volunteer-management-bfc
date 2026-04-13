@@ -252,23 +252,32 @@ export default function VolunteerPage() {
     const imageUrl = await uploadImage(user.id)
     if (msgImageFile && !imageUrl) { setSendingMsg(false); return }
 
-    // Normalise 'user' → 'volunteer' so the DB recipient_type value is consistent
     const recipientType = msgRecipientType === 'user' ? 'volunteer' : msgRecipientType
 
-    const payload = {
-      sender_id: user.id,
-      recipient_type: recipientType,
-      body: msgBody.trim(),
-      image_url: imageUrl || null,
-      recipient_shift: msgRecipientType === 'shift' ? (msgSelectedShift?.shift_time || null) : null,
-      recipient_day: msgRecipientType === 'shift' ? (msgSelectedShift?.day || null) : null,
-      recipient_role: msgRecipientType === 'role' ? (msgSelectedRole || null) : null,
-      recipient_volunteer_id: recipientType === 'volunteer' ? (msgRecipientVolId || null) : null,
-    }
+    const { data: { session } } = await supabase.auth.getSession()
 
-    const { error } = await supabase.from('messages').insert(payload)
-    if (error) showToast(error.message, 'error')
-    else {
+    const res = await fetch('/api/send-message', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        recipient_type: recipientType,
+        body: msgBody.trim(),
+        image_url: imageUrl || null,
+        recipient_shift: msgRecipientType === 'shift' ? (msgSelectedShift?.shift_time || null) : null,
+        recipient_day:   msgRecipientType === 'shift' ? (msgSelectedShift?.day || null) : null,
+        recipient_role:  msgRecipientType === 'role'  ? (msgSelectedRole || null) : null,
+        recipient_volunteer_id: recipientType === 'volunteer' ? (msgRecipientVolId || null) : null,
+      }),
+    })
+  
+    const result = await res.json()
+    if (!res.ok) {
+      showToast(result.error || 'Failed to send', 'error')
+    } else {
+      console.log(`Push sent to ${result.pushed} device(s)`)
       showToast('Message sent!', 'success')
       setMsgBody('')
       clearImage()
@@ -281,7 +290,6 @@ export default function VolunteerPage() {
     }
     setSendingMsg(false)
   }
-
   // ── Other handlers ────────────────────────────────────────────────────────
 
   function getCurrentShiftWindow() {
