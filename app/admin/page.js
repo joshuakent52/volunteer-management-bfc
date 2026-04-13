@@ -142,7 +142,7 @@ export default function AdminPage() {
     setLoading(false)
   }
 
-  function ProviderCredentialsSummaryBanner({ volunteers }) {
+  function ProviderCredentialsSummaryBanner({ volunteers, onSelect }) {
     const [collapsed, setCollapsed] = useState(true)
 
     const providers = volunteers.filter(v => v.affiliation === 'provider' && (v.status ?? 'active') === 'active')
@@ -197,7 +197,12 @@ export default function AdminPage() {
                   return (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.45rem 0.75rem', borderRadius: '8px', background: rowBg, border: `1px solid ${rowBorder}`, flexWrap: 'wrap', gap: '0.4rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                        <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{item.vol.full_name}</span>
+                        <span
+                          onClick={() => onSelect(item.vol)}
+                          style={{ fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' }}
+                        >
+                          {item.vol.full_name}
+                        </span>
                         <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '6px', background: `${rowColor}18`, color: rowColor, border: `1px solid ${rowColor}44`, fontWeight: 600 }}>{item.label}</span>
                       </div>
                       <span style={{ fontSize: '0.78rem', fontFamily: 'DM Mono, monospace', color: rowColor, fontWeight: 600 }}>
@@ -770,7 +775,7 @@ export default function AdminPage() {
         {/* ─────────────────────────── VOLUNTEERS TAB ─────────────────────────── */}
         {tab === 'volunteers' && !selectedVolunteer && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <ProviderCredentialsSummaryBanner volunteers={volunteers} />
+            <ProviderCredentialsSummaryBanner volunteers={volunteers} onSelect={openVolunteer} />
             <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
               <button onClick={() => setFiltersOpen(o => !o)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.25rem', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                 <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Filters</span>
