@@ -27,3 +27,24 @@ self.addEventListener('fetch', event => {
     )
   }
 })
+
+self.addEventListener('push', event => {
+  const data = event.data?.json() ?? {}
+  event.waitUntil(
+    self.registration.showNotification(data.title ?? 'New message', {
+      body: data.body ?? '',
+      icon: '/logo3.png',
+      data: { url: data.url ?? '/' },
+    })
+  )
+})
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close()
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      const existing = list.find(c => c.url.includes(event.notification.data.url))
+      return existing ? existing.focus() : clients.openWindow(event.notification.data.url)
+    })
+  )
+})
