@@ -37,11 +37,8 @@ export default function VolunteerPage() {
   const [msgRecipientVolId, setMsgRecipientVolId] = useState('')
   const [msgSelectedShift, setMsgSelectedShift] = useState(null)
   const [msgSelectedRole, setMsgSelectedRole] = useState(null)
-  const [msgRecipientVolId, setMsgRecipientVolId] = useState('')
-  const [allUsers, setAllUsers] = useState([])
   const [sendingMsg, setSendingMsg] = useState(false)
   const [msgView, setMsgView] = useState('inbox')
-  // FIX: unified list of all users for the Individual recipient selector
   const [allUsers, setAllUsers] = useState([])
   const [allDayShiftCombos, setAllDayShiftCombos] = useState([])
 
@@ -76,8 +73,12 @@ export default function VolunteerPage() {
   const [submittingHours, setSubmittingHours] = useState(false)
   const [myHoursSubmissions, setMyHoursSubmissions] = useState([])
 
-  // FIX: include id in allShifts so history rows have stable keys
+  // All shifts for total hours
   const [allShifts, setAllShifts] = useState([])
+
+  // Push notification state — must be at top level, never inside init()
+  const [pushEnabled, setPushEnabled] = useState(false)
+  const [pushLoading, setPushLoading] = useState(false)
 
   const isAdmin = profile?.role === 'admin'
   const isClinicalSupervisor = profile?.default_role === 'Clinical Supervisor'
@@ -99,7 +100,7 @@ export default function VolunteerPage() {
       .from('profiles').select('*').eq('id', user.id).single()
     setProfile(profileData)
 
-    // Check if push is already subscribed — with timeout so it can't hang init()
+    // Check push subscription — timeout prevents hanging init()
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
       try {
         const reg = await Promise.race([
@@ -127,7 +128,6 @@ export default function VolunteerPage() {
       .limit(10)
     setShifts(history || [])
 
-    // FIX: select id so shift history rows have a stable key
     const { data: all } = await supabase
       .from('shifts').select('id, clock_in, clock_out')
       .eq('volunteer_id', user.id)
@@ -142,19 +142,41 @@ export default function VolunteerPage() {
 
     await loadMessages(user.id)
 
-    // Load all profiles for the Individual message recipient selector
+    // All profiles for Individual recipient selector
     const { data: allProfiles } = await supabase
       .from('profiles')
       .select('id, full_name')
       .order('full_name')
     setAllUsers(allProfiles || [])
 
+    // All day/shift combos for admin shift picker
+    const { data: allSched } = await supabase
+      .from('schedule')
+      .select('day_of_week, shift_time')
+    const seen = new Set()
+    const combos = []
+    ;(allSched || []).forEach(s => {
+      const key = `${s.day_of_week}|${s.shift_time}`
+      if (!seen.has(key)) {
+        seen.add(key)
+        combos.push({
+          key,
+          day: s.day_of_week,
+          shift: s.shift_time,
+          label: `${s.day_of_week.charAt(0).toUpperCase() + s.day_of_week.slice(1, 3)} ${s.shift_time}`,
+        })
+      }
+    })
+    const dayOrder = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
+    combos.sort((a, b) => dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day) || a.shift.localeCompare(b.shift))
+    setAllDayShiftCombos(combos)
+
     const { data: openSubs } = await supabase
       .from('callouts')
       .select('*, volunteer:profiles!callouts_volunteer_id_fkey(full_name)')
       .eq('status', 'approved')
       .is('covered_by', null)
-      .neq('volunteer_id', user.id)          // never show your own callout to yourself
+      .neq('volunteer_id', user.id)
       .gte('callout_date', new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }))
       .order('callout_date', { ascending: true })
     setOpenShifts((openSubs || []).map(c => ({ ...c, profiles: c.volunteer })))
@@ -203,7 +225,6 @@ export default function VolunteerPage() {
     })
     const unreadInbox = inbox.filter(m => !readMessageIds.has(m.id))
     if (unreadInbox.length === 0) return
-
     const rows = unreadInbox.map(m => ({ user_id: user.id, message_id: m.id }))
     await supabase.from('message_reads').upsert(rows, { onConflict: 'user_id,message_id' })
     setReadMessageIds(prev => {
@@ -253,23 +274,40 @@ export default function VolunteerPage() {
     const imageUrl = await uploadImage(user.id)
     if (msgImageFile && !imageUrl) { setSendingMsg(false); return }
 
-    // Normalise 'user' → 'volunteer' so the DB recipient_type value is consistent
+    // Resolve shift fields — admin uses msgRecipientDay/Shift, volunteer uses msgSelectedShift
+    const resolvedDay   = msgRecipientType === 'shift'
+      ? (isAdmin ? msgRecipientDay   : msgSelectedShift?.day   ?? null) : null
+    const resolvedShift = msgRecipientType === 'shift'
+      ? (isAdmin ? msgRecipientShift : msgSelectedShift?.shift ?? null) : null
+    const resolvedRole  = msgRecipientType === 'role'
+      ? (isAdmin ? msgRecipientRole  : msgSelectedRole         ?? null) : null
+    // Normalise 'user' → 'volunteer' for DB consistency
     const recipientType = msgRecipientType === 'user' ? 'volunteer' : msgRecipientType
 
-    const payload = {
-      sender_id: user.id,
-      recipient_type: recipientType,
-      body: msgBody.trim(),
-      image_url: imageUrl || null,
-      recipient_shift: msgRecipientType === 'shift' ? (msgSelectedShift?.shift_time || null) : null,
-      recipient_day: msgRecipientType === 'shift' ? (msgSelectedShift?.day || null) : null,
-      recipient_role: msgRecipientType === 'role' ? (msgSelectedRole || null) : null,
-      recipient_volunteer_id: recipientType === 'volunteer' ? (msgRecipientVolId || null) : null,
-    }
+    const { data: { session } } = await supabase.auth.getSession()
 
-    const { error } = await supabase.from('messages').insert(payload)
-    if (error) showToast(error.message, 'error')
-    else {
+    const res = await fetch('/api/send-message', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        recipient_type:         recipientType,
+        recipient_day:          resolvedDay,
+        recipient_shift:        resolvedShift,
+        recipient_role:         resolvedRole,
+        recipient_volunteer_id: recipientType === 'volunteer' ? (msgRecipientVolId || null) : null,
+        body:                   msgBody.trim(),
+        image_url:              imageUrl || null,
+      }),
+    })
+
+    const result = await res.json().catch(() => ({}))
+
+    if (!res.ok) {
+      showToast(result.error || 'Failed to send message', 'error')
+    } else {
       showToast('Message sent!', 'success')
       setMsgBody('')
       clearImage()
@@ -280,7 +318,6 @@ export default function VolunteerPage() {
       setMsgRecipientVolId('')
       setMsgSelectedShift(null)
       setMsgSelectedRole(null)
-      setMsgRecipientVolId('')
       setMsgView('inbox')
       await loadMessages()
     }
@@ -349,7 +386,7 @@ export default function VolunteerPage() {
     }
     if (!calloutStartDate || !calloutEndDate) return
     const start = new Date(calloutStartDate + 'T12:00:00')
-    const end = new Date(calloutEndDate + 'T12:00:00')
+    const end   = new Date(calloutEndDate   + 'T12:00:00')
     const rows = []
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dayName = dayNames[d.getDay()]
@@ -382,8 +419,6 @@ export default function VolunteerPage() {
     setChangingPassword(false)
   }
 
-  // Returns true if this volunteer is eligible to cover the given callout.
-  // Mirrors the RLS logic: same default_role, same role in schedule, or admin.
   function isEligibleToCover(callout) {
     if (!callout.role) return true
     if (isAdmin) return true
@@ -393,10 +428,7 @@ export default function VolunteerPage() {
 
   async function handleRequestCover(calloutId) {
     const callout = openShifts.find(c => c.id === calloutId)
-    if (callout && !isEligibleToCover(callout)) {
-      showToast('You are not eligible to cover this shift.', 'error')
-      return
-    }
+    if (callout && !isEligibleToCover(callout)) { showToast('You are not eligible to cover this shift.', 'error'); return }
     setRequestingCoverId(calloutId)
     const { error } = await supabase.from('shift_cover_requests').insert({ callout_id: calloutId, volunteer_id: user.id })
     if (error) showToast(error.message, 'error')
@@ -441,20 +473,23 @@ export default function VolunteerPage() {
   const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }
   const inputStyle = { width: '100%', padding: '0.75rem 1rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '0.95rem', outline: 'none', fontFamily: 'DM Sans, sans-serif' }
   const labelStyle = { display: 'block', fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
-  const inboxMessages = getInboxMessages(messages, user, profile)
-  const sentMessages = messages.filter(m => m.sender_id === user?.id)
-  const unreadCount = inboxMessages.filter(m => !readMessageIds.has(m.id)).length
 
-  const myShiftCombos = schedule.reduce((acc, s) => {
+  const inboxMessages  = getInboxMessages(messages, user, profile)
+  const sentMessages   = messages.filter(m => m.sender_id === user?.id)
+  const unreadCount    = inboxMessages.filter(m => !readMessageIds.has(m.id)).length
+
+  // Shift combos — admins see all, volunteers see only their own
+  const myShiftCombos  = schedule.reduce((acc, s) => {
     const key = `${s.day_of_week}|${s.shift_time}`
     if (!acc.find(x => x.key === key)) acc.push({ key, day: s.day_of_week, shift: s.shift_time, label: `${s.day_of_week.charAt(0).toUpperCase() + s.day_of_week.slice(1, 3)} ${s.shift_time}` })
     return acc
   }, [])
-
-  // Admins see all scheduled day/shift combos; volunteers see only their own
+  const myRoles        = [...new Set(schedule.map(s => s.role))]
   const dayShiftCombos = isAdmin ? allDayShiftCombos : myShiftCombos
 
-  const calloutSubmitDisabled = calloutMode === 'single' ? (!calloutDate || !calloutShift || !calloutRole) : (!calloutStartDate || !calloutEndDate)
+  const calloutSubmitDisabled = calloutMode === 'single'
+    ? (!calloutDate || !calloutShift || !calloutRole)
+    : (!calloutStartDate || !calloutEndDate)
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
@@ -673,89 +708,116 @@ export default function VolunteerPage() {
         {/* MESSAGES TAB */}
         {tab === 'messages' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-
-            {/* Sub-tabs */}
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               {[['inbox','Inbox'],['sent','Sent'],['compose','Compose']].map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setMsgView(key)}
-                  style={{
-                    padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
-                    cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-                    background: msgView === key ? 'var(--accent)' : 'var(--surface)',
-                    color: msgView === key ? '#0a0f0a' : 'var(--muted)',
-                    border: msgView === key ? 'none' : '1px solid var(--border)',
-                  }}
-                >
-                  {label}
-                </button>
+                <button key={key} onClick={() => setMsgView(key)} style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: msgView === key ? 'var(--accent)' : 'var(--surface)', color: msgView === key ? '#0a0f0a' : 'var(--muted)', border: msgView === key ? 'none' : '1px solid var(--border)' }}>{label}</button>
               ))}
             </div>
 
-            {/* INBOX */}
             {msgView === 'inbox' && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>All Messages</h2>
-                {inboxMessages.length === 0 ? (
-                  <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No messages yet.</p>
-                ) : (
+                {inboxMessages.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No messages yet.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {inboxMessages.map(m => (
-                      <MessageCard key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />
-                    ))}
+                    {inboxMessages.map(m => <MessageCard key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />)}
                   </div>
                 )}
               </div>
             )}
 
-            {/* SENT */}
             {msgView === 'sent' && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Sent Messages</h2>
-                {sentMessages.length === 0 ? (
-                  <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No sent messages yet.</p>
-                ) : (
+                {sentMessages.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No sent messages yet.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {sentMessages.map(m => (
-                      <MessageCard key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />
-                    ))}
+                    {sentMessages.map(m => <MessageCard key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />)}
                   </div>
                 )}
               </div>
             )}
 
-            {/* COMPOSE */}
             {msgView === 'compose' && (
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>New Message</h2>
-
                 <form onSubmit={handleSendMessage} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-
-                  {/* RECIPIENT TYPE */}
                   <div>
                     <label style={labelStyle}>Send to</label>
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      {[
-                        { value: 'everyone', label: 'Everyone' },
-                        ...(myShiftCombos.length > 0 ? [{ value: 'shift', label: 'My Shift' }] : []),
-                        ...(myRoles.length > 0 ? [{ value: 'role', label: 'My Role' }] : []),
-                        { value: 'user', label: 'Individual' },
-                      ].map(opt => (
-                        <button key={opt.value} type="button" onClick={() => {
-                          setMsgRecipientType(opt.value)
-                          setMsgSelectedShift(null)
-                          setMsgSelectedRole(null)
-                          setMsgRecipientVolId('')
-                        }}
-                          style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: msgRecipientType === opt.value ? 'var(--accent)' : 'var(--surface)', color: msgRecipientType === opt.value ? '#0a0f0a' : 'var(--muted)', border: msgRecipientType === opt.value ? 'none' : '1px solid var(--border)' }}>{opt.label}</button>
+                      {(isAdmin
+                        ? [
+                            { value: 'everyone',               label: 'Everyone'    },
+                            { value: 'affiliation_missionary',  label: 'Missionaries'},
+                            { value: 'admin',                  label: 'Admins'      },
+                            { value: 'shift',                  label: 'Shift'       },
+                            { value: 'role',                   label: 'Role'        },
+                            { value: 'user',                   label: 'Individual'  },
+                          ]
+                        : [
+                            { value: 'everyone', label: 'Everyone' },
+                            { value: 'admin',    label: 'Admin'    },
+                            ...(dayShiftCombos.length > 0 ? [{ value: 'shift', label: 'My Shift' }] : []),
+                            ...(myRoles.length  > 0 ? [{ value: 'role',  label: 'My Role'  }] : []),
+                            { value: 'user',     label: 'Individual' },
+                          ]
+                      ).map(opt => (
+                        <button key={opt.value} type="button"
+                          onClick={() => { setMsgRecipientType(opt.value); setMsgRecipientDay(null); setMsgRecipientShift(null); setMsgSelectedShift(null); setMsgSelectedRole(null); setMsgRecipientVolId('') }}
+                          style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: msgRecipientType === opt.value ? 'var(--accent)' : 'var(--surface)', color: msgRecipientType === opt.value ? '#0a0f0a' : 'var(--muted)', border: msgRecipientType === opt.value ? 'none' : '1px solid var(--border)' }}
+                        >{opt.label}</button>
                       ))}
                     </div>
 
-                    {/* Individual user selector */}
+                    {/* Shift sub-selector */}
+                    {msgRecipientType === 'shift' && dayShiftCombos.length > 0 && (
+                      <div style={{ marginTop: '0.75rem' }}>
+                        <label style={labelStyle}>Which shift</label>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          {isAdmin
+                            ? dayShiftCombos.map(({ day, shift, label, key }) => {
+                                const active = msgRecipientDay === day && msgRecipientShift === shift
+                                return (
+                                  <button key={key} type="button" onClick={() => { setMsgRecipientDay(day); setMsgRecipientShift(shift) }}
+                                    style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Mono, monospace', background: active ? '#1e40af' : 'var(--surface)', color: active ? '#bfdbfe' : 'var(--muted)', border: active ? 'none' : '1px solid var(--border)' }}
+                                  >{label}</button>
+                                )
+                              })
+                            : dayShiftCombos.map(combo => {
+                                const active = msgSelectedShift?.key === combo.key
+                                return (
+                                  <button key={combo.key} type="button" onClick={() => setMsgSelectedShift(combo)}
+                                    style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Mono, monospace', background: active ? '#1e40af' : 'var(--surface)', color: active ? '#bfdbfe' : 'var(--muted)', border: active ? 'none' : '1px solid var(--border)' }}
+                                  >{combo.label}</button>
+                                )
+                              })
+                          }
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Role sub-selector */}
+                    {msgRecipientType === 'role' && (
+                      <div style={{ marginTop: '0.75rem' }}>
+                        <label style={labelStyle}>Which role</label>
+                        {isAdmin
+                          ? <select value={msgRecipientRole} onChange={e => setMsgRecipientRole(e.target.value)} style={inputStyle}>
+                              {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                            </select>
+                          : <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                              {myRoles.map(role => {
+                                const active = msgSelectedRole === role
+                                return <button key={role} type="button" onClick={() => setMsgSelectedRole(role)}
+                                  style={{ padding: '0.4rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: active ? 'var(--accent)' : 'var(--surface)', color: active ? '#0a0f0a' : 'var(--muted)', border: active ? 'none' : '1px solid var(--border)' }}
+                                >{role}</button>
+                              })}
+                            </div>
+                        }
+                      </div>
+                    )}
+
+                    {/* Individual selector */}
                     {msgRecipientType === 'user' && (
                       <div style={{ marginTop: '0.75rem' }}>
-                        <label style={labelStyle}>Select user</label>
+                        <label style={labelStyle}>Which person</label>
                         <select value={msgRecipientVolId} onChange={e => setMsgRecipientVolId(e.target.value)} style={inputStyle}>
                           <option value="">— Select user —</option>
                           {allUsers.filter(u => u.id !== user?.id).map(v => (
@@ -764,101 +826,40 @@ export default function VolunteerPage() {
                         </select>
                       </div>
                     )}
-
-                    {msgRecipientType === 'shift' && myShiftCombos.length > 0 && (
-                      <div style={{ marginTop: '0.75rem' }}>
-                        <label style={labelStyle}>Select User</label>
-                        <select value={msgRecipientVolId} onChange={e => setMsgRecipientVolId(e.target.value)} style={inputStyle}>
-                          <option value="">— Select user —</option>
-                          {allUsers.map(v => (
-                            <option key={v.id} value={v.id}>{v.full_name}</option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-
-                    {/* ROLE — wired to msgRecipientRole */}
-                    {msgRecipientType === 'role' && (
-                      <div style={{ marginTop: '0.75rem' }}>
-                        <label style={labelStyle}>Select Role</label>
-                        <select value={msgRecipientRole} onChange={e => setMsgRecipientRole(e.target.value)} style={inputStyle}>
-                          <option value="">— Select role —</option>
-                          {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                        </select>
-                      </div>
-                    )}
-
-                    {/* SHIFT — button picker; selection stored in msgSelectedShift */}
-                    {msgRecipientType === 'shift' && (
-                      <div style={{ marginTop: '0.75rem' }}>
-                        <label style={labelStyle}>Select Shift</label>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                          {dayShiftCombos.map(combo => {
-                            const active = msgSelectedShift?.key === combo.key
-                            return (
-                              <button
-                                key={combo.key}
-                                type="button"
-                                onClick={() => setMsgSelectedShift(combo)}
-                                style={{
-                                  padding: '0.4rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500,
-                                  cursor: 'pointer', fontFamily: 'DM Mono, monospace',
-                                  background: active ? '#1e40af' : 'var(--surface)',
-                                  color: active ? '#bfdbfe' : 'var(--muted)',
-                                  border: active ? 'none' : '1px solid var(--border)',
-                                }}
-                              >
-                                {combo.label}
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
                   </div>
 
-                  {/* MESSAGE BODY */}
                   <div>
                     <label style={labelStyle}>Message</label>
-                    <textarea
-                      value={msgBody}
-                      onChange={e => setMsgBody(e.target.value)}
-                      rows={4}
-                      placeholder="Write your message..."
-                      style={{ ...inputStyle, resize: 'vertical' }}
-                    />
+                    <textarea value={msgBody} onChange={e => setMsgBody(e.target.value)} rows={4} placeholder="Write your message..." style={{ ...inputStyle, resize: 'vertical' }} />
                   </div>
 
-                  {/* IMAGE */}
                   <div>
-                    <label style={labelStyle}>
-                      Attach image <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>(optional · max 5 MB)</span>
-                    </label>
+                    <label style={labelStyle}>Attach image <span style={{ textTransform: 'none', fontSize: '0.72rem', color: 'var(--muted)' }}>(optional · max 5 MB)</span></label>
                     {msgImagePreview ? (
                       <div style={{ position: 'relative', display: 'inline-block' }}>
-                        <img src={msgImagePreview} style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px', border: '1px solid var(--border)' }} />
-                        <button type="button" onClick={clearImage} style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', borderRadius: '50%', width: 24, height: 24 }}>✕</button>
+                        <img src={msgImagePreview} alt="Preview" style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px', objectFit: 'cover', border: '1px solid var(--border)', display: 'block' }} />
+                        <button type="button" onClick={clearImage} style={{ position: 'absolute', top: '6px', right: '6px', background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', borderRadius: '50%', width: '24px', height: '24px', cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                       </div>
                     ) : (
-                      <button type="button" onClick={() => fileInputRef.current?.click()} style={{ width: '100%', padding: '0.6rem 1rem', border: '1px dashed var(--border)', borderRadius: '8px', background: 'var(--bg)', color: 'var(--muted)' }}>
+                      <button type="button" onClick={() => fileInputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1rem', background: 'var(--bg)', border: '1px dashed var(--border)', borderRadius: '8px', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'DM Sans, sans-serif', width: '100%', justifyContent: 'center' }}>
                         📎 Choose image
                       </button>
                     )}
-                    <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageSelect} style={{ display: 'none' }} />
+                    <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleImageSelect} style={{ display: 'none' }} />
                   </div>
+
                   <button type="submit"
                     disabled={
-                      sendingMsg ||
-                      uploadingImage ||
+                      sendingMsg || uploadingImage ||
                       (!msgBody.trim() && !msgImageFile) ||
-                      (msgRecipientType === 'shift' && !msgSelectedShift) ||
-                      (msgRecipientType === 'role' && !msgSelectedRole) ||
-                      (msgRecipientType === 'user' && !msgRecipientVolId)
+                      (msgRecipientType === 'user'  && !msgRecipientVolId) ||
+                      (msgRecipientType === 'shift' && isAdmin  && (!msgRecipientDay || !msgRecipientShift)) ||
+                      (msgRecipientType === 'shift' && !isAdmin && !msgSelectedShift) ||
+                      (msgRecipientType === 'role'  && !isAdmin && !msgSelectedRole)
                     }
                     style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: sendingMsg ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                     {uploadingImage ? 'Uploading image...' : sendingMsg ? 'Sending...' : 'Send Message'}
                   </button>
-
                 </form>
               </div>
             )}
@@ -886,7 +887,6 @@ export default function VolunteerPage() {
               {showShiftHistory && (
                 <div style={{ padding: '0 1.25rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {allShifts.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No shifts recorded yet.</p> : allShifts.map(s => (
-                    // FIX: s.id is now present because we select it in the query above
                     <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                       <div><p style={{ fontWeight: 500, fontSize: '0.9rem' }}>{formatDate(s.clock_in)}</p><p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{formatTime(s.clock_in)} → {formatTime(s.clock_out)}</p></div>
                       <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', color: s.clock_out ? 'var(--accent)' : 'var(--warn)' }}>{calcHours(s.clock_in, s.clock_out)}</span>
@@ -919,6 +919,28 @@ export default function VolunteerPage() {
                   ))}
                 </div>
               )}
+            </div>
+            <div style={card}>
+              <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Notifications</h2>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Get notified about new messages and shift updates.</p>
+              <button
+                onClick={async () => {
+                  setPushLoading(true)
+                  if (pushEnabled) {
+                    await unsubscribeFromPush(supabase, user.id)
+                    setPushEnabled(false)
+                  } else {
+                    const sub = await subscribeToPush(supabase, user.id)
+                    setPushEnabled(!!sub)
+                    if (!sub) showToast('Notification permission denied', 'error')
+                  }
+                  setPushLoading(false)
+                }}
+                disabled={pushLoading}
+                style={{ padding: '0.85rem', width: '100%', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: pushLoading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', background: pushEnabled ? 'var(--danger)' : 'var(--accent)', color: pushEnabled ? '#fff' : '#0a0f0a' }}
+              >
+                {pushLoading ? 'Working...' : pushEnabled ? 'Turn off notifications' : 'Turn on notifications'}
+              </button>
             </div>
             <div style={card}>
               <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Change Password</h2>
