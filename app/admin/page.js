@@ -46,6 +46,7 @@ export default function AdminPage() {
   const [filterRole, setFilterRole] = useState('all')
   const [filterDefaultRole, setFilterDefaultRole] = useState('all')
   const [filterSearch, setFilterSearch] = useState('')
+  const [filtersOpen, setFiltersOpen] = useState(true)
 
   // Volunteer detail expandable sections
   const [showRecentShifts, setShowRecentShifts] = useState(false)
@@ -673,76 +674,104 @@ export default function AdminPage() {
         {tab === 'volunteers' && !selectedVolunteer && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {/* Filter bar */}
-            <div style={{ ...card, padding: '1rem 1.25rem' }}>
-              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                {/* Search */}
-                <div style={{ flex: '1 1 180px', minWidth: '150px' }}>
-                  <label style={labelStyle}>Search</label>
-                  <input
-                    type="text"
-                    placeholder="Name or email…"
-                    value={filterSearch}
-                    onChange={e => setFilterSearch(e.target.value)}
-                    style={{ ...inputStyle, padding: '0.55rem 0.85rem', fontSize: '0.875rem' }}
-                  />
+            <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+              {/* Header / toggle */}
+              <button
+                onClick={() => setFiltersOpen(o => !o)}
+                style={{
+                  width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '0.75rem 1.25rem', background: 'none', border: 'none', cursor: 'pointer',
+                  fontFamily: 'DM Sans, sans-serif',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text)' }}>Filters</span>
+                  {!filtersOpen && (filterSearch || filterAffiliation !== 'all' || filterRole !== 'all' || filterDefaultRole !== 'all') && (
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, background: 'var(--accent)', color: '#0a0f0a', borderRadius: '100px', padding: '0.1rem 0.5rem' }}>
+                      {[filterSearch, filterAffiliation !== 'all', filterRole !== 'all', filterDefaultRole !== 'all'].filter(Boolean).length} active
+                    </span>
+                  )}
                 </div>
+                <span style={{
+                  display: 'inline-block', color: 'var(--muted)', fontSize: '1rem',
+                  transform: filtersOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s'
+                }}>▾</span>
+              </button>
 
-                {/* Affiliation / School filter */}
-                <div style={{ flex: '1 1 150px', minWidth: '130px' }}>
-                  <label style={labelStyle}>Affiliation</label>
-                  <select value={filterAffiliation} onChange={e => setFilterAffiliation(e.target.value)} style={{ ...inputStyle, padding: '0.55rem 0.85rem', fontSize: '0.875rem' }}>
-                    <option value="all">All affiliations</option>
-                    <option value="missionary">Missionary</option>
-                    <option value="student">Student</option>
-                    <option value="BYU">BYU</option>
-                    <option value="UVU">UVU</option>
-                    <option value="volunteer">Volunteer</option>
-                    <option value="provider">Provider</option>
-                  </select>
+              {/* Collapsible body */}
+              {filtersOpen && (
+                <div style={{ padding: '0 1.25rem 1rem', borderTop: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end', paddingTop: '1rem' }}>
+                    {/* Search */}
+                    <div style={{ flex: '1 1 180px', minWidth: '150px' }}>
+                      <label style={labelStyle}>Search</label>
+                      <input
+                        type="text"
+                        placeholder="Name or email…"
+                        value={filterSearch}
+                        onChange={e => setFilterSearch(e.target.value)}
+                        style={{ ...inputStyle, padding: '0.55rem 0.85rem', fontSize: '0.875rem' }}
+                      />
+                    </div>
+
+                    {/* Affiliation */}
+                    <div style={{ flex: '1 1 150px', minWidth: '130px' }}>
+                      <label style={labelStyle}>Affiliation</label>
+                      <select value={filterAffiliation} onChange={e => setFilterAffiliation(e.target.value)} style={{ ...inputStyle, padding: '0.55rem 0.85rem', fontSize: '0.875rem' }}>
+                        <option value="all">All affiliations</option>
+                        <option value="missionary">Missionary</option>
+                        <option value="student">Student</option>
+                        <option value="BYU">BYU</option>
+                        <option value="UVU">UVU</option>
+                        <option value="volunteer">Volunteer</option>
+                        <option value="provider">Provider</option>
+                      </select>
+                    </div>
+
+                    {/* Role */}
+                    <div style={{ flex: '1 1 130px', minWidth: '110px' }}>
+                      <label style={labelStyle}>Role</label>
+                      <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={{ ...inputStyle, padding: '0.55rem 0.85rem', fontSize: '0.875rem' }}>
+                        <option value="all">All roles</option>
+                        <option value="volunteer">Volunteer</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </div>
+
+                    {/* Position */}
+                    <div style={{ flex: '1 1 160px', minWidth: '140px' }}>
+                      <label style={labelStyle}>Position</label>
+                      <select value={filterDefaultRole} onChange={e => setFilterDefaultRole(e.target.value)} style={{ ...inputStyle, padding: '0.55rem 0.85rem', fontSize: '0.875rem' }}>
+                        <option value="all">All positions</option>
+                        {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </div>
+
+                    {/* Show inactive */}
+                    <button
+                      onClick={() => setShowInactive(s => !s)}
+                      style={{ padding: '0.55rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showInactive ? 'rgba(156,163,175,0.15)' : 'var(--bg)', color: showInactive ? 'var(--text)' : 'var(--muted)', border: '1px solid var(--border)', whiteSpace: 'nowrap', alignSelf: 'flex-end' }}
+                    >
+                      {showInactive ? 'Hide Inactive' : 'Show Inactive'}
+                    </button>
+
+                    {/* Reset */}
+                    {(filterSearch || filterAffiliation !== 'all' || filterRole !== 'all' || filterDefaultRole !== 'all') && (
+                      <button
+                        onClick={() => { setFilterSearch(''); setFilterAffiliation('all'); setFilterRole('all'); setFilterDefaultRole('all') }}
+                        style={{ padding: '0.55rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--bg)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', whiteSpace: 'nowrap', alignSelf: 'flex-end' }}
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Result count */}
+                  <p style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: '0.75rem' }}>
+                    Showing <span style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: 'var(--text)' }}>{userList.length}</span> of <span style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: 'var(--text)' }}>{volunteers.filter(v => showInactive || (v.status || 'active') === 'active').length}</span> volunteers
+                  </p>
                 </div>
-
-                {/* System role filter */}
-                <div style={{ flex: '1 1 130px', minWidth: '110px' }}>
-                  <label style={labelStyle}>Role</label>
-                  <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={{ ...inputStyle, padding: '0.55rem 0.85rem', fontSize: '0.875rem' }}>
-                    <option value="all">All roles</option>
-                    <option value="volunteer">Volunteer</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
-
-                {/* Default position filter */}
-                <div style={{ flex: '1 1 160px', minWidth: '140px' }}>
-                  <label style={labelStyle}>Position</label>
-                  <select value={filterDefaultRole} onChange={e => setFilterDefaultRole(e.target.value)} style={{ ...inputStyle, padding: '0.55rem 0.85rem', fontSize: '0.875rem' }}>
-                    <option value="all">All positions</option>
-                    {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </div>
-
-                {/* Show inactive toggle */}
-                <button
-                  onClick={() => setShowInactive(s => !s)}
-                  style={{ padding: '0.55rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showInactive ? 'rgba(156,163,175,0.15)' : 'var(--bg)', color: showInactive ? 'var(--text)' : 'var(--muted)', border: '1px solid var(--border)', whiteSpace: 'nowrap', alignSelf: 'flex-end' }}
-                >
-                  {showInactive ? 'Hide Inactive' : 'Show Inactive'}
-                </button>
-
-                {/* Reset filters */}
-                {(filterSearch || filterAffiliation !== 'all' || filterRole !== 'all' || filterDefaultRole !== 'all') && (
-                  <button
-                    onClick={() => { setFilterSearch(''); setFilterAffiliation('all'); setFilterRole('all'); setFilterDefaultRole('all') }}
-                    style={{ padding: '0.55rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--bg)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', whiteSpace: 'nowrap', alignSelf: 'flex-end' }}
-                  >
-                    Reset
-                  </button>
-                )}
-              </div>
-
-              {/* Result count */}
-              <p style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: '0.75rem' }}>
-                Showing <span style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: 'var(--text)' }}>{userList.length}</span> of <span style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: 'var(--text)' }}>{volunteers.filter(v => showInactive || (v.status || 'active') === 'active').length}</span> volunteers
-              </p>
+              )}
             </div>
 
             {/* Volunteer list */}
@@ -967,22 +996,11 @@ export default function AdminPage() {
                     <>
                       <div>
                         <label style={labelStyle}>Advisor Name</label>
-                        <input
-                          value={editForm.advisor_name}
-                          onChange={e => setEditForm({ ...editForm, advisor_name: e.target.value })}
-                          placeholder="Advisor full name"
-                          style={inputStyle}
-                        />
+                        <input value={editForm.advisor_name} onChange={e => setEditForm({ ...editForm, advisor_name: e.target.value })} placeholder="Advisor full name" style={inputStyle} />
                       </div>
-
                       <div>
                         <label style={labelStyle}>Advisor Contact</label>
-                        <input
-                          value={editForm.advisor_contact}
-                          onChange={e => setEditForm({ ...editForm, advisor_contact: e.target.value })}
-                          placeholder="Phone or email"
-                          style={inputStyle}
-                        />
+                        <input value={editForm.advisor_contact} onChange={e => setEditForm({ ...editForm, advisor_contact: e.target.value })} placeholder="Phone or email" style={inputStyle} />
                       </div>
                     </>
                   )}
