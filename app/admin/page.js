@@ -4,11 +4,38 @@ import { supabase } from '../../lib/supabase'
 import { SHIFTS, ROLES, ROLE_SUGGESTIONS, SCHOOLS, MAJORS, MAX_FILE_SIZE, ACTION_LABELS, ACTION_COLORS } from '../../lib/constants'
 import { getMountainNow, getMountainLabel, asUTC, formatMountain, formatDateMountain, formatDateTime, toMountainInputValue, fromMountainInputValue } from '../../lib/timeUtils'
 import DataDashboard from '../../components/DataDashboard'
+import ProviderCredentialsBanner from '../../components/ProviderCredentialsBanner'
 
 
 export const dynamic = 'force-dynamic'
 
 const DAYS = ['monday','tuesday','wednesday','thursday','friday']
+
+// Provider credential fields definition (shared between view/edit/create)
+const PROVIDER_CRED_FIELDS = [
+  { key: 'license_exp', label: 'License Expiration' },
+  { key: 'bls_exp',     label: 'BLS Expiration' },
+  { key: 'dea_exp',     label: 'DEA Expiration' },
+  { key: 'ftca_exp',    label: 'FTCA Expiration' },
+  { key: 'tb_exp',      label: 'TB Expiration' },
+]
+
+function credentialStatus(dateStr) {
+  if (!dateStr) return 'missing'
+  const exp = new Date(dateStr + 'T12:00:00')
+  const now = new Date()
+  const oneMonthOut = new Date()
+  oneMonthOut.setMonth(oneMonthOut.getMonth() + 1)
+  if (exp < now) return 'expired'
+  if (exp <= oneMonthOut) return 'expiring'
+  return 'ok'
+}
+
+function formatExpDate(dateStr) {
+  if (!dateStr) return null
+  const [y, m, d] = dateStr.split('-')
+  return `${m}/${d}/${y}`
+}
 
 export default function AdminPage() {
   const [profile, setProfile] = useState(null)
@@ -57,11 +84,19 @@ export default function AdminPage() {
   const [loadingRecentShifts, setLoadingRecentShifts] = useState(false)
   const [loadingScheduledShifts, setLoadingScheduledShifts] = useState(false)
 
+  // Create volunteer form state
   const [newName, setNewName] = useState(''); const [newEmail, setNewEmail] = useState(''); const [newPassword, setNewPassword] = useState('')
   const [newRole, setNewRole] = useState('volunteer'); const [newAffiliation, setNewAffiliation] = useState(''); const [newCredentials, setNewCredentials] = useState('')
   const [newPhone, setNewPhone] = useState(''); const [newLanguages, setNewLanguages] = useState(''); const [newSmaName, setNewSmaName] = useState('')
   const [newSmaContact, setNewSmaContact] = useState(''); const [newSchool, setNewSchool] = useState(''); const [newMajor, setNewMajor] = useState('')
   const [newBirthday, setNewBirthday] = useState(''); const [newDefaultRole, setNewDefaultRole] = useState(''); const [creating, setCreating] = useState(false)
+  // Intern fields (create)
+  const [newAdvisorName, setNewAdvisorName] = useState('')
+  const [newAdvisorContact, setNewAdvisorContact] = useState('')
+  const [newInternSchool, setNewInternSchool] = useState('')
+  const [newInternDepartment, setNewInternDepartment] = useState('')
+  // Provider credential fields (create)
+  const [newProviderCreds, setNewProviderCreds] = useState({ license_exp: '', bls_exp: '', dea_exp: '', ftca_exp: '', tb_exp: '' })
 
   const [lightboxUrl, setLightboxUrl] = useState(null)
 
@@ -117,24 +152,14 @@ export default function AdminPage() {
 
   async function loadRecentShiftsForVolunteer(volunteerId) {
     setLoadingRecentShifts(true)
-    const { data } = await supabase
-      .from('shifts')
-      .select('*')
-      .eq('volunteer_id', volunteerId)
-      .not('clock_out', 'is', null)
-      .order('clock_in', { ascending: false })
-      .limit(10)
+    const { data } = await supabase.from('shifts').select('*').eq('volunteer_id', volunteerId).not('clock_out', 'is', null).order('clock_in', { ascending: false }).limit(10)
     setRecentShifts(data || [])
     setLoadingRecentShifts(false)
   }
 
   async function loadScheduledShiftsForVolunteer(volunteerId) {
     setLoadingScheduledShifts(true)
-    const { data } = await supabase
-      .from('schedule')
-      .select('*')
-      .eq('volunteer_id', volunteerId)
-      .order('day_of_week')
+    const { data } = await supabase.from('schedule').select('*').eq('volunteer_id', volunteerId).order('day_of_week')
     setScheduledShifts(data || [])
     setLoadingScheduledShifts(false)
   }
@@ -145,44 +170,18 @@ export default function AdminPage() {
   async function loadAuditLogs() {
     setAuditLoading(true)
     const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
-    let query = supabase
-      .from('audit_logs')
-      .select('*, admin:profiles!audit_logs_admin_id_fkey(full_name)')
-      .order('created_at', { ascending: false })
-      .limit(500)
-      .gte('created_at', twoWeeksAgo)
+    let query = supabase.from('audit_logs').select('*, admin:profiles!audit_logs_admin_id_fkey(full_name)').order('created_at', { ascending: false }).limit(500).gte('created_at', twoWeeksAgo)
     if (auditFilterAdmin) query = query.eq('admin_id', auditFilterAdmin)
     if (auditFilterAction) query = query.eq('action', auditFilterAction)
     if (auditFilterFrom) query = query.gte('created_at', auditFilterFrom + 'T00:00:00Z')
     if (auditFilterTo) query = query.lte('created_at', auditFilterTo + 'T23:59:59Z')
     const { data } = await query
-    const filteredData = (data || []).filter(log => log.action !== 'sent_message')
-    setAuditLogs(filteredData)
+    setAuditLogs((data || []).filter(log => log.action !== 'sent_message'))
     setAuditLoading(false)
   }
 
   async function audit(action, target_type, target_id, target_name, details) {
     try { await supabase.from('audit_logs').insert({ admin_id: profile.id, action, target_type, target_id: target_id ? String(target_id) : null, target_name: target_name || null, details: details || null }) } catch (e) { console.error('audit log failed:', e) }
-  }
-
-  function handleImageSelect(e) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (file.size > MAX_FILE_SIZE) { showMessage('Image must be under 5 MB', 'error'); return }
-    setMsgImageFile(file)
-    setMsgImagePreview(URL.createObjectURL(file))
-  }
-  function clearImage() { setMsgImageFile(null); setMsgImagePreview(null); if (fileInputRef.current) fileInputRef.current.value = '' }
-  async function uploadImage(userId) {
-    if (!msgImageFile) return null
-    setUploadingImage(true)
-    const ext = msgImageFile.name.split('.').pop()
-    const path = `${userId}/${Date.now()}.${ext}`
-    const { error } = await supabase.storage.from('message-images').upload(path, msgImageFile, { contentType: msgImageFile.type, upsert: false })
-    setUploadingImage(false)
-    if (error) { showMessage('Image upload failed: ' + error.message, 'error'); return null }
-    const { data: { publicUrl } } = supabase.storage.from('message-images').getPublicUrl(path)
-    return publicUrl
   }
 
   const expectedVolunteers = (() => {
@@ -294,21 +293,10 @@ export default function AdminPage() {
   }
   async function handleAddEntry() {
     if (!addVolId) return; setAddingEntry(true)
-    
     const currentEntries = getEntries(scheduleDay, scheduleShift, addingRole)
-
-    const effectiveCount = currentEntries.reduce((sum, entry) => {
-      return sum + (entry.week_pattern === 'every' ? 1 : 0.5)
-    }, 0)
-
+    const effectiveCount = currentEntries.reduce((sum, entry) => sum + (entry.week_pattern === 'every' ? 1 : 0.5), 0)
     const limit = ROLE_SUGGESTIONS[addingRole]
-      
-    if (limit && effectiveCount >= limit) {
-      showMessage(`Limit reached for ${addingRole} (${limit})`, 'error')
-      setAddingEntry(false)
-      return
-    }
-
+    if (limit && effectiveCount >= limit) { showMessage(`Limit reached for ${addingRole} (${limit})`, 'error'); setAddingEntry(false); return }
     const exists = schedule.find(s => s.volunteer_id === addVolId && s.day_of_week === scheduleDay && s.shift_time === scheduleShift && s.role === addingRole)
     if (exists) { showMessage('Volunteer already assigned to this slot', 'error'); setAddingEntry(false); return }
     const vol = volunteers.find(v => v.id === addVolId)
@@ -325,31 +313,26 @@ export default function AdminPage() {
   }
   function openVolunteer(v) {
     setTab('volunteers'); setSelectedVolunteer(v)
-    setEditForm({ full_name: v.full_name||'', email: v.email||'', phone: v.phone||'', affiliation: v.affiliation||'', credentials: v.credentials||'', languages: v.languages||'', role: v.role||'volunteer', sma_name: v.sma_name||'', sma_contact: v.sma_contact||'', school: v.school||'', default_role: v.default_role||'', birthday: v.birthday||'' })
+    setEditForm({
+      full_name: v.full_name||'', email: v.email||'', phone: v.phone||'',
+      affiliation: v.affiliation||'', credentials: v.credentials||'',
+      languages: v.languages||'', role: v.role||'volunteer',
+      sma_name: v.sma_name||'', sma_contact: v.sma_contact||'',
+      school: v.school||'', default_role: v.default_role||'', birthday: v.birthday||'',
+      advisor_name: v.advisor_name||'', advisor_contact: v.advisor_contact||'',
+      intern_school: v.intern_school||'', intern_department: v.intern_department||'',
+      license_exp: v.license_exp||'', bls_exp: v.bls_exp||'',
+      dea_exp: v.dea_exp||'', ftca_exp: v.ftca_exp||'', tb_exp: v.tb_exp||'',
+    })
     setStatusForm({ status: v.status || 'active', status_reason: v.status_reason || '' }); setEditing(false)
-    // Reset expandable sections when opening a new volunteer
-    setShowRecentShifts(false)
-    setShowScheduledShifts(false)
-    setRecentShifts([])
-    setScheduledShifts([])
+    setShowRecentShifts(false); setShowScheduledShifts(false); setRecentShifts([]); setScheduledShifts([])
   }
 
   function handleToggleRecentShifts(volunteerId) {
-    if (!showRecentShifts) {
-      setShowRecentShifts(true)
-      loadRecentShiftsForVolunteer(volunteerId)
-    } else {
-      setShowRecentShifts(false)
-    }
+    if (!showRecentShifts) { setShowRecentShifts(true); loadRecentShiftsForVolunteer(volunteerId) } else { setShowRecentShifts(false) }
   }
-
   function handleToggleScheduledShifts(volunteerId) {
-    if (!showScheduledShifts) {
-      setShowScheduledShifts(true)
-      loadScheduledShiftsForVolunteer(volunteerId)
-    } else {
-      setShowScheduledShifts(false)
-    }
+    if (!showScheduledShifts) { setShowScheduledShifts(true); loadScheduledShiftsForVolunteer(volunteerId) } else { setShowScheduledShifts(false) }
   }
 
   async function handleStatusChange(newStatus, reason) {
@@ -374,7 +357,34 @@ export default function AdminPage() {
 
   async function handleSaveEdit() {
     setSaving(true)
-    const { error } = await supabase.from('profiles').update({ full_name: editForm.full_name, phone: editForm.phone, affiliation: editForm.affiliation || null, credentials: editForm.credentials || null, languages: editForm.languages, role: editForm.role, sma_name: editForm.affiliation === 'missionary' ? (editForm.sma_name||null) : null, sma_contact: editForm.affiliation === 'missionary' ? (editForm.sma_contact||null) : null, school: editForm.affiliation === 'student' ? (editForm.school||null) : null, major: editForm.affiliation === 'student' ? (editForm.major||null) : null, default_role: editForm.default_role || null, birthday: editForm.birthday || null }).eq('id', selectedVolunteer.id)
+    const isProvider = editForm.affiliation === 'provider'
+    const isIntern   = editForm.affiliation === 'intern'
+    const isMission  = editForm.affiliation === 'missionary'
+    const isStudent  = editForm.affiliation === 'student'
+
+    const { error } = await supabase.from('profiles').update({
+      full_name:    editForm.full_name,
+      phone:        editForm.phone,
+      affiliation:  editForm.affiliation || null,
+      credentials:  editForm.credentials || null,
+      languages:    editForm.languages,
+      role:         editForm.role,
+      sma_name:     isMission ? (editForm.sma_name||null) : null,
+      sma_contact:  isMission ? (editForm.sma_contact||null) : null,
+      school:       isStudent  ? (editForm.school||null) : null,
+      major:        isStudent  ? (editForm.major||null) : null,
+      advisor_name:    isIntern ? (editForm.advisor_name||null) : null,
+      advisor_contact: isIntern ? (editForm.advisor_contact||null) : null,
+      intern_school:      isIntern ? (editForm.intern_school||null) : null,
+      intern_department:  isIntern ? (editForm.intern_department||null) : null,
+      license_exp:  isProvider ? (editForm.license_exp||null) : null,
+      bls_exp:      isProvider ? (editForm.bls_exp||null) : null,
+      dea_exp:      isProvider ? (editForm.dea_exp||null) : null,
+      ftca_exp:     isProvider ? (editForm.ftca_exp||null) : null,
+      tb_exp:       isProvider ? (editForm.tb_exp||null) : null,
+      default_role: editForm.default_role || null,
+      birthday:     editForm.birthday || null,
+    }).eq('id', selectedVolunteer.id)
     if (error) { showMessage(error.message, 'error'); setSaving(false); return }
     const { data: fresh } = await supabase.from('profiles').select('*, shifts(*)').eq('id', selectedVolunteer.id).single()
     showMessage('Profile updated!', 'success'); await audit('edited_volunteer', 'volunteer', selectedVolunteer.id, selectedVolunteer.full_name)
@@ -383,27 +393,50 @@ export default function AdminPage() {
 
   async function handleCreateVolunteer(e) {
     e.preventDefault(); setCreating(true)
+    const isProvider = newAffiliation === 'provider'
+    const isIntern   = newAffiliation === 'intern'
+    const isMission  = newAffiliation === 'missionary'
+    const isStudent  = newAffiliation === 'student'
     const { data, error } = await supabase.auth.signUp({ email: newEmail, password: newPassword })
     if (error) { showMessage(error.message, 'error'); setCreating(false); return }
-    const { error: pe } = await supabase.from('profiles').insert({ id: data.user.id, full_name: newName, email: newEmail, role: newRole, affiliation: newAffiliation||null, credentials: newCredentials || null, phone: newPhone||null, languages: newLanguages||null, sma_name: newAffiliation === 'missionary' ? (newSmaName||null) : null, sma_contact: newAffiliation === 'missionary' ? (newSmaContact||null) : null, school: newAffiliation === 'student' ? (newSchool||null) : null, major: newAffiliation === 'student' ? (newMajor||null) : null, birthday: newBirthday || null, default_role: newDefaultRole || null })
+    const { error: pe } = await supabase.from('profiles').insert({
+      id: data.user.id, full_name: newName, email: newEmail, role: newRole,
+      affiliation: newAffiliation||null, credentials: newCredentials || null,
+      phone: newPhone||null, languages: newLanguages||null,
+      sma_name:    isMission ? (newSmaName||null) : null,
+      sma_contact: isMission ? (newSmaContact||null) : null,
+      school:      isStudent  ? (newSchool||null) : null,
+      major:       isStudent  ? (newMajor||null) : null,
+      advisor_name:    isIntern ? (newAdvisorName||null) : null,
+      advisor_contact: isIntern ? (newAdvisorContact||null) : null,
+      intern_school:      isIntern ? (newInternSchool||null) : null,
+      intern_department:  isIntern ? (newInternDepartment||null) : null,
+      license_exp:  isProvider ? (newProviderCreds.license_exp||null) : null,
+      bls_exp:      isProvider ? (newProviderCreds.bls_exp||null) : null,
+      dea_exp:      isProvider ? (newProviderCreds.dea_exp||null) : null,
+      ftca_exp:     isProvider ? (newProviderCreds.ftca_exp||null) : null,
+      tb_exp:       isProvider ? (newProviderCreds.tb_exp||null) : null,
+      birthday: newBirthday || null, default_role: newDefaultRole || null,
+    })
     if (pe) showMessage(pe.message, 'error')
-    else { showMessage(`Account created for ${newName}!`, 'success'); await audit('created_volunteer', 'volunteer', data.user.id, newName, newRole); setNewName(''); setNewEmail(''); setNewPassword(''); setNewRole('volunteer'); setNewAffiliation(''); setNewCredentials(''); setNewPhone(''); setNewLanguages(''); setNewSmaName(''); setNewSmaContact(''); setNewSchool(''); setNewMajor(''); setNewBirthday(''); setNewDefaultRole(''); loadVolunteers() }
+    else {
+      showMessage(`Account created for ${newName}!`, 'success')
+      await audit('created_volunteer', 'volunteer', data.user.id, newName, newRole)
+      setNewName(''); setNewEmail(''); setNewPassword(''); setNewRole('volunteer')
+      setNewAffiliation(''); setNewCredentials(''); setNewPhone(''); setNewLanguages('')
+      setNewSmaName(''); setNewSmaContact(''); setNewSchool(''); setNewMajor('')
+      setNewBirthday(''); setNewDefaultRole('')
+      setNewAdvisorName(''); setNewAdvisorContact('')
+      setNewInternSchool(''); setNewInternDepartment('')
+      setNewProviderCreds({ license_exp: '', bls_exp: '', dea_exp: '', ftca_exp: '', tb_exp: '' })
+      loadVolunteers()
+    }
     setCreating(false)
   }
 
   function totalHours(shifts) { return shifts?.reduce((acc, s) => { if (!s.clock_out) return acc; return acc + (asUTC(s.clock_out) - asUTC(s.clock_in)) / 3600000 }, 0).toFixed(1) || '0.0' }
   function calcShiftHours(clock_in, clock_out) { if (!clock_out) return null; return ((asUTC(clock_out) - asUTC(clock_in)) / 3600000).toFixed(1) }
   function showMessage(text, type) { setToast({ text, type }); setTimeout(() => setToast(null), 3500) }
-
-  function recipientLabel(msg) {
-    if (msg.recipient_type === 'everyone') return 'Everyone'
-    if (msg.recipient_type === 'admin') return 'Admins'
-    if (msg.recipient_type === 'volunteer') { const v = volunteers.find(v => v.id === msg.recipient_volunteer_id); return `${v?.full_name || 'Volunteer'}` }
-    if (msg.recipient_type === 'shift') { const day = msg.recipient_day ? msg.recipient_day.charAt(0).toUpperCase() + msg.recipient_day.slice(1, 3) : ''; return `${day} ${msg.recipient_shift}` }
-    if (msg.recipient_type === 'affiliation_missionary') return 'Missionaries'
-    if (msg.recipient_type === 'role') return `${msg.recipient_role}`
-    return msg.recipient_type
-  }
 
   function getEntries(day, shift, role) {
     if (!scheduleDate) return schedule.filter(s => s.day_of_week === day && s.shift_time === shift && s.role === role)
@@ -420,7 +453,6 @@ export default function AdminPage() {
     })
   }
 
-  // Day ordering helper for schedule display
   const DAY_ORDER = { monday: 0, tuesday: 1, wednesday: 2, thursday: 3, friday: 4, saturday: 5, sunday: 6 }
 
   if (loading) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}><p style={{ color: 'var(--muted)' }}>Loading...</p></div>
@@ -434,19 +466,13 @@ export default function AdminPage() {
 
   const tzLabel = getMountainLabel()
   const adminList = volunteers.filter(v => v.role === 'admin')
-  const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
   const dayShiftCombos = DAYS.flatMap(d => SHIFTS.map(s => ({ day: d, shift: s, label: `${d.charAt(0).toUpperCase() + d.slice(1,3)} ${s}` })))
   const filteredShifts = shiftFilterVolId ? allShifts.filter(s => s.volunteer_id === shiftFilterVolId) : allShifts
 
-
-  // ── Volunteer list filtering ───────────────────────────────────────────────
   const userList = volunteers
     .filter(v => showInactive || (v.status || 'active') === 'active')
     .filter(v => {
-      if (filterSearch) {
-        const q = filterSearch.toLowerCase()
-        if (!(v.full_name || '').toLowerCase().includes(q) && !(v.email || '').toLowerCase().includes(q)) return false
-      }
+      if (filterSearch) { const q = filterSearch.toLowerCase(); if (!(v.full_name || '').toLowerCase().includes(q) && !(v.email || '').toLowerCase().includes(q)) return false }
       if (filterRole !== 'all' && v.role !== filterRole) return false
       if (filterAffiliation !== 'all') {
         if (filterAffiliation === 'missionary' && v.affiliation !== 'missionary') return false
@@ -460,42 +486,55 @@ export default function AdminPage() {
       if (filterDefaultRole !== 'all' && v.default_role !== filterDefaultRole) return false
       return true
     })
-    .sort((a, b) => {
-      const ln = n => (n?.full_name?.split(' ').slice(-1)[0] || '').toLowerCase()
-      return ln(a).localeCompare(ln(b))
-    })
+    .sort((a, b) => { const ln = n => (n?.full_name?.split(' ').slice(-1)[0] || '').toLowerCase(); return ln(a).localeCompare(ln(b)) })
 
-  // ── Expandable section component ──────────────────────────────────────────
   function ExpandableSection({ label, isOpen, onToggle, loading: isLoading, children, count }) {
     return (
       <div style={{ borderRadius: '10px', border: `1px solid ${isOpen ? 'var(--accent)' : 'var(--border)'}`, overflow: 'hidden', transition: 'border-color 0.15s' }}>
-        <button
-          onClick={onToggle}
-          style={{
-            width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '0.85rem 1rem', background: isOpen ? 'rgba(2,65,107,0.05)' : 'var(--bg)',
-            border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-            color: isOpen ? 'var(--accent)' : 'var(--text)', transition: 'background 0.15s',
-          }}
-        >
+        <button onClick={onToggle} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: isOpen ? 'rgba(2,65,107,0.05)' : 'var(--bg)', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', color: isOpen ? 'var(--accent)' : 'var(--text)', transition: 'background 0.15s' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <span style={{ display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', fontSize: '0.85rem', color: 'var(--muted)' }}>›</span>
             <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{label}</span>
-            {count !== undefined && count !== null && (
-              <span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: isOpen ? 'rgba(2,65,107,0.15)' : 'var(--surface)', color: isOpen ? 'var(--accent)' : 'var(--muted)', border: '1px solid var(--border)', fontFamily: 'DM Mono, monospace' }}>
-                {count}
-              </span>
-            )}
+            {count !== undefined && count !== null && (<span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: isOpen ? 'rgba(2,65,107,0.15)' : 'var(--surface)', color: isOpen ? 'var(--accent)' : 'var(--muted)', border: '1px solid var(--border)', fontFamily: 'DM Mono, monospace' }}>{count}</span>)}
           </div>
           {isLoading && <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>Loading...</span>}
         </button>
-        {isOpen && (
-          <div style={{ padding: '0 1rem 1rem', background: 'var(--bg)', borderTop: '1px solid var(--border)' }}>
-            <div style={{ paddingTop: '0.75rem' }}>
-              {children}
-            </div>
-          </div>
-        )}
+        {isOpen && (<div style={{ padding: '0 1rem 1rem', background: 'var(--bg)', borderTop: '1px solid var(--border)' }}><div style={{ paddingTop: '0.75rem' }}>{children}</div></div>)}
+      </div>
+    )
+  }
+
+  // ── Inline provider credential grid for the detail view ──────────────────
+  function ProviderCredentialsView({ vol }) {
+    const fields = PROVIDER_CRED_FIELDS.map(f => ({ ...f, value: vol[f.key] || null, status: credentialStatus(vol[f.key]) }))
+    return (
+      <div style={{ padding: '1rem 1.25rem', borderRadius: '10px', border: '1px solid rgba(125,211,252,0.35)', background: 'rgba(125,211,252,0.04)', gridColumn: '1 / -1' }}>
+        <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>Provider Credentials</p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.6rem' }}>
+          {fields.map(f => {
+            const isMissing  = f.status === 'missing'
+            const isExpired  = f.status === 'expired'
+            const isExpiring = f.status === 'expiring'
+            const borderColor = (isMissing || isExpired) ? 'rgba(239,68,68,0.4)' : isExpiring ? 'rgba(251,146,60,0.45)' : 'rgba(2,65,107,0.3)'
+            const bgColor     = (isMissing || isExpired) ? 'rgba(239,68,68,0.06)' : isExpiring ? 'rgba(251,146,60,0.06)' : 'rgba(2,65,107,0.05)'
+            const textColor   = (isMissing || isExpired) ? '#ef4444' : isExpiring ? '#f97316' : 'var(--text)'
+            return (
+              <div key={f.key} style={{ padding: '0.6rem 0.75rem', borderRadius: '8px', border: `1px solid ${borderColor}`, background: bgColor }}>
+                <p style={{ fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>{f.label}</p>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.35rem' }}>
+                  <p style={{ fontFamily: isMissing ? 'DM Sans, sans-serif' : 'DM Mono, monospace', fontSize: '0.82rem', fontWeight: isMissing ? 400 : 600, color: textColor, fontStyle: isMissing ? 'italic' : 'normal' }}>
+                    {isMissing ? 'Not set' : formatExpDate(f.value)}
+                  </p>
+                  <span style={{ fontSize: '0.8rem', fontWeight: 700, color: (isMissing || isExpired) ? '#ef4444' : isExpiring ? '#f97316' : '#22c55e', flexShrink: 0 }}>
+                    {(isMissing || isExpired) ? '✗' : isExpiring ? '!' : '✓'}
+                  </span>
+                </div>
+                {isExpired  && <p style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 700, marginTop: '0.15rem' }}>EXPIRED</p>}
+                {isExpiring && <p style={{ fontSize: '0.65rem', color: '#f97316', fontWeight: 700, marginTop: '0.15rem' }}>EXP. SOON</p>}
+              </div>
+            )
+          })}
+        </div>
       </div>
     )
   }
@@ -504,7 +543,7 @@ export default function AdminPage() {
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
       <div style={{ maxWidth: '960px', margin: '0 auto' }}>
 
-        {/*Header*/}
+        {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
           <div>
             <h1 style={{ fontSize: '1.4rem', fontWeight: 600, letterSpacing: '-0.02em' }}>Admin Dashboard</h1>
@@ -512,7 +551,7 @@ export default function AdminPage() {
           </div>
           {profile?.role === 'admin' && (
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <button onClick={() => { if (window.location.pathname.includes('admin')) { window.location.href = '/volunteer' } else { window.location.href = '/admin' } }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>Volunteer View</button>
+              <button onClick={() => { window.location.href = '/volunteer' }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>Volunteer View</button>
               <button onClick={async () => { await supabase.auth.signOut(); window.location.href = '/' }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>Sign out</button>
             </div>
           )}
@@ -523,10 +562,10 @@ export default function AdminPage() {
           {[
             { label: 'Not Clocked In', value: expectedVolunteers.length, warn: expectedVolunteers.length > 0 },
             { label: 'Pending Call-Outs', value: callouts.filter(c => !c.status || c.status === 'pending').length, warn: callouts.filter(c => !c.status || c.status === 'pending').length > 0 },
-            { label: 'Pending Hours', value: hoursSubmissions.filter(h => !h.status || h.status === 'pending').length, warn: hoursSubmissions.some(h => !h.status || h.status === 'pending').length > 0 },
+            { label: 'Pending Hours', value: hoursSubmissions.filter(h => !h.status || h.status === 'pending').length, warn: hoursSubmissions.some(h => !h.status || h.status === 'pending') },
           ].map(s => (
-            <div key={s.label} style={{ ...card, textAlign: 'center', borderColor: s.accent ? 'var(--accent)' : s.warn ? 'var(--warn)' : s.info ? '#60a5fa' : 'var(--border)' }}>
-              <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: s.accent ? 'var(--accent)' : s.warn ? 'var(--warn)' : s.info ? '#60a5fa' : 'var(--text)' }}>{s.value}</p>
+            <div key={s.label} style={{ ...card, textAlign: 'center', borderColor: s.warn ? 'var(--warn)' : 'var(--border)' }}>
+              <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: s.warn ? 'var(--warn)' : 'var(--text)' }}>{s.value}</p>
               <p style={{ color: 'var(--muted)', fontSize: '0.8rem', marginTop: '0.25rem' }}>{s.label}</p>
             </div>
           ))}
@@ -540,24 +579,13 @@ export default function AdminPage() {
               if (key === 'shifts' && allShifts.length === 0) loadAllShifts()
               if (key === 'hours') loadHoursSubmissions()
               if (key === 'audit') loadAuditLogs()
-            }} style={{
-              position: 'relative', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500,
-              cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-              background: tab === key ? 'var(--accent)' : 'var(--surface)',
-              color: tab === key ? '#fff' : 'var(--muted)',
-              border: tab === key ? 'none' : '1px solid var(--border)',
-            }}>
+            }} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: tab === key ? 'var(--accent)' : 'var(--surface)', color: tab === key ? '#fff' : 'var(--muted)', border: tab === key ? 'none' : '1px solid var(--border)' }}>
               {label}
-              {key === 'messages' && unreadCount > 0 && (
-                <span style={{ position: 'absolute', top: '-5px', right: '-5px', background: '#ef4444', color: '#fff', borderRadius: '50%', width: '17px', height: '17px', fontSize: '0.65rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--bg)', lineHeight: 1 }}>
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
             </button>
           ))}
         </div>
 
-        {/* LIVE TAB */}
+        {/* ─────────────────────────── LIVE TAB ─────────────────────────── */}
         {tab === 'dashboard' && (() => {
           const todayMtnStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
           const mtnNow = getMountainNow(); const dayIndex = mtnNow.getDay(); const isWeekday = dayIndex >= 1 && dayIndex <= 5
@@ -604,7 +632,7 @@ export default function AdminPage() {
           )
         })()}
 
-        {/* SCHEDULE TAB */}
+        {/* ─────────────────────────── SCHEDULE TAB ─────────────────────────── */}
         {tab === 'schedule' && (
           <div>
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -637,11 +665,7 @@ export default function AdminPage() {
                                 {approvedCallout && <span style={{ fontSize: '0.7rem' }}>out</span>}
                                 <span style={{ textDecoration: approvedCallout ? 'line-through' : 'none', opacity: approvedCallout ? 0.6 : 1 }}>{entry.profiles?.full_name}</span>
                                 {entry.notes && <span style={{ fontSize: '0.65rem', color: 'var(--muted)', fontStyle: 'italic' }}>({entry.notes})</span>}
-                                {(entry.start_date || entry.end_date) && (
-                                  <span style={{ fontSize: '0.65rem', color: 'var(--muted)', fontStyle: 'italic' }}>
-                                    ({entry.start_date ?? '...'} → {entry.end_date ?? '...'})
-                                  </span>
-                                )}
+                                {(entry.start_date || entry.end_date) && (<span style={{ fontSize: '0.65rem', color: 'var(--muted)', fontStyle: 'italic' }}>({entry.start_date ?? '...'} → {entry.end_date ?? '...'})</span>)}
                                 {entry.week_pattern && entry.week_pattern !== 'every' && (<span style={{ fontSize: '0.65rem', background: 'rgba(96,165,250,0.15)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>{entry.week_pattern === 'odd' ? '1st&3rd' : '2nd&4th'}</span>)}
                                 <button onClick={() => handleRemoveEntry(entry.id)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 2px' }}>✕</button>
                               </div>
@@ -671,151 +695,46 @@ export default function AdminPage() {
             </div>
           </div>
         )}
-        {/* ===================== VOLUNTEERS TAB ===================== */}
+
+        {/* ─────────────────────────── VOLUNTEERS TAB ─────────────────────────── */}
         {tab === 'volunteers' && !selectedVolunteer && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {/* ── Filter bar ─────────────────────────────────────── */}
             <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
-              <button
-                onClick={() => setFiltersOpen(o => !o)}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '0.75rem 1.25rem',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'DM Sans, sans-serif',
-                }}
-              >
+              <button onClick={() => setFiltersOpen(o => !o)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.25rem', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                 <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Filters</span>
-                <span
-                  style={{
-                    transform: filtersOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                    transition: 'transform 0.2s',
-                    color: 'var(--muted)',
-                  }}
-                >
-                  ▾
-                </span>
+                <span style={{ transform: filtersOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', color: 'var(--muted)' }}>▾</span>
               </button>
-
               {filtersOpen && (
                 <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)' }}>
                   <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-                    <input
-                      placeholder="Search name or email…"
-                      value={filterSearch}
-                      onChange={e => setFilterSearch(e.target.value)}
-                      style={{ ...inputStyle, flex: 1 }}
-                    />
-
-                    <select value={filterAffiliation} onChange={e => setFilterAffiliation(e.target.value)} style={inputStyle}>
-                      <option value="all">All affiliations</option>
-                      <option value="missionary">Missionary</option>
-                      <option value="student">Student</option>
-                      <option value="volunteer">Volunteer</option>
-                      <option value="intern">Intern</option>
-                      <option value="provider">Provider</option>
-                      <option value="BYU">BYU</option>
-                      <option value="UVU">UVU</option>
-                    </select>
-
-                    <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={inputStyle}>
-                      <option value="all">All roles</option>
-                      <option value="volunteer">Volunteer</option>
-                      <option value="admin">Admin</option>
-                    </select>
-
-                    <select value={filterDefaultRole} onChange={e => setFilterDefaultRole(e.target.value)} style={inputStyle}>
-                      <option value="all">All positions</option>
-                      {ROLES.map(r => (
-                        <option key={r} value={r}>{r}</option>
-                      ))}
-                    </select>
-
-                    <button
-                      onClick={() => setShowInactive(s => !s)}
-                      style={pillBtn(showInactive, false)}
-                    >
-                      {showInactive ? 'Hide Inactive' : 'Show Inactive'}
-                    </button>
+                    <input placeholder="Search name or email…" value={filterSearch} onChange={e => setFilterSearch(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
+                    <select value={filterAffiliation} onChange={e => setFilterAffiliation(e.target.value)} style={inputStyle}><option value="all">All affiliations</option><option value="missionary">Missionary</option><option value="student">Student</option><option value="volunteer">Volunteer</option><option value="intern">Intern</option><option value="provider">Provider</option><option value="BYU">BYU</option><option value="UVU">UVU</option></select>
+                    <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={inputStyle}><option value="all">All roles</option><option value="volunteer">Volunteer</option><option value="admin">Admin</option></select>
+                    <select value={filterDefaultRole} onChange={e => setFilterDefaultRole(e.target.value)} style={inputStyle}><option value="all">All positions</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select>
+                    <button onClick={() => setShowInactive(s => !s)} style={pillBtn(showInactive, false)}>{showInactive ? 'Hide Inactive' : 'Show Inactive'}</button>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* ── Collapsible Volunteer List ─────────────────────── */}
-            <ExpandableSection
-              label="Volunteers"
-              isOpen={volunteersOpen}
-              onToggle={() => setVolunteersOpen(o => !o)}
-              count={userList.length}
-            >
+            <ExpandableSection label="Volunteers" isOpen={volunteersOpen} onToggle={() => setVolunteersOpen(o => !o)} count={userList.length}>
               {userList.length === 0 ? (
-                <p style={{ color: 'var(--muted)', fontStyle: 'italic' }}>
-                  No volunteers match these filters.
-                </p>
+                <p style={{ color: 'var(--muted)', fontStyle: 'italic' }}>No volunteers match these filters.</p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {userList.map(v => {
                     const isInactive = (v.status ?? 'active') === 'inactive'
                     return (
-                      <div
-                        key={v.id}
-                        onClick={() => openVolunteer(v)}
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          padding: '0.75rem 1rem',
-                          borderRadius: '8px',
-                          border: '1px solid var(--border)',
-                          background: isInactive ? 'rgba(156,163,175,0.06)' : 'var(--bg)',
-                          cursor: 'pointer',
-                          opacity: isInactive ? 0.7 : 1,
-                        }}
-                        onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
-                        onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
-                      >
+                      <div key={v.id} onClick={() => openVolunteer(v)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid var(--border)', background: isInactive ? 'rgba(156,163,175,0.06)' : 'var(--bg)', cursor: 'pointer', opacity: isInactive ? 0.7 : 1 }} onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'} onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
                         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                          <div
-                            style={{
-                              width: 36,
-                              height: 36,
-                              borderRadius: '50%',
-                              background: 'var(--surface)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontWeight: 600,
-                              color: isInactive ? 'var(--muted)' : 'var(--accent)',
-                            }}
-                          >
-                            {v.full_name?.charAt(0)}
-                          </div>
-
-                          <div>
-                            <p style={{ fontWeight: 500 }}>{v.full_name}</p>
-                            <p style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
-                              {v.email}
-                            </p>
-                          </div>
+                          <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: isInactive ? 'var(--muted)' : 'var(--accent)' }}>{v.full_name?.charAt(0)}</div>
+                          <div><p style={{ fontWeight: 500 }}>{v.full_name}</p><p style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>{v.email}</p></div>
                         </div>
-
                         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                           {isInactive && <span style={badgeStyle('#9ca3af')}>inactive</span>}
                           {v.role === 'admin' && <span style={badgeStyle('#f59e0b')}>admin</span>}
-                          {v.affiliation && (
-                            <span style={badgeStyle(affiliationColor[v.affiliation] ?? '#9ca3af')}>
-                              {v.affiliation}
-                            </span>
-                          )}
-                          <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--accent)' }}>
-                            {totalHours(v.shifts)}h
-                          </span>
+                          {v.affiliation && <span style={badgeStyle(affiliationColor[v.affiliation] ?? '#9ca3af')}>{v.affiliation}</span>}
+                          <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--accent)' }}>{totalHours(v.shifts)}h</span>
                           <span style={{ color: 'var(--muted)' }}>›</span>
                         </div>
                       </div>
@@ -827,17 +746,14 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* VOLUNTEER DETAIL */}
+        {/* ─────────────────────────── VOLUNTEER DETAIL ─────────────────────────── */}
         {tab === 'volunteers' && selectedVolunteer && (
           <div style={card}>
             <button onClick={() => setSelectedVolunteer(null)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.875rem', marginBottom: '1.25rem', padding: 0, fontFamily: 'DM Sans, sans-serif' }}>← Back</button>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                 <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '1.3rem', color: 'var(--accent)', border: '2px solid var(--accent)' }}>{selectedVolunteer.full_name?.charAt(0)}</div>
-                <div>
-                  <h2 style={{ fontWeight: 600, fontSize: '1.2rem' }}>{selectedVolunteer.full_name}</h2>
-                  <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{selectedVolunteer.email}</p>
-                </div>
+                <div><h2 style={{ fontWeight: 600, fontSize: '1.2rem' }}>{selectedVolunteer.full_name}</h2><p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{selectedVolunteer.email}</p></div>
               </div>
               <button onClick={() => setEditing(!editing)} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: editing ? 'var(--surface)' : 'var(--accent)', color: editing ? 'var(--muted)' : '#0a0f0a', border: editing ? '1px solid var(--border)' : 'none' }}>{editing ? 'Cancel' : 'Edit'}</button>
             </div>
@@ -855,7 +771,12 @@ export default function AdminPage() {
                     { label: 'Default Position', value: selectedVolunteer.default_role },
                     { label: 'Birthday', value: selectedVolunteer.birthday },
                     ...(selectedVolunteer.affiliation === 'missionary' ? [{ label: 'SMA Name', value: selectedVolunteer.sma_name }, { label: 'SMA Contact', value: selectedVolunteer.sma_contact }] : []),
-                    ...(selectedVolunteer.affiliation === 'intern' ? [{ label: 'Advisor Name', value: selectedVolunteer.advisor_name }, { label: 'Advisor Contact', value: selectedVolunteer.advisor_contact }] : []),
+                    ...(selectedVolunteer.affiliation === 'intern' ? [
+                      { label: 'Advisor Name', value: selectedVolunteer.advisor_name },
+                      { label: 'Advisor Contact', value: selectedVolunteer.advisor_contact },
+                      { label: 'School', value: selectedVolunteer.intern_school },
+                      { label: 'Dept / Company', value: selectedVolunteer.intern_department },
+                    ] : []),
                     ...(selectedVolunteer.affiliation === 'student' ? [{ label: 'School', value: selectedVolunteer.school }, { label: 'Major', value: selectedVolunteer.major }] : [])
                   ].map(({ label, value }) => (
                     <div key={label} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
@@ -863,52 +784,25 @@ export default function AdminPage() {
                       <p style={{ fontWeight: 500, color: value ? 'var(--text)' : 'var(--muted)', fontStyle: value ? 'normal' : 'italic' }}>{value || 'Not set'}</p>
                     </div>
                   ))}
+
+                  {/* Provider credentials grid */}
+                  {selectedVolunteer.affiliation === 'provider' && (
+                    <ProviderCredentialsView vol={selectedVolunteer} />
+                  )}
                 </div>
 
-                {/* ── Recent Shifts expandable ── */}
+                {/* Recent / Scheduled shifts toggles */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-
-                    {/* Recent Shifts button */}
-                    <button
-                      onClick={() => handleToggleRecentShifts(selectedVolunteer.id)}
-                      style={{
-                        flex: 1, minWidth: '180px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem',
-                        padding: '0.75rem 1rem', borderRadius: '10px', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-                        background: showRecentShifts ? 'rgba(2,65,107,0.08)' : 'var(--bg)',
-                        border: `1px solid ${showRecentShifts ? 'var(--accent)' : 'var(--border)'}`,
-                        color: showRecentShifts ? 'var(--accent)' : 'var(--text)',
-                        transition: 'all 0.15s',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                        <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Recent Shifts</span>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>last 10</span>
-                      </div>
+                    <button onClick={() => handleToggleRecentShifts(selectedVolunteer.id)} style={{ flex: 1, minWidth: '180px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', padding: '0.75rem 1rem', borderRadius: '10px', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showRecentShifts ? 'rgba(2,65,107,0.08)' : 'var(--bg)', border: `1px solid ${showRecentShifts ? 'var(--accent)' : 'var(--border)'}`, color: showRecentShifts ? 'var(--accent)' : 'var(--text)', transition: 'all 0.15s' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}><span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Recent Shifts</span><span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>last 10</span></div>
                       <span style={{ display: 'inline-block', transform: showRecentShifts ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', color: 'var(--muted)', fontSize: '1rem' }}>›</span>
                     </button>
-
-                    {/* Scheduled Shifts button */}
-                    <button
-                      onClick={() => handleToggleScheduledShifts(selectedVolunteer.id)}
-                      style={{
-                        flex: 1, minWidth: '180px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem',
-                        padding: '0.75rem 1rem', borderRadius: '10px', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-                        background: showScheduledShifts ? 'rgba(2,65,107,0.08)' : 'var(--bg)',
-                        border: `1px solid ${showScheduledShifts ? 'var(--accent)' : 'var(--border)'}`,
-                        color: showScheduledShifts ? 'var(--accent)' : 'var(--text)',
-                        transition: 'all 0.15s',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                        <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Schedule</span>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>recurring</span>
-                      </div>
+                    <button onClick={() => handleToggleScheduledShifts(selectedVolunteer.id)} style={{ flex: 1, minWidth: '180px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', padding: '0.75rem 1rem', borderRadius: '10px', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showScheduledShifts ? 'rgba(2,65,107,0.08)' : 'var(--bg)', border: `1px solid ${showScheduledShifts ? 'var(--accent)' : 'var(--border)'}`, color: showScheduledShifts ? 'var(--accent)' : 'var(--text)', transition: 'all 0.15s' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}><span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Schedule</span><span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>recurring</span></div>
                       <span style={{ display: 'inline-block', transform: showScheduledShifts ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', color: 'var(--muted)', fontSize: '1rem' }}>›</span>
                     </button>
                   </div>
-
-                  {/* Recent shifts list */}
                   {showRecentShifts && (
                     <div style={{ borderRadius: '10px', border: '1px solid var(--accent)', overflow: 'hidden', background: 'var(--bg)' }}>
                       <div style={{ padding: '0.65rem 1rem', background: 'rgba(2,65,107,0.06)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -916,34 +810,16 @@ export default function AdminPage() {
                         {!loadingRecentShifts && <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>{recentShifts.length} shown</span>}
                         {loadingRecentShifts && <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>Loading…</span>}
                       </div>
-                      {loadingRecentShifts ? (
-                        <div style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.85rem' }}>Loading…</div>
-                      ) : recentShifts.length === 0 ? (
-                        <div style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>No completed shifts on record.</div>
-                      ) : (
+                      {loadingRecentShifts ? <div style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.85rem' }}>Loading…</div> : recentShifts.length === 0 ? <div style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>No completed shifts on record.</div> : (
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                           {recentShifts.map((s, i) => {
                             const hours = calcShiftHours(s.clock_in, s.clock_out)
-                            return (
-                              <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.65rem 1rem', borderBottom: i < recentShifts.length - 1 ? '1px solid var(--border)' : 'none', gap: '0.75rem', flexWrap: 'wrap' }}>
-                                <div>
-                                  <p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.82rem', color: 'var(--text)' }}>{formatDateTime(s.clock_in)}</p>
-                                  {s.role && <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.15rem' }}>{s.role}</p>}
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                  {hours && (
-                                    <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.88rem', fontWeight: 600, color: 'var(--accent)' }}>{hours}h</span>
-                                  )}
-                                </div>
-                              </div>
-                            )
+                            return (<div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.65rem 1rem', borderBottom: i < recentShifts.length - 1 ? '1px solid var(--border)' : 'none', gap: '0.75rem', flexWrap: 'wrap' }}><div><p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.82rem', color: 'var(--text)' }}>{formatDateTime(s.clock_in)}</p>{s.role && <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.15rem' }}>{s.role}</p>}</div><div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>{hours && <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.88rem', fontWeight: 600, color: 'var(--accent)' }}>{hours}h</span>}</div></div>)
                           })}
                         </div>
                       )}
                     </div>
                   )}
-
-                  {/* Scheduled shifts list */}
                   {showScheduledShifts && (
                     <div style={{ borderRadius: '10px', border: '1px solid var(--accent)', overflow: 'hidden', background: 'var(--bg)' }}>
                       <div style={{ padding: '0.65rem 1rem', background: 'rgba(2,65,107,0.06)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -951,26 +827,10 @@ export default function AdminPage() {
                         {!loadingScheduledShifts && <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>{scheduledShifts.length} slot{scheduledShifts.length !== 1 ? 's' : ''}</span>}
                         {loadingScheduledShifts && <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>Loading…</span>}
                       </div>
-                      {loadingScheduledShifts ? (
-                        <div style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.85rem' }}>Loading…</div>
-                      ) : scheduledShifts.length === 0 ? (
-                        <div style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>Not assigned to any recurring shifts.</div>
-                      ) : (
+                      {loadingScheduledShifts ? <div style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.85rem' }}>Loading…</div> : scheduledShifts.length === 0 ? <div style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>Not assigned to any recurring shifts.</div> : (
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                           {[...scheduledShifts].sort((a, b) => (DAY_ORDER[a.day_of_week] ?? 9) - (DAY_ORDER[b.day_of_week] ?? 9) || a.shift_time.localeCompare(b.shift_time)).map((s, i) => (
-                            <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.65rem 1rem', borderBottom: i < scheduledShifts.length - 1 ? '1px solid var(--border)' : 'none', gap: '0.75rem', flexWrap: 'wrap' }}>
-                              <div>
-                                <p style={{ fontWeight: 500, fontSize: '0.88rem', textTransform: 'capitalize' }}>{s.day_of_week}</p>
-                                <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.1rem' }}>{s.role || 'No role'}</p>
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.82rem', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', padding: '0.2rem 0.55rem', borderRadius: '6px', border: '1px solid rgba(2,65,107,0.3)' }}>{s.shift_time}</span>
-                                {s.week_pattern && s.week_pattern !== 'every' && (
-                                  <span style={{ fontSize: '0.72rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', padding: '0.15rem 0.45rem', borderRadius: '5px', border: '1px solid rgba(96,165,250,0.3)' }}>{s.week_pattern === 'odd' ? '1st & 3rd' : '2nd & 4th'}</span>
-                                )}
-                                {s.notes && <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontStyle: 'italic' }}>({s.notes})</span>}
-                              </div>
-                            </div>
+                            <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.65rem 1rem', borderBottom: i < scheduledShifts.length - 1 ? '1px solid var(--border)' : 'none', gap: '0.75rem', flexWrap: 'wrap' }}><div><p style={{ fontWeight: 500, fontSize: '0.88rem', textTransform: 'capitalize' }}>{s.day_of_week}</p><p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.1rem' }}>{s.role || 'No role'}</p></div><div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}><span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.82rem', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', padding: '0.2rem 0.55rem', borderRadius: '6px', border: '1px solid rgba(2,65,107,0.3)' }}>{s.shift_time}</span>{s.week_pattern && s.week_pattern !== 'every' && (<span style={{ fontSize: '0.72rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', padding: '0.15rem 0.45rem', borderRadius: '5px', border: '1px solid rgba(96,165,250,0.3)' }}>{s.week_pattern === 'odd' ? '1st & 3rd' : '2nd & 4th'}</span>)}{s.notes && <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontStyle: 'italic' }}>({s.notes})</span>}</div></div>
                           ))}
                         </div>
                       )}
@@ -999,6 +859,7 @@ export default function AdminPage() {
                 })()}
               </div>
             ) : (
+              /* ── Edit form ── */
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                   <div><label style={labelStyle}>Full Name</label><input value={editForm.full_name} onChange={e => setEditForm({...editForm, full_name: e.target.value})} style={inputStyle} /></div>
@@ -1009,20 +870,35 @@ export default function AdminPage() {
                   <div><label style={labelStyle}>Role</label><select value={editForm.role} onChange={e => setEditForm({...editForm, role: e.target.value})} style={inputStyle}><option value="volunteer">Volunteer</option><option value="admin">Admin</option></select></div>
                   <div><label style={labelStyle}>Default Position</label><select value={editForm.default_role} onChange={e => setEditForm({...editForm, default_role: e.target.value})} style={inputStyle}><option value="">— None —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                   <div><label style={labelStyle}>Birthday</label><input type="date" value={editForm.birthday || ''} onChange={e => setEditForm({ ...editForm, birthday: e.target.value })} style={inputStyle} /></div>
-                  {editForm.affiliation === 'missionary' && <><div><label style={labelStyle}>SMA Name</label><input value={editForm.sma_name} onChange={e => setEditForm({...editForm, sma_name: e.target.value})} placeholder="SMA full name" style={inputStyle} /></div><div><label style={labelStyle}>SMA Contact</label><input value={editForm.sma_contact} onChange={e => setEditForm({...editForm, sma_contact: e.target.value})} placeholder="Phone or email" style={inputStyle} /></div></>}
-                  {editForm.affiliation === 'intern' && (
-                    <>
-                      <div>
-                        <label style={labelStyle}>Advisor Name</label>
-                        <input value={editForm.advisor_name} onChange={e => setEditForm({ ...editForm, advisor_name: e.target.value })} placeholder="Advisor full name" style={inputStyle} />
+
+                  {/* Missionary fields */}
+                  {editForm.affiliation === 'missionary' && (<><div><label style={labelStyle}>SMA Name</label><input value={editForm.sma_name} onChange={e => setEditForm({...editForm, sma_name: e.target.value})} placeholder="SMA full name" style={inputStyle} /></div><div><label style={labelStyle}>SMA Contact</label><input value={editForm.sma_contact} onChange={e => setEditForm({...editForm, sma_contact: e.target.value})} placeholder="Phone or email" style={inputStyle} /></div></>)}
+
+                  {/* Intern fields */}
+                  {editForm.affiliation === 'intern' && (<>
+                    <div><label style={labelStyle}>Advisor Name</label><input value={editForm.advisor_name} onChange={e => setEditForm({...editForm, advisor_name: e.target.value})} placeholder="Advisor full name" style={inputStyle} /></div>
+                    <div><label style={labelStyle}>Advisor Contact</label><input value={editForm.advisor_contact} onChange={e => setEditForm({...editForm, advisor_contact: e.target.value})} placeholder="Phone or email" style={inputStyle} /></div>
+                    <div><label style={labelStyle}>School</label><input value={editForm.intern_school} onChange={e => setEditForm({...editForm, intern_school: e.target.value})} placeholder="University or institution" style={inputStyle} /></div>
+                    <div><label style={labelStyle}>Dept / Company</label><input value={editForm.intern_department} onChange={e => setEditForm({...editForm, intern_department: e.target.value})} placeholder="Department or company name" style={inputStyle} /></div>
+                  </>)}
+
+                  {/* Student fields */}
+                  {editForm.affiliation === 'student' && (<><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>School</label><select value={editForm.school} onChange={e => setEditForm({...editForm, school: e.target.value})} style={inputStyle}><option value="">— Select school —</option>{SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}</select></div><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Major</label><select value={editForm.major || ''} onChange={e => setEditForm({...editForm, major: e.target.value})} style={inputStyle}><option value="">— Select major —</option>{MAJORS.map(m => <option key={m} value={m}>{m}</option>)}</select></div></>)}
+
+                  {/* Provider credential fields */}
+                  {editForm.affiliation === 'provider' && (
+                    <div style={{ gridColumn: '1 / -1', padding: '1rem 1.25rem', borderRadius: '10px', border: '1px solid rgba(125,211,252,0.4)', background: 'rgba(125,211,252,0.04)' }}>
+                      <p style={{ fontSize: '0.78rem', fontWeight: 600, color: '#7dd3fc', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.85rem' }}>Credential Expiration Dates</p>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.75rem' }}>
+                        {PROVIDER_CRED_FIELDS.map(f => (
+                          <div key={f.key}>
+                            <label style={labelStyle}>{f.label}</label>
+                            <input type="date" value={editForm[f.key] || ''} onChange={e => setEditForm({...editForm, [f.key]: e.target.value})} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} />
+                          </div>
+                        ))}
                       </div>
-                      <div>
-                        <label style={labelStyle}>Advisor Contact</label>
-                        <input value={editForm.advisor_contact} onChange={e => setEditForm({ ...editForm, advisor_contact: e.target.value })} placeholder="Phone or email" style={inputStyle} />
-                      </div>
-                    </>
+                    </div>
                   )}
-                  {editForm.affiliation === 'student' && <><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>School</label><select value={editForm.school} onChange={e => setEditForm({...editForm, school: e.target.value})} style={inputStyle}><option value="">— Select school —</option>{SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}</select></div><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Major</label><select value={editForm.major || ''} onChange={e => setEditForm({...editForm, major: e.target.value})} style={inputStyle}><option value="">— Select major —</option>{MAJORS.map(m => <option key={m} value={m}>{m}</option>)}</select></div></>}
                 </div>
                 <button onClick={handleSaveEdit} disabled={saving} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{saving ? 'Saving...' : 'Save Changes'}</button>
               </div>
@@ -1030,7 +906,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* SHIFTS TAB */}
+        {/* ─────────────────────────── SHIFTS TAB ─────────────────────────── */}
         {tab === 'shifts' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {showNewShiftForm && (
@@ -1040,7 +916,7 @@ export default function AdminPage() {
                   <div><label style={labelStyle}>Volunteer</label><select value={newShiftForm.volunteer_id} onChange={e => setNewShiftForm({ ...newShiftForm, volunteer_id: e.target.value })} required style={inputStyle}><option value="">— Select volunteer —</option>{userList.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}</select></div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                     <div><label style={labelStyle}>Clock In ({tzLabel})</label><input type="datetime-local" value={newShiftForm.clock_in} onChange={e => setNewShiftForm({ ...newShiftForm, clock_in: e.target.value })} required style={inputStyle} /></div>
-                    <div><label style={labelStyle}>Clock Out ({tzLabel}) <span style={{ color: 'var(--muted)', textTransform: 'none', fontSize: '0.75rem' }}>— leave blank if active</span></label><input type="datetime-local" value={newShiftForm.clock_out} onChange={e => setNewShiftForm({ ...newShiftForm, clock_out: e.target.value })} style={inputStyle} /></div>
+                    <div><label style={labelStyle}>Clock Out ({tzLabel})</label><input type="datetime-local" value={newShiftForm.clock_out} onChange={e => setNewShiftForm({ ...newShiftForm, clock_out: e.target.value })} style={inputStyle} /></div>
                   </div>
                   <div><label style={labelStyle}>Position</label><select value={newShiftForm.role} onChange={e => setNewShiftForm({ ...newShiftForm, role: e.target.value })} style={inputStyle}><option value="">— No role —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                   <div style={{ display: 'flex', gap: '0.75rem' }}>
@@ -1105,7 +981,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* CALLOUTS TAB */}
+        {/* ─────────────────────────── CALLOUTS TAB ─────────────────────────── */}
         {tab === 'callouts' && (() => {
           const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
           const pendingCallouts = callouts.filter(c => (!c.status || c.status === 'pending') && c.callout_date >= todayStr)
@@ -1150,11 +1026,7 @@ export default function AdminPage() {
                             <div><span style={{ fontWeight: 500, color: 'var(--muted)', fontSize: '0.85rem' }}>Called out: </span><span style={{ fontWeight: 600 }}>{c.profiles?.full_name}</span><span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)' }}>{c.callout_date} · {c.day_of_week} {c.shift_time}</span>{c.role && <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)' }}>{c.role}</span>}</div>
                             {pending.length === 0 && <span style={{ fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic' }}>No volunteers yet</span>}
                           </div>
-                          {pending.length > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                              {pending.map(r => (<div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'var(--surface)', borderRadius: '6px', border: '1px solid var(--border)' }}><span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{r.profiles?.full_name}</span><div style={{ display: 'flex', gap: '0.4rem' }}><button onClick={() => approveCover(r)} disabled={approvingCoverId === r.id} style={{ padding: '0.25rem 0.7rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{approvingCoverId === r.id ? '...' : '✓ Assign'}</button><button onClick={() => denyCover(r.id)} disabled={approvingCoverId === r.id} style={{ padding: '0.25rem 0.7rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>✕</button></div></div>))}
-                            </div>
-                          )}
+                          {pending.length > 0 && (<div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>{pending.map(r => (<div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'var(--surface)', borderRadius: '6px', border: '1px solid var(--border)' }}><span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{r.profiles?.full_name}</span><div style={{ display: 'flex', gap: '0.4rem' }}><button onClick={() => approveCover(r)} disabled={approvingCoverId === r.id} style={{ padding: '0.25rem 0.7rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{approvingCoverId === r.id ? '...' : '✓ Assign'}</button><button onClick={() => denyCover(r.id)} disabled={approvingCoverId === r.id} style={{ padding: '0.25rem 0.7rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>✕</button></div></div>))}</div>)}
                         </div>
                       )
                     })}
@@ -1164,18 +1036,14 @@ export default function AdminPage() {
               {closedCallouts.length > 0 && (
                 <div style={card}>
                   <button onClick={() => setShowReadCallouts(!showReadCallouts)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.9rem', fontWeight: 500, padding: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}><span style={{ display: 'inline-block', transform: showReadCallouts ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>›</span>Covered / Closed ({closedCallouts.length})</button>
-                  {showReadCallouts && (
-                    <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {closedCallouts.map(c => (<div key={c.id} style={{ padding: '0.6rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', opacity: 0.65, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}><div><span style={{ fontWeight: 500 }}>{c.profiles?.full_name}</span><span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', color: 'var(--muted)' }}>{c.callout_date} · {c.shift_time}</span></div><span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: c.covered_by ? 'rgba(2,65,107,0.1)' : 'rgba(239,68,68,0.08)', color: c.covered_by ? 'var(--accent)' : '#ef4444', border: `1px solid ${c.covered_by ? 'rgba(2,65,107,0.35)' : 'rgba(239,68,68,0.25)'}` }}>{c.covered_by ? 'covered' : 'denied'}</span></div>))}
-                    </div>
-                  )}
+                  {showReadCallouts && (<div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>{closedCallouts.map(c => (<div key={c.id} style={{ padding: '0.6rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', opacity: 0.65, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}><div><span style={{ fontWeight: 500 }}>{c.profiles?.full_name}</span><span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', color: 'var(--muted)' }}>{c.callout_date} · {c.shift_time}</span></div><span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: c.covered_by ? 'rgba(2,65,107,0.1)' : 'rgba(239,68,68,0.08)', color: c.covered_by ? 'var(--accent)' : '#ef4444', border: `1px solid ${c.covered_by ? 'rgba(2,65,107,0.35)' : 'rgba(239,68,68,0.25)'}` }}>{c.covered_by ? 'covered' : 'denied'}</span></div>))}</div>)}
                 </div>
               )}
             </div>
           )
         })()}
 
-        {/* HOURS TAB */}
+        {/* ─────────────────────────── HOURS TAB ─────────────────────────── */}
         {tab === 'hours' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {hoursLoading ? <p style={{ color: 'var(--muted)', padding: '1rem' }}>Loading...</p> : hoursSubmissions.length === 0 ? <div style={card}><p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No hours submissions yet.</p></div> : (
@@ -1184,24 +1052,14 @@ export default function AdminPage() {
                   <div style={card}>
                     <h2 style={{ fontWeight: 600, marginBottom: '1rem' }}>Pending Approval<span style={{ marginLeft: '0.5rem', padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>{hoursSubmissions.filter(h => h.status === 'pending' && h.profiles?.role !== 'admin').length}</span></h2>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                      {hoursSubmissions.filter(h => h.status === 'pending' && h.profiles?.role !== 'admin').map(h => (
-                        <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', flexWrap: 'wrap', gap: '0.75rem' }}>
-                          <div><p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{h.profiles?.full_name}</p><p style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>{h.work_date} &nbsp;·&nbsp; {h.role} &nbsp;·&nbsp; <span style={{ fontFamily: 'DM Mono, monospace' }}>{h.hours}h</span></p>{h.notes && <p style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic', marginTop: '0.2rem' }}>{h.notes}</p>}</div>
-                          <div style={{ display: 'flex', gap: '0.5rem' }}>
-                            <button onClick={() => approveHours(h)} disabled={approvingHoursId === h.id} style={{ padding: '0.4rem 0.9rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{approvingHoursId === h.id ? '...' : '✓ Approve'}</button>
-                            <button onClick={() => rejectHours(h.id)} disabled={approvingHoursId === h.id} style={{ padding: '0.4rem 0.9rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>✕ Reject</button>
-                          </div>
-                        </div>
-                      ))}
+                      {hoursSubmissions.filter(h => h.status === 'pending' && h.profiles?.role !== 'admin').map(h => (<div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', flexWrap: 'wrap', gap: '0.75rem' }}><div><p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{h.profiles?.full_name}</p><p style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>{h.work_date} &nbsp;·&nbsp; {h.role} &nbsp;·&nbsp; <span style={{ fontFamily: 'DM Mono, monospace' }}>{h.hours}h</span></p>{h.notes && <p style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic', marginTop: '0.2rem' }}>{h.notes}</p>}</div><div style={{ display: 'flex', gap: '0.5rem' }}><button onClick={() => approveHours(h)} disabled={approvingHoursId === h.id} style={{ padding: '0.4rem 0.9rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{approvingHoursId === h.id ? '...' : '✓ Approve'}</button><button onClick={() => rejectHours(h.id)} disabled={approvingHoursId === h.id} style={{ padding: '0.4rem 0.9rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>✕ Reject</button></div></div>))}
                     </div>
                   </div>
                 )}
                 {hoursSubmissions.filter(h => h.status !== 'pending' && h.profiles?.role !== 'admin').length > 0 && (
                   <div style={card}>
                     <h2 style={{ fontWeight: 600, marginBottom: '1rem', color: 'var(--muted)' }}>Previously Reviewed</h2>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {hoursSubmissions.filter(h => h.status !== 'pending' && h.profiles?.role !== 'admin').map(h => (<div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', opacity: 0.75 }}><div><span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{h.profiles?.full_name}</span><span style={{ color: 'var(--muted)', fontSize: '0.8rem', marginLeft: '0.5rem' }}>{h.work_date} · {h.role} · {h.hours}h</span></div><span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', fontWeight: 500, background: h.status === 'approved' ? 'rgba(2,65,107,0.12)' : 'rgba(239,68,68,0.1)', color: h.status === 'approved' ? 'var(--accent)' : '#ef4444', border: `1px solid ${h.status === 'approved' ? 'rgba(2,65,107,0.35)' : 'rgba(239,68,68,0.25)'}` }}>{h.status}</span></div>))}
-                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>{hoursSubmissions.filter(h => h.status !== 'pending' && h.profiles?.role !== 'admin').map(h => (<div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', opacity: 0.75 }}><div><span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{h.profiles?.full_name}</span><span style={{ color: 'var(--muted)', fontSize: '0.8rem', marginLeft: '0.5rem' }}>{h.work_date} · {h.role} · {h.hours}h</span></div><span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', fontWeight: 500, background: h.status === 'approved' ? 'rgba(2,65,107,0.12)' : 'rgba(239,68,68,0.1)', color: h.status === 'approved' ? 'var(--accent)' : '#ef4444', border: `1px solid ${h.status === 'approved' ? 'rgba(2,65,107,0.35)' : 'rgba(239,68,68,0.25)'}` }}>{h.status}</span></div>))}</div>
                   </div>
                 )}
               </>
@@ -1209,14 +1067,10 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* AUDIT LOG TAB */}
+        {/* ─────────────────────────── AUDIT LOG TAB ─────────────────────────── */}
         {tab === 'audit' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={card}>
-              <p style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.5, maxWidth: '600px' }}>
-                This tool helps maintain consistency across shifts by tracking administrative actions and providing clear visibility into changes.
-              </p>
-            </div>
+            <div style={card}><p style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.5, maxWidth: '600px' }}>This tool helps maintain consistency across shifts by tracking administrative actions and providing clear visibility into changes.</p></div>
             <div style={card}>
               <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Filters</h2>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -1265,7 +1119,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* CREATE TAB */}
+        {/* ─────────────────────────── CREATE TAB ─────────────────────────── */}
         {tab === 'create' && (
           <div style={card}>
             <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Create Volunteer Account</h2>
@@ -1281,30 +1135,34 @@ export default function AdminPage() {
                 <div><label style={labelStyle}>Role</label><select value={newRole} onChange={e => setNewRole(e.target.value)} style={inputStyle}><option value="volunteer">Volunteer</option><option value="admin">Admin</option></select></div>
                 <div><label style={labelStyle}>Default Position</label><select value={newDefaultRole} onChange={e => setNewDefaultRole(e.target.value)} style={inputStyle}><option value="">— None —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                 <div><label style={labelStyle}>Birthday</label><input type="date" value={newBirthday} onChange={e => setNewBirthday(e.target.value)} style={inputStyle} /></div>
-                {newAffiliation === 'missionary' && <><div><label style={labelStyle}>SMA Name</label><input value={newSmaName} onChange={e => setNewSmaName(e.target.value)} placeholder="SMA full name" style={inputStyle} /></div><div><label style={labelStyle}>SMA Contact</label><input value={newSmaContact} onChange={e => setNewSmaContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div></>}
-                {newAffiliation === 'student' && <><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>School</label><select value={newSchool} onChange={e => setNewSchool(e.target.value)} style={inputStyle}><option value="">— Select school —</option>{SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}</select></div><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Major</label><select value={newMajor} onChange={e => setNewMajor(e.target.value)} style={inputStyle}><option value="">— Select major —</option>{MAJORS.map(m => <option key={m} value={m}>{m}</option>)}</select></div></>}
-                {newAffiliation === 'intern' && (
-                  <>
-                    <div>
-                      <label style={labelStyle}>Advisor Name</label>
-                      <input
-                        value={newAdvisorName}
-                        onChange={e => setNewAdvisorName(e.target.value)}
-                        placeholder="Advisor full name"
-                        style={inputStyle}
-                      />
-                    </div>
 
-                    <div>
-                      <label style={labelStyle}>Advisor Contact</label>
-                      <input
-                        value={newAdvisorContact}
-                        onChange={e => setNewAdvisorContact(e.target.value)}
-                        placeholder="Phone or email"
-                        style={inputStyle}
-                      />
+                {/* Missionary */}
+                {newAffiliation === 'missionary' && (<><div><label style={labelStyle}>SMA Name</label><input value={newSmaName} onChange={e => setNewSmaName(e.target.value)} placeholder="SMA full name" style={inputStyle} /></div><div><label style={labelStyle}>SMA Contact</label><input value={newSmaContact} onChange={e => setNewSmaContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div></>)}
+
+                {/* Student */}
+                {newAffiliation === 'student' && (<><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>School</label><select value={newSchool} onChange={e => setNewSchool(e.target.value)} style={inputStyle}><option value="">— Select school —</option>{SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}</select></div><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Major</label><select value={newMajor} onChange={e => setNewMajor(e.target.value)} style={inputStyle}><option value="">— Select major —</option>{MAJORS.map(m => <option key={m} value={m}>{m}</option>)}</select></div></>)}
+
+                {/* Intern */}
+                {newAffiliation === 'intern' && (<>
+                  <div><label style={labelStyle}>Advisor Name</label><input value={newAdvisorName} onChange={e => setNewAdvisorName(e.target.value)} placeholder="Advisor full name" style={inputStyle} /></div>
+                  <div><label style={labelStyle}>Advisor Contact</label><input value={newAdvisorContact} onChange={e => setNewAdvisorContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div>
+                  <div><label style={labelStyle}>School</label><input value={newInternSchool} onChange={e => setNewInternSchool(e.target.value)} placeholder="University or institution" style={inputStyle} /></div>
+                  <div><label style={labelStyle}>Dept / Company</label><input value={newInternDepartment} onChange={e => setNewInternDepartment(e.target.value)} placeholder="Department or company" style={inputStyle} /></div>
+                </>)}
+
+                {/* Provider credentials */}
+                {newAffiliation === 'provider' && (
+                  <div style={{ gridColumn: '1 / -1', padding: '1rem 1.25rem', borderRadius: '10px', border: '1px solid rgba(125,211,252,0.4)', background: 'rgba(125,211,252,0.04)' }}>
+                    <p style={{ fontSize: '0.78rem', fontWeight: 600, color: '#7dd3fc', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.85rem' }}>Credential Expiration Dates</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.75rem' }}>
+                      {PROVIDER_CRED_FIELDS.map(f => (
+                        <div key={f.key}>
+                          <label style={labelStyle}>{f.label}</label>
+                          <input type="date" value={newProviderCreds[f.key]} onChange={e => setNewProviderCreds(prev => ({ ...prev, [f.key]: e.target.value }))} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} />
+                        </div>
+                      ))}
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
               <button type="submit" disabled={creating} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: creating ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{creating ? 'Creating...' : 'Create Account'}</button>
@@ -1312,7 +1170,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* DATA DASHBOARD TAB */}
+        {/* ─────────────────────────── DATA TAB ─────────────────────────── */}
         {tab === 'data' && (
           <DataDashboard supabase={supabase} />
         )}
