@@ -670,136 +670,151 @@ export default function AdminPage() {
             </div>
           </div>
         )}
-
-        {/* VOLUNTEERS TAB — LIST */}
+        {/* ===================== VOLUNTEERS TAB ===================== */}
         {tab === 'volunteers' && !selectedVolunteer && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {/* Filter bar */}
+            {/* ── Filter bar ─────────────────────────────────────── */}
             <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
-              {/* Header / toggle */}
               <button
                 onClick={() => setFiltersOpen(o => !o)}
                 style={{
-                  width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '0.75rem 1.25rem', background: 'none', border: 'none', cursor: 'pointer',
+                  width: '100%',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '0.75rem 1.25rem',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
                   fontFamily: 'DM Sans, sans-serif',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                  <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text)' }}>Filters</span>
-                  {!filtersOpen && (filterSearch || filterAffiliation !== 'all' || filterRole !== 'all' || filterDefaultRole !== 'all') && (
-                    <span style={{ fontSize: '0.7rem', fontWeight: 700, background: 'var(--accent)', color: '#0a0f0a', borderRadius: '100px', padding: '0.1rem 0.5rem' }}>
-                      {[filterSearch, filterAffiliation !== 'all', filterRole !== 'all', filterDefaultRole !== 'all'].filter(Boolean).length} active
-                    </span>
-                  )}
-                </div>
-                <span style={{
-                  display: 'inline-block', color: 'var(--muted)', fontSize: '1rem',
-                  transform: filtersOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s'
-                }}>▾</span>
+                <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Filters</span>
+                <span
+                  style={{
+                    transform: filtersOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.2s',
+                    color: 'var(--muted)',
+                  }}
+                >
+                  ▾
+                </span>
               </button>
 
-              {/* Collapsible body */}
               {filtersOpen && (
-                <div style={{ padding: '0 1.25rem 1rem', borderTop: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end', paddingTop: '1rem' }}>
-                    {/* Search */}
-                    <div style={{ flex: '1 1 180px', minWidth: '150px' }}>
-                      <label style={labelStyle}>Search</label>
-                      <input
-                        type="text"
-                        placeholder="Name or email…"
-                        value={filterSearch}
-                        onChange={e => setFilterSearch(e.target.value)}
-                        style={{ ...inputStyle, padding: '0.55rem 0.85rem', fontSize: '0.875rem' }}
-                      />
-                    </div>
+                <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                    <input
+                      placeholder="Search name or email…"
+                      value={filterSearch}
+                      onChange={e => setFilterSearch(e.target.value)}
+                      style={{ ...inputStyle, flex: 1 }}
+                    />
 
-                    {/* Affiliation */}
-                    <div style={{ flex: '1 1 150px', minWidth: '130px' }}>
-                      <label style={labelStyle}>Affiliation</label>
-                      <select value={filterAffiliation} onChange={e => setFilterAffiliation(e.target.value)} style={{ ...inputStyle, padding: '0.55rem 0.85rem', fontSize: '0.875rem' }}>
-                        <option value="all">All affiliations</option>
-                        <option value="missionary">Missionary</option>
-                        <option value="student">Student</option>
-                        <option value="BYU">BYU</option>
-                        <option value="UVU">UVU</option>
-                        <option value="volunteer">Volunteer</option>
-                        <option value="provider">Provider</option>
-                        <option value="intern">Intern</option>
-                      </select>
-                    </div>
+                    <select value={filterAffiliation} onChange={e => setFilterAffiliation(e.target.value)} style={inputStyle}>
+                      <option value="all">All affiliations</option>
+                      <option value="missionary">Missionary</option>
+                      <option value="student">Student</option>
+                      <option value="volunteer">Volunteer</option>
+                      <option value="intern">Intern</option>
+                      <option value="provider">Provider</option>
+                      <option value="BYU">BYU</option>
+                      <option value="UVU">UVU</option>
+                    </select>
 
-                    {/* Role */}
-                    <div style={{ flex: '1 1 130px', minWidth: '110px' }}>
-                      <label style={labelStyle}>Role</label>
-                      <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={{ ...inputStyle, padding: '0.55rem 0.85rem', fontSize: '0.875rem' }}>
-                        <option value="all">All roles</option>
-                        <option value="volunteer">Volunteer</option>
-                        <option value="admin">Admin</option>
-                      </select>
-                    </div>
+                    <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={inputStyle}>
+                      <option value="all">All roles</option>
+                      <option value="volunteer">Volunteer</option>
+                      <option value="admin">Admin</option>
+                    </select>
 
-                    {/* Position */}
-                    <div style={{ flex: '1 1 160px', minWidth: '140px' }}>
-                      <label style={labelStyle}>Position</label>
-                      <select value={filterDefaultRole} onChange={e => setFilterDefaultRole(e.target.value)} style={{ ...inputStyle, padding: '0.55rem 0.85rem', fontSize: '0.875rem' }}>
-                        <option value="all">All positions</option>
-                        {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                      </select>
-                    </div>
+                    <select value={filterDefaultRole} onChange={e => setFilterDefaultRole(e.target.value)} style={inputStyle}>
+                      <option value="all">All positions</option>
+                      {ROLES.map(r => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
 
-                    {/* Show inactive */}
                     <button
                       onClick={() => setShowInactive(s => !s)}
-                      style={{ padding: '0.55rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showInactive ? 'rgba(156,163,175,0.15)' : 'var(--bg)', color: showInactive ? 'var(--text)' : 'var(--muted)', border: '1px solid var(--border)', whiteSpace: 'nowrap', alignSelf: 'flex-end' }}
+                      style={pillBtn(showInactive, false)}
                     >
                       {showInactive ? 'Hide Inactive' : 'Show Inactive'}
                     </button>
-
-                    {/* Reset */}
-                    {(filterSearch || filterAffiliation !== 'all' || filterRole !== 'all' || filterDefaultRole !== 'all') && (
-                      <button
-                        onClick={() => { setFilterSearch(''); setFilterAffiliation('all'); setFilterRole('all'); setFilterDefaultRole('all') }}
-                        style={{ padding: '0.55rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--bg)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', whiteSpace: 'nowrap', alignSelf: 'flex-end' }}
-                      >
-                        Reset
-                      </button>
-                    )}
                   </div>
-
-                  {/* Result count */}
-                  <p style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: '0.75rem' }}>
-                    Showing <span style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: 'var(--text)' }}>{userList.length}</span> of <span style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: 'var(--text)' }}>{volunteers.filter(v => showInactive || (v.status || 'active') === 'active').length}</span> volunteers
-                  </p>
                 </div>
               )}
             </div>
 
-            {/* Volunteer list */}
-            <div style={card}>
-              <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Volunteers <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: '0.85rem' }}>— click to view or edit</span></h2>
+            {/* ── Collapsible Volunteer List ─────────────────────── */}
+            <ExpandableSection
+              label="Volunteers"
+              isOpen={true}
+              onToggle={() => {}}
+              count={userList.length}
+            >
               {userList.length === 0 ? (
-                <p style={{ color: 'var(--muted)', fontSize: '0.9rem', fontStyle: 'italic' }}>No volunteers match these filters.</p>
+                <p style={{ color: 'var(--muted)', fontStyle: 'italic' }}>
+                  No volunteers match these filters.
+                </p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {userList.map(v => {
-                    const isInactive = (v.status || 'active') === 'inactive'
+                    const isInactive = (v.status ?? 'active') === 'inactive'
                     return (
-                      <div key={v.id} onClick={() => openVolunteer(v)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: isInactive ? 'rgba(156,163,175,0.06)' : 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', cursor: 'pointer', opacity: isInactive ? 0.7 : 1 }} onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'} onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                          <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: isInactive ? 'var(--muted)' : 'var(--accent)' }}>{v.full_name?.charAt(0)}</div>
+                      <div
+                        key={v.id}
+                        onClick={() => openVolunteer(v)}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '0.75rem 1rem',
+                          borderRadius: '8px',
+                          border: '1px solid var(--border)',
+                          background: isInactive ? 'rgba(156,163,175,0.06)' : 'var(--bg)',
+                          cursor: 'pointer',
+                          opacity: isInactive ? 0.7 : 1,
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
+                        onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+                      >
+                        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                          <div
+                            style={{
+                              width: 36,
+                              height: 36,
+                              borderRadius: '50%',
+                              background: 'var(--surface)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontWeight: 600,
+                              color: isInactive ? 'var(--muted)' : 'var(--accent)',
+                            }}
+                          >
+                            {v.full_name?.charAt(0)}
+                          </div>
+
                           <div>
-                            <p style={{ fontWeight: 500, color: isInactive ? 'var(--muted)' : 'var(--text)' }}>{v.full_name}</p>
-                            <p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{v.email}</p>
+                            <p style={{ fontWeight: 500 }}>{v.full_name}</p>
+                            <p style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+                              {v.email}
+                            </p>
                           </div>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+
+                        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                           {isInactive && <span style={badgeStyle('#9ca3af')}>inactive</span>}
                           {v.role === 'admin' && <span style={badgeStyle('#f59e0b')}>admin</span>}
-                          {v.affiliation && <span style={badgeStyle(affiliationColor[v.affiliation] || '#9ca3af')}>{v.affiliation}</span>}
-                          {v.default_role && <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontStyle: 'italic', display: 'none' }}></span>}
-                          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', color: isInactive ? 'var(--muted)' : 'var(--accent)' }}>{totalHours(v.shifts)}h</span>
+                          {v.affiliation && (
+                            <span style={badgeStyle(affiliationColor[v.affiliation] ?? '#9ca3af')}>
+                              {v.affiliation}
+                            </span>
+                          )}
+                          <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--accent)' }}>
+                            {totalHours(v.shifts)}h
+                          </span>
                           <span style={{ color: 'var(--muted)' }}>›</span>
                         </div>
                       </div>
@@ -807,7 +822,7 @@ export default function AdminPage() {
                   })}
                 </div>
               )}
-            </div>
+            </ExpandableSection>
           </div>
         )}
 
