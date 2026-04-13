@@ -5,7 +5,7 @@ import { DAYS, SHIFTS, ROLES, MAX_FILE_SIZE } from '../../lib/constants'
 import { formatDate, formatTime, asUTC, formatDateTime } from '../../lib/timeUtils'
 import { getInboxMessages } from '../../lib/messageUtils'
 import { MessageCard } from '../../components/MessageCard'
-import { subscribeToPush, unsubscribeFromPush } from '../../lib/pushNotifications'
+import { subscribeToPush, unsubscribeFromPush } from '../../lib/pushNotifications.js'
 
 export const dynamic = 'force-dynamic'
 
