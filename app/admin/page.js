@@ -143,6 +143,8 @@ export default function AdminPage() {
   }
 
   function ProviderCredentialsSummaryBanner({ volunteers }) {
+    const [collapsed, setCollapsed] = useState(true)
+
     const providers = volunteers.filter(v => v.affiliation === 'provider' && (v.status ?? 'active') === 'active')
     if (providers.length === 0) return null
 
@@ -161,39 +163,51 @@ export default function AdminPage() {
     const headerColor = flagged.length > 0 ? '#ef4444' : expiring.length > 0 ? '#f97316' : 'var(--accent)'
 
     return (
-      <div style={{ borderRadius: '12px', border: `1px solid ${borderColor}`, background: bgColor, padding: '1rem 1.25rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: allOk ? 0 : '0.85rem', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '0.2rem 0.6rem', borderRadius: '100px', background: `${headerColor}18`, color: headerColor, border: `1px solid ${headerColor}44` }}>
-            Provider Credentials
-          </span>
-          <span style={{ fontSize: '0.82rem', color: headerColor, fontWeight: 500 }}>
-            {allOk
-              ? `All ${providers.length} provider${providers.length !== 1 ? 's' : ''} up to date`
-              : flagged.length > 0
-                ? `${flagged.length} credential${flagged.length !== 1 ? 's' : ''} expired or missing`
-                : `${expiring.length} credential${expiring.length !== 1 ? 's' : ''} expiring soon`}
-          </span>
-        </div>
+      <div style={{ borderRadius: '12px', border: `1px solid ${borderColor}`, background: bgColor, overflow: 'hidden' }}>
+        <button
+          onClick={() => setCollapsed(c => !c)}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.85rem 1.25rem', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '0.2rem 0.6rem', borderRadius: '100px', background: `${headerColor}18`, color: headerColor, border: `1px solid ${headerColor}44` }}>
+              Provider Credentials
+            </span>
+            <span style={{ fontSize: '0.82rem', color: headerColor, fontWeight: 500 }}>
+              {allOk
+                ? `All ${providers.length} provider${providers.length !== 1 ? 's' : ''} up to date`
+                : flagged.length > 0
+                  ? `${flagged.length} credential${flagged.length !== 1 ? 's' : ''} expired or missing`
+                  : `${expiring.length} credential${expiring.length !== 1 ? 's' : ''} expiring soon`}
+            </span>
+          </div>
+          <span style={{ color: 'var(--muted)', fontSize: '0.85rem', transform: collapsed ? 'rotate(0deg)' : 'rotate(180deg)', transition: 'transform 0.2s', flexShrink: 0 }}>▾</span>
+        </button>
 
-        {!allOk && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-            {[...flagged, ...expiring].map((item, i) => {
-              const isExpiring = item.status === 'expiring'
-              const rowColor   = isExpiring ? '#f97316' : '#ef4444'
-              const rowBg      = isExpiring ? 'rgba(251,146,60,0.07)' : 'rgba(239,68,68,0.07)'
-              const rowBorder  = isExpiring ? 'rgba(251,146,60,0.35)' : 'rgba(239,68,68,0.3)'
-              return (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.45rem 0.75rem', borderRadius: '8px', background: rowBg, border: `1px solid ${rowBorder}`, flexWrap: 'wrap', gap: '0.4rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                    <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{item.vol.full_name}</span>
-                    <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '6px', background: `${rowColor}18`, color: rowColor, border: `1px solid ${rowColor}44`, fontWeight: 600 }}>{item.label}</span>
-                  </div>
-                  <span style={{ fontSize: '0.78rem', fontFamily: 'DM Mono, monospace', color: rowColor, fontWeight: 600 }}>
-                    {item.status === 'missing' ? 'Not on file' : item.status === 'expired' ? `Expired ${formatExpDate(item.vol[item.key])}` : `Exp. ${formatExpDate(item.vol[item.key])}`}
-                  </span>
-                </div>
-              )
-            })}
+        {!collapsed && (
+          <div style={{ padding: '0 1.25rem 1.25rem', borderTop: '1px solid var(--border)' }}>
+            {allOk ? (
+              <p style={{ paddingTop: '0.75rem', fontSize: '0.85rem', color: 'var(--muted)' }}>All credentials are current.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', paddingTop: '0.75rem' }}>
+                {[...flagged, ...expiring].map((item, i) => {
+                  const isExpiring = item.status === 'expiring'
+                  const rowColor   = isExpiring ? '#f97316' : '#ef4444'
+                  const rowBg      = isExpiring ? 'rgba(251,146,60,0.07)' : 'rgba(239,68,68,0.07)'
+                  const rowBorder  = isExpiring ? 'rgba(251,146,60,0.35)' : 'rgba(239,68,68,0.3)'
+                  return (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.45rem 0.75rem', borderRadius: '8px', background: rowBg, border: `1px solid ${rowBorder}`, flexWrap: 'wrap', gap: '0.4rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{item.vol.full_name}</span>
+                        <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '6px', background: `${rowColor}18`, color: rowColor, border: `1px solid ${rowColor}44`, fontWeight: 600 }}>{item.label}</span>
+                      </div>
+                      <span style={{ fontSize: '0.78rem', fontFamily: 'DM Mono, monospace', color: rowColor, fontWeight: 600 }}>
+                        {item.status === 'missing' ? 'Not on file' : item.status === 'expired' ? `Expired ${formatExpDate(item.vol[item.key])}` : `Exp. ${formatExpDate(item.vol[item.key])}`}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -756,7 +770,6 @@ export default function AdminPage() {
         {/* ─────────────────────────── VOLUNTEERS TAB ─────────────────────────── */}
         {tab === 'volunteers' && !selectedVolunteer && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <ProviderCredentialsSummaryBanner volunteers={volunteers} />
             <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
               <button onClick={() => setFiltersOpen(o => !o)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.25rem', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                 <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Filters</span>
@@ -961,7 +974,7 @@ export default function AdminPage() {
                 <button onClick={handleSaveEdit} disabled={saving} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{saving ? 'Saving...' : 'Save Changes'}</button>
               </div>
             )}
-            <ProviderCredentialsBanner profile={selectedVolunteer} />
+            <ProviderCredentialsSummaryBanner volunteers={volunteers} />
           </div>
         )}
 
