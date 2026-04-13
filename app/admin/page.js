@@ -47,6 +47,7 @@ export default function AdminPage() {
   const [filterDefaultRole, setFilterDefaultRole] = useState('all')
   const [filterSearch, setFilterSearch] = useState('')
   const [filtersOpen, setFiltersOpen] = useState(true)
+  const [volunteersOpen, setVolunteersOpen] = useState(true)
 
   // Volunteer detail expandable sections
   const [showRecentShifts, setShowRecentShifts] = useState(false)
@@ -749,8 +750,8 @@ export default function AdminPage() {
             {/* ── Collapsible Volunteer List ─────────────────────── */}
             <ExpandableSection
               label="Volunteers"
-              isOpen={true}
-              onToggle={() => {}}
+              isOpen={volunteersOpen}
+              onToggle={() => setVolunteersOpen(o => !o)}
               count={userList.length}
             >
               {userList.length === 0 ? (
