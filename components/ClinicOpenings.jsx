@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { ROLE_SUGGESTIONS } from '../../lib/constants'
+import { ROLE_SUGGESTIONS } from '../lib/constants'
 
 const DAYS    = ['monday','tuesday','wednesday','thursday','friday']
 const SHIFTS  = ['10-2','2-6']
