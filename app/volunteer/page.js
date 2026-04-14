@@ -868,7 +868,9 @@ export default function VolunteerPage() {
                   <label style={labelStyle}>Role</label>
                   <select value={internRole} onChange={e => setInternRole(e.target.value)} required style={inputStyle}>
                     <option value="">— Select role —</option>
-                    {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                    {[...ROLES, "Intern"].map(r => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
