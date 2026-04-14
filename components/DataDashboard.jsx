@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from 'react'
 
 const AFFILIATIONS = ['All', 'missionary', 'student', 'volunteer', 'provider']
 const CURRENT_YEAR = new Date().getFullYear()
-const YEARS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i)
+const YEARS = [{ value: 0, label: 'All years' }, ...Array.from({ length: 5 }, (_, i) => ({ value: CURRENT_YEAR - i, label: String(CURRENT_YEAR - i) }))]
 const MONTHS = [
   { value: 0,  label: 'All months' },
   { value: 1,  label: 'January' },  { value: 2,  label: 'February' },
@@ -363,7 +363,10 @@ export default function DataDashboard({ supabase }) {
   // ── Hours query — paginated ────────────────────────────────
   const loadHours = useCallback(async () => {
     let fromDate, toDate
-    if (hoursMonth === 0) {
+    if (hoursYear === 0) {
+      fromDate = `2000-01-01`
+      toDate   = `${CURRENT_YEAR}-12-31`
+    } else if (hoursMonth === 0) {
       fromDate = `${hoursYear}-01-01`
       toDate   = `${hoursYear}-12-31`
     } else {
@@ -396,7 +399,10 @@ export default function DataDashboard({ supabase }) {
   // ── Top hours — paginated, independent filters ─────────────
   const loadTopHours = useCallback(async () => {
     let fromDate, toDate
-    if (topMonth === 0) {
+    if (topYear === 0) {
+      fromDate = `2000-01-01`
+      toDate   = `${CURRENT_YEAR}-12-31`
+    } else if (topMonth === 0) {
       fromDate = `${topYear}-01-01`
       toDate   = `${topYear}-12-31`
     } else {
@@ -686,11 +692,11 @@ export default function DataDashboard({ supabase }) {
               <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>Hours Served</span>
             </button>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <select value={hoursMonth} onChange={e => setHoursMonth(Number(e.target.value))} style={sel}>
+              <select value={hoursMonth} onChange={e => setHoursMonth(Number(e.target.value))} disabled={hoursYear === 0} style={{ ...sel, opacity: hoursYear === 0 ? 0.4 : 1 }}>
                 {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
               <select value={hoursYear} onChange={e => setHoursYear(Number(e.target.value))} style={sel}>
-                {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+                {YEARS.map(y => <option key={y.value} value={y.value}>{y.label}</option>)}
               </select>
               <select value={hoursAff} onChange={e => setHoursAff(e.target.value)} style={sel}>
                 {AFFILIATIONS.map(a => <option key={a} value={a}>{a === 'All' ? 'All affiliations' : a}</option>)}
@@ -839,11 +845,11 @@ export default function DataDashboard({ supabase }) {
               <select value={topCount} onChange={e => setTopCount(Number(e.target.value))} style={sel}>
                 {TOP_COUNT_OPTIONS.map(n => <option key={n} value={n}>Show {n}</option>)}
               </select>
-              <select value={topMonth} onChange={e => setTopMonth(Number(e.target.value))} style={sel}>
+              <select value={topMonth} onChange={e => setTopMonth(Number(e.target.value))} disabled={topYear === 0} style={{ ...sel, opacity: topYear === 0 ? 0.4 : 1 }}>
                 {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
               <select value={topYear} onChange={e => setTopYear(Number(e.target.value))} style={sel}>
-                {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+                {YEARS.map(y => <option key={y.value} value={y.value}>{y.label}</option>)}
               </select>
               <select value={topAff} onChange={e => setTopAff(e.target.value)} style={sel}>
                 {AFFILIATIONS.map(a => <option key={a} value={a}>{a === 'All' ? 'All affiliations' : a}</option>)}
