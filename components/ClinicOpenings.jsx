@@ -1,17 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { SHIFTS, ROLES, ROLE_SUGGESTIONS, SCHOOLS, MAJORS, MAX_FILE_SIZE, ACTION_LABELS, ACTION_COLORS } from '../../lib/constants'
-
-const ROLE_REQUIREMENTS = {
-  'Clinical Staff':       3,
-  'Clinical Supervisor':  1,
-  'Float':                1,
-  'Receptionist':         2,
-  'Scribe':               3,
-  'Patient Nav.':         3,
-  'Lab':                  2,
-}
+import { ROLE_SUGGESTIONS } from '../../lib/constants'
 
 const DAYS    = ['monday','tuesday','wednesday','thursday','friday']
 const SHIFTS  = ['10-2','2-6']
@@ -55,7 +45,7 @@ export default function ClinicOpenings({ onClose }) {
       const results = []
       for (const day of DAYS) {
         for (const shift of SHIFTS) {
-          for (const [role, required] of Object.entries(ROLE_REQUIREMENTS)) {
+          for (const [role, required] of Object.entries(ROLE_SUGGESTIONS)) {
             const key   = `${day}|${shift}|${role}`
             const filled = Math.min((counts[key]?.size || 0), required)
             const openings = required - filled
