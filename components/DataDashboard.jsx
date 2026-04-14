@@ -288,11 +288,6 @@ function NoShowRow({ v, isHigh, onNameClick }) {
       marginBottom: '0.4rem',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-        {isHigh && (
-          <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.35)', fontWeight: 700 }}>
-            FLAGGED
-          </span>
-        )}
         <button
           onClick={() => onNameClick(v)}
           style={{
