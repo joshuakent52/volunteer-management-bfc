@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { SHIFTS, ROLES, ROLE_SUGGESTIONS, SCHOOLS, MAJORS, MAX_FILE_SIZE, ACTION_LABELS, ACTION_COLORS } from '../../lib/constants'
 import { getMountainNow, getMountainLabel, asUTC, formatMountain, formatDateMountain, formatDateTime, toMountainInputValue, fromMountainInputValue } from '../../lib/timeUtils'
 import DataDashboard from '../../components/DataDashboard'
-import ProviderCredentialsBanner from '../../components/ProviderCredentialsBanner'
+import ClinicOpenings from '../../components/ClinicOpenings'
 
 
 export const dynamic = 'force-dynamic'
@@ -58,6 +58,7 @@ export default function AdminPage() {
   const [addEndDate, setAddEndDate] = useState('')
   const [addWeekPattern, setAddWeekPattern] = useState('every')
   const [addNotes, setAddNotes] = useState('')
+  const [showClinicOpenings, setShowClinicOpenings] = useState(false)
 
   const [selectedVolunteer, setSelectedVolunteer] = useState(null)
   const [editing, setEditing] = useState(false)
@@ -712,13 +713,79 @@ export default function AdminPage() {
         {tab === 'schedule' && (
           <div>
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>{DAYS.map(d => (<button key={d} onClick={() => { setScheduleDay(d); setAddingRole(null); setScheduleDate(''); setDateCoverShifts([]) }} style={{ ...pillBtn(scheduleDay === d, false), textTransform: 'capitalize' }}>{d.slice(0,3)}</button>))}</div>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>{SHIFTS.map(sh => (<button key={sh} onClick={() => { setScheduleShift(sh); setAddingRole(null); setScheduleDate(''); setDateCoverShifts([]) }} style={pillBtn(scheduleShift === sh, true)}>{sh}</button>))}</div>
+              {/* Day pills */}
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {DAYS.map(d => (
+                  <button
+                    key={d}
+                    onClick={() => { setScheduleDay(d); setAddingRole(null); setScheduleDate(''); setDateCoverShifts([]) }}
+                    style={{ ...pillBtn(scheduleDay === d, false), textTransform: 'capitalize' }}
+                  >
+                    {d.slice(0,3)}
+                  </button>
+                ))}
+              </div>
+
+              {/* Shift pills */}
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {SHIFTS.map(sh => (
+                  <button
+                    key={sh}
+                    onClick={() => { setScheduleShift(sh); setAddingRole(null); setScheduleDate(''); setDateCoverShifts([]) }}
+                    style={pillBtn(scheduleShift === sh, true)}
+                  >
+                    {sh}
+                  </button>
+                ))}
+              </div>
+
+              {/* ── NEW: Clinic Openings toggle button ── */}
+              <button
+                onClick={() => setShowClinicOpenings(o => !o)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 600,
+                  cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                  background: showClinicOpenings ? 'rgba(251,191,36,0.15)' : 'var(--surface)',
+                  color: showClinicOpenings ? '#eab308' : 'var(--muted)',
+                  border: showClinicOpenings ? '1px solid rgba(251,191,36,0.45)' : '1px solid var(--border)',
+                  transition: 'all 0.15s',
+                }}
+              >
+                <span style={{ fontSize: '0.85rem' }}>◎</span>
+                Clinic Openings
+              </button>
+
+              {/* Date picker — pushed to the right */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: 'auto' }}>
                 <label style={{ ...labelStyle, margin: 0, whiteSpace: 'nowrap' }}>View date:</label>
-                <input type="date" value={scheduleDate} onChange={e => { const val = e.target.value; setScheduleDate(val); if (val) { loadDateCoverShifts(val); const d = new Date(val + 'T12:00:00'); const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][d.getDay()]; if (dayName !== 'sunday' && dayName !== 'saturday') setScheduleDay(dayName) } else { setDateCoverShifts([]) } }} style={{ ...inputStyle, width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.85rem' }} />
+                <input
+                  type="date"
+                  value={scheduleDate}
+                  onChange={e => {
+                    const val = e.target.value
+                    setScheduleDate(val)
+                    if (val) {
+                      loadDateCoverShifts(val)
+                      const d = new Date(val + 'T12:00:00')
+                      const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][d.getDay()]
+                      if (dayName !== 'sunday' && dayName !== 'saturday') setScheduleDay(dayName)
+                    } else {
+                      setDateCoverShifts([])
+                    }
+                  }}
+                  style={{ ...inputStyle, width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.85rem' }}
+                />
               </div>
             </div>
+
+            {/* ── NEW: Clinic Openings panel — sits between toolbar and role cards ── */}
+            {showClinicOpenings && (
+              <div style={{ marginBottom: '1.25rem' }}>
+                <ClinicOpenings onClose={() => setShowClinicOpenings(false)} />
+              </div>
+            )}
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {ROLES.map(role => {
                 const entries = getEntries(scheduleDay, scheduleShift, role)
