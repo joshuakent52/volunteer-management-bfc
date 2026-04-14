@@ -69,6 +69,12 @@ export default function VolunteerPage() {
   const [submittingHours, setSubmittingHours] = useState(false)
   const [myHoursSubmissions, setMyHoursSubmissions] = useState([])
 
+  // Intern weekly report state
+  const [internHours, setInternHours] = useState('')
+  const [internRole, setInternRole] = useState('')
+  const [internProgress, setInternProgress] = useState('')
+  const [submittingInternReport, setSubmittingInternReport] = useState(false)
+
   // All shifts for total hours (no limit)
   const [allShifts, setAllShifts] = useState([])
 
@@ -78,6 +84,7 @@ export default function VolunteerPage() {
 
   const isAdmin = profile?.role === 'admin'
   const isClinicalSupervisor = profile?.default_role === 'Clinical Supervisor'
+  const isIntern = profile?.affiliation === 'intern'
 
   useEffect(() => { init() }, [])
 
@@ -410,7 +417,72 @@ export default function VolunteerPage() {
     }
     setSubmittingHours(false)
   }
+  
+  async function handleInternReport(e) {
+    e.preventDefault()
+    if (!internHours || !internRole || !internProgress.trim()) return
+    setSubmittingInternReport(true)
 
+    try {
+      // Insert directly into shifts table
+      const hours = parseFloat(internHours)
+      const clockOut = new Date()
+      const clockIn = new Date(clockOut.getTime() - hours * 3600000)
+
+      const { error: shiftError } = await supabase.from('shifts').insert({
+        volunteer_id: user.id,
+        clock_in: clockIn.toISOString(),
+        clock_out: clockOut.toISOString(),
+        role: internRole,
+      })
+      if (shiftError) throw shiftError
+
+      // Find all directors to message
+      const { data: directors } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('default_role', 'Director')
+
+      const { data: { session } } = await supabase.auth.getSession()
+
+      // Send a message to each director
+      const sendPromises = (directors || []).map(director =>
+        fetch('/api/send-message', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            recipient_type: 'volunteer',
+            recipient_volunteer_id: director.id,
+            body: `📋 Weekly Intern Report from ${profile?.full_name}\n\n` +
+                  `Hours logged: ${hours}h as ${internRole}\n\n` +
+                  `Weekly Progress:\n${internProgress.trim()}`,
+            image_url: null,
+          }),
+        })
+      )
+      await Promise.all(sendPromises)
+
+      showToast('Weekly report submitted!', 'success')
+      setInternHours('')
+      setInternRole('')
+      setInternProgress('')
+
+      // Refresh allShifts so total hours update
+      const { data: all } = await supabase
+        .from('shifts').select('clock_in, clock_out')
+        .eq('volunteer_id', user.id)
+        .not('clock_out', 'is', null)
+      setAllShifts(all || [])
+    } catch (err) {
+      showToast(err.message || 'Failed to submit report', 'error')
+    } finally {
+      setSubmittingInternReport(false)
+    }
+  }
+  
   function showToast(text, type) {
     setToast({ text, type })
     setTimeout(() => setToast(null), 3500)
@@ -484,7 +556,7 @@ export default function VolunteerPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-          {[['clock','Clock'],['schedule','Schedule'],['callout','Call-Out'],['messages','Messages'],['account','Account']].map(([key, label]) => (
+          {[['clock','Clock'],['schedule','Schedule'],['callout','Call-Out'],['messages','Messages'],...(isIntern ? [['internreport','Report Hours']] : []),['account','Account']].map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)} style={{
               position: 'relative', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500,
               cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
@@ -783,7 +855,63 @@ export default function VolunteerPage() {
             )}
           </div>
         )}
-
+        {/* INTERN REPORT TAB */}
+        {tab === 'internreport' && isIntern && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ ...card, borderColor: 'var(--accent)', background: 'rgba(2,65,107,0.04)' }}>
+              <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Weekly Hours Report</h2>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
+                Log your hours for the week and send a progress update to your internship coordinator.
+              </p>
+              <form onSubmit={handleInternReport} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div>
+                  <label style={labelStyle}>Role</label>
+                  <select value={internRole} onChange={e => setInternRole(e.target.value)} required style={inputStyle}>
+                    <option value="">— Select role —</option>
+                    {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Hours Worked This Week</label>
+                  <input
+                    type="number" min="0.5" max="60" step="0.5"
+                    value={internHours}
+                    onChange={e => setInternHours(e.target.value)}
+                    required placeholder="e.g. 20"
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Weekly Progress <span style={{ textTransform: 'none', color: '#ef4444' }}>*</span></label>
+                  <textarea
+                    value={internProgress}
+                    onChange={e => setInternProgress(e.target.value)}
+                    rows={5}
+                    required
+                    placeholder="Describe what you worked on this week, any challenges, and goals for next week..."
+                    style={{ ...inputStyle, resize: 'vertical' }}
+                  />
+                  <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.35rem' }}>
+                    This will be sent directly to your internship coordinator.
+                  </p>
+                </div>
+                <button
+                  type="submit"
+                  disabled={submittingInternReport || !internHours || !internRole || !internProgress.trim()}
+                  style={{
+                    padding: '0.85rem', background: 'var(--accent)', color: '#fff',
+                    border: 'none', borderRadius: '8px', fontWeight: 600,
+                    cursor: submittingInternReport ? 'not-allowed' : 'pointer',
+                    fontFamily: 'DM Sans, sans-serif',
+                    opacity: (!internHours || !internRole || !internProgress.trim()) ? 0.5 : 1,
+                  }}
+                >
+                  {submittingInternReport ? 'Submitting…' : 'Submit Weekly Report'}
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
         {/* ACCOUNT TAB */}
         {tab === 'account' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -813,7 +941,7 @@ export default function VolunteerPage() {
                 </div>
               )}
             </div>
-            <div style={card}>
+            {!isIntern && <div style={card}>
               <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Submit Hours</h2>
               <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Submit hours worked outside of the clock-in system for admin approval.</p>
               <form onSubmit={handleSubmitHours} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -838,6 +966,7 @@ export default function VolunteerPage() {
                 </div>
               )}
             </div>
+            }
             <div style={card}>
               <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Notifications</h2>
               <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
