@@ -9,6 +9,9 @@ import { subscribeToPush, unsubscribeFromPush } from '../../lib/pushNotification
 
 export const dynamic = 'force-dynamic'
 
+// ── Broadcast types that show view counts ────────────────────────────────────
+const BROADCAST_TYPES = ['everyone', 'role', 'shift']
+
 export default function VolunteerPage() {
   const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
@@ -82,6 +85,10 @@ export default function VolunteerPage() {
   const [pushEnabled, setPushEnabled] = useState(false)
   const [pushLoading, setPushLoading] = useState(false)
 
+  // ── NEW: view counts for broadcast messages ──────────────────────────────
+  // Map of message_id -> read_count (number)
+  const [broadcastReadCounts, setBroadcastReadCounts] = useState({})
+
   const isAdmin = profile?.role === 'admin'
   const isClinicalSupervisor = profile?.default_role === 'Clinical Supervisor'
   const isIntern = profile?.affiliation === 'intern'
@@ -94,6 +101,13 @@ export default function VolunteerPage() {
       markInboxAsRead()
     }
   }, [tab, msgView, user])
+
+  // ── NEW: load broadcast read counts whenever messages or sent view changes ──
+  useEffect(() => {
+    if (messages.length > 0 && user) {
+      loadBroadcastReadCounts(messages)
+    }
+  }, [messages, user])
 
   async function init() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -198,6 +212,39 @@ export default function VolunteerPage() {
     }
   }
 
+  // ── NEW: fetch read counts for all broadcast messages in one RPC call ─────
+  async function loadBroadcastReadCounts(msgs) {
+    const broadcastIds = (msgs || [])
+      .filter(m => BROADCAST_TYPES.includes(m.recipient_type))
+      .map(m => m.id)
+
+    if (broadcastIds.length === 0) {
+      setBroadcastReadCounts({})
+      return
+    }
+
+    // Use the RPC created in the SQL migration
+    const { data, error } = await supabase.rpc('get_broadcast_read_counts', {
+      message_ids: broadcastIds,
+    })
+
+    if (error) {
+      // Graceful fallback: query the view directly
+      const { data: fallback } = await supabase
+        .from('message_read_counts')
+        .select('message_id, read_count')
+        .in('message_id', broadcastIds)
+      const map = {}
+      ;(fallback || []).forEach(r => { map[r.message_id] = Number(r.read_count) })
+      setBroadcastReadCounts(map)
+      return
+    }
+
+    const map = {}
+    ;(data || []).forEach(r => { map[r.message_id] = Number(r.read_count) })
+    setBroadcastReadCounts(map)
+  }
+
   // Insert read receipts for all current inbox messages
   async function markInboxAsRead() {
     if (!user) return
@@ -297,6 +344,7 @@ export default function VolunteerPage() {
     }
     setSendingMsg(false)
   }
+
   // ── Other handlers ────────────────────────────────────────────────────────
 
   function getCurrentShiftWindow() {
@@ -424,7 +472,6 @@ export default function VolunteerPage() {
     setSubmittingInternReport(true)
 
     try {
-      // Insert directly into shifts table
       const hours = parseFloat(internHours)
       const clockOut = new Date()
       const clockIn = new Date(clockOut.getTime() - hours * 3600000)
@@ -437,7 +484,6 @@ export default function VolunteerPage() {
       })
       if (shiftError) throw shiftError
 
-      // Find all directors to message
       const { data: directors } = await supabase
         .from('profiles')
         .select('id')
@@ -445,7 +491,6 @@ export default function VolunteerPage() {
 
       const { data: { session } } = await supabase.auth.getSession()
 
-      // Send a message to each director
       const sendPromises = (directors || []).map(director =>
         fetch('/api/send-message', {
           method: 'POST',
@@ -470,7 +515,6 @@ export default function VolunteerPage() {
       setInternRole('')
       setInternProgress('')
 
-      // Refresh allShifts so total hours update
       const { data: all } = await supabase
         .from('shifts').select('clock_in, clock_out')
         .eq('volunteer_id', user.id)
@@ -492,6 +536,73 @@ export default function VolunteerPage() {
   function totalHours() { return allShifts.reduce((acc, s) => acc + (asUTC(s.clock_out) - asUTC(s.clock_in)) / 3600000, 0).toFixed(1) }
 
   async function handleSignOut() { await supabase.auth.signOut(); window.location.href = '/' }
+
+  // ── NEW: View Count Badge component ──────────────────────────────────────
+  // Renders an eye-icon pill showing how many people have read a broadcast message.
+  // Only shown on messages with recipient_type: everyone | role | shift
+  function ViewCountBadge({ message }) {
+    const isBroadcast = BROADCAST_TYPES.includes(message?.recipient_type)
+    if (!isBroadcast) return null
+
+    const count = broadcastReadCounts[message.id] ?? null
+
+    return (
+      <span
+        title={count === null ? 'Loading views…' : `${count} ${count === 1 ? 'person has' : 'people have'} read this`}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '0.3rem',
+          fontSize: '0.72rem',
+          fontWeight: 500,
+          color: 'var(--muted)',
+          background: 'var(--bg)',
+          border: '1px solid var(--border)',
+          borderRadius: '100px',
+          padding: '0.15rem 0.55rem',
+          marginTop: '0.35rem',
+          fontFamily: 'DM Mono, monospace',
+          letterSpacing: '0.01em',
+          userSelect: 'none',
+          whiteSpace: 'nowrap',
+          flexShrink: 0,
+        }}
+      >
+        {/* Eye SVG icon */}
+        <svg
+          width="12" height="12" viewBox="0 0 20 20" fill="none"
+          stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+          style={{ opacity: 0.7 }}
+        >
+          <path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z" />
+          <circle cx="10" cy="10" r="2.5" />
+        </svg>
+        {count === null ? '…' : count}
+      </span>
+    )
+  }
+
+  // ── NEW: Enhanced MessageCard wrapper that injects view count ─────────────
+  // Wraps the existing <MessageCard> and appends the ViewCountBadge below it
+  // for broadcast messages. This keeps MessageCard unchanged.
+  function MessageCardWithViews({ m, readMessageIds, user, setLightboxUrl }) {
+    const isBroadcast = BROADCAST_TYPES.includes(m?.recipient_type)
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+        <MessageCard
+          m={m}
+          readMessageIds={readMessageIds}
+          user={user}
+          setLightboxUrl={setLightboxUrl}
+        />
+        {isBroadcast && (
+          <div style={{ paddingLeft: '0.25rem' }}>
+            <ViewCountBadge message={m} />
+          </div>
+        )}
+      </div>
+    )
+  }
 
   if (loading) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
@@ -742,7 +853,16 @@ export default function VolunteerPage() {
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Inbox</h2>
                 {inboxMessages.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No messages yet.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {inboxMessages.map(m => <MessageCard key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />)}
+                    {/* ── CHANGED: use MessageCardWithViews instead of MessageCard ── */}
+                    {inboxMessages.map(m => (
+                      <MessageCardWithViews
+                        key={m.id}
+                        m={m}
+                        readMessageIds={readMessageIds}
+                        user={user}
+                        setLightboxUrl={setLightboxUrl}
+                      />
+                    ))}
                   </div>
                 )}
               </div>
@@ -753,7 +873,17 @@ export default function VolunteerPage() {
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Sent Messages</h2>
                 {sentMessages.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No sent messages yet.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {sentMessages.map(m => <MessageCard key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />)}
+                    {/* ── CHANGED: use MessageCardWithViews — especially useful for
+                        senders to see how many people read their broadcast ── */}
+                    {sentMessages.map(m => (
+                      <MessageCardWithViews
+                        key={m.id}
+                        m={m}
+                        readMessageIds={readMessageIds}
+                        user={user}
+                        setLightboxUrl={setLightboxUrl}
+                      />
+                    ))}
                   </div>
                 )}
               </div>
@@ -783,7 +913,6 @@ export default function VolunteerPage() {
                       ))}
                     </div>
 
-                    {/* Individual user selector */}
                     {msgRecipientType === 'user' && (
                       <div style={{ marginTop: '0.75rem' }}>
                         <label style={labelStyle}>Select user</label>
@@ -855,6 +984,7 @@ export default function VolunteerPage() {
             )}
           </div>
         )}
+
         {/* INTERN REPORT TAB */}
         {tab === 'internreport' && isIntern && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -914,6 +1044,7 @@ export default function VolunteerPage() {
             </div>
           </div>
         )}
+
         {/* ACCOUNT TAB */}
         {tab === 'account' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
