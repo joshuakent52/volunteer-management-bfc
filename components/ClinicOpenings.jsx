@@ -11,7 +11,7 @@ const SHIFT_LABEL = { '10-2':'10–2', '2-6':'2–6' }
 
 function severityColor(openings, capacity) {
   const pct = openings / capacity
-  if (pct >= 0.5) return { bg: 'rgba(239,68,68,0.10)', border: 'rgba(239,68,68,0.40)', text: '#ef4444', dot: '#ef4444' }
+  if (pct >= 0.1) return { bg: 'rgba(239,68,68,0.10)', border: 'rgba(239,68,68,0.40)', text: '#ef4444', dot: '#ef4444' }
   return              { bg: 'rgba(2,65,107,0.10)',    border: 'rgba(2,65,107,0.40)',   text: 'var(--accent)', dot: 'var(--accent)' }
 }
 
