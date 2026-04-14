@@ -13,8 +13,8 @@ const SHIFT_LABEL = { '10-2':'10–2', '2-6':'2–6' }
 function severityColor(openings, capacity) {
   const pct = openings / capacity
   if (pct >= 1)   return { bg: 'rgba(239,68,68,0.10)',  border: 'rgba(239,68,68,0.40)',  text: '#ef4444', dot: '#ef4444' }
-  if (pct >= 0.5) return { bg: 'rgba(251,146,60,0.10)', border: 'rgba(251,146,60,0.40)', text: '#f97316', dot: '#f97316' }
-  return              { bg: 'rgba(251,191,36,0.10)',  border: 'rgba(251,191,36,0.40)',  text: '#eab308', dot: '#eab308' }
+  if (pct >= 0.5) return { bg: 'rgba(251,146,60,0.10)', border: 'rgba(251,146,60,0.40)', text: '#ef4444', dot: '#ef4444' }
+  return              { bg: 'rgba(251,191,36,0.10)',  border: 'rgba(251,191,36,0.40)',  text: '#ef4444', dot: '#ef4444' }
 }
 
 export default function ClinicOpenings({ onClose }) {
@@ -195,8 +195,8 @@ export default function ClinicOpenings({ onClose }) {
         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', padding: '0.5rem 0' }}>
           {[
             { dot: '#ef4444', label: 'Completely unfilled' },
-            { dot: '#f97316', label: '≥ half unfilled' },
-            { dot: '#eab308', label: 'Partially filled' },
+            { dot: '#ef4444', label: '≥ half unfilled' },
+            { dot: '#ef4444', label: 'Partially filled' },
             { dot: 'var(--accent)', label: 'Filled slot' },
           ].map(({ dot, label }) => (
             <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
