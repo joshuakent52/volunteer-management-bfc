@@ -9,12 +9,10 @@ const SHIFTS  = ['10-2','2-6']
 const DAY_SHORT = { monday:'Mon', tuesday:'Tue', wednesday:'Wed', thursday:'Thu', friday:'Fri' }
 const SHIFT_LABEL = { '10-2':'10–2', '2-6':'2–6' }
 
-// Severity colour ramp based on openings / capacity ratio
 function severityColor(openings, capacity) {
   const pct = openings / capacity
-  if (pct >= 1)   return { bg: 'rgba(239,68,68,0.10)',  border: 'rgba(239,68,68,0.40)',  text: '#ef4444', dot: '#ef4444' }
-  if (pct >= 0.5) return { bg: 'rgba(251,146,60,0.10)', border: 'rgba(251,146,60,0.40)', text: '#ef4444', dot: '#ef4444' }
-  return              { bg: 'rgba(251,191,36,0.10)',  border: 'rgba(251,191,36,0.40)',  text: '#ef4444', dot: '#ef4444' }
+  if (pct >= 0.5) return { bg: 'rgba(239,68,68,0.10)', border: 'rgba(239,68,68,0.40)', text: '#ef4444', dot: '#ef4444' }
+  return              { bg: 'rgba(2,65,107,0.10)',    border: 'rgba(2,65,107,0.40)',   text: 'var(--accent)', dot: 'var(--accent)' }
 }
 
 export default function ClinicOpenings({ onClose }) {
@@ -185,23 +183,6 @@ export default function ClinicOpenings({ onClose }) {
                   </div>
                 ))}
               </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Legend */}
-      {!loading && filtered.length > 0 && (
-        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', padding: '0.5rem 0' }}>
-          {[
-            { dot: '#ef4444', label: 'Completely unfilled' },
-            { dot: '#ef4444', label: '≥ half unfilled' },
-            { dot: '#ef4444', label: 'Partially filled' },
-            { dot: 'var(--accent)', label: 'Filled slot' },
-          ].map(({ dot, label }) => (
-            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <div style={{ width: '8px', height: '8px', borderRadius: '2px', background: dot, flexShrink: 0 }} />
-              <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{label}</span>
             </div>
           ))}
         </div>
