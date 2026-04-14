@@ -752,7 +752,7 @@ export default function AdminPage() {
                   transition: 'all 0.15s',
                 }}
               >
-                <span style={{ fontSize: '0.85rem' }}>◎</span>
+                <span style={{ fontSize: '0.85rem' }}></span>
                 Clinic Openings
               </button>
 
