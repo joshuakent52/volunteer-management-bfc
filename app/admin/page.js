@@ -22,6 +22,8 @@ const PROVIDER_CRED_FIELDS = [
 
 function credentialStatus(dateStr) {
   if (!dateStr) return 'missing'
+  if (dateStr === 'N/A') return 'na'
+  if (dateStr === 'expired') return 'expired'
   const exp = new Date(dateStr + 'T12:00:00')
   const now = new Date()
   const oneMonthOut = new Date()
@@ -33,6 +35,8 @@ function credentialStatus(dateStr) {
 
 function formatExpDate(dateStr) {
   if (!dateStr) return null
+  if (dateStr === 'N/A') return 'N/A'
+  if (dateStr === 'expired') return 'Expired'
   const [y, m, d] = dateStr.split('-')
   return `${m}/${d}/${y}`
 }
@@ -143,6 +147,40 @@ export default function AdminPage() {
     setLoading(false)
   }
 
+  // ── Credential input helper — used in both edit and create forms ──────────
+  function CredentialInput({ fieldKey, label, value, onChange, allowNA = false, inputStyle, labelStyle }) {
+    const mode = value === 'N/A' ? 'na' : value === 'expired' ? 'expired' : 'date'
+    return (
+      <div>
+        <label style={labelStyle}>{label}</label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+          <select
+            value={mode}
+            onChange={e => {
+              const m = e.target.value
+              if (m === 'na') onChange('N/A')
+              else if (m === 'expired') onChange('expired')
+              else onChange('')
+            }}
+            style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+          >
+            <option value="date">Set date</option>
+            {allowNA && <option value="na">N/A</option>}
+            <option value="expired">Mark as expired</option>
+          </select>
+          {mode === 'date' && (
+            <input
+              type="date"
+              value={value && value !== 'N/A' && value !== 'expired' ? value : ''}
+              onChange={e => onChange(e.target.value)}
+              style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+            />
+          )}
+        </div>
+      </div>
+    )
+  }
+
   function ProviderCredentialsSummaryBanner({ volunteers, onSelect }) {
     const [collapsed, setCollapsed] = useState(true)
 
@@ -219,6 +257,7 @@ export default function AdminPage() {
       </div>
     )
   }
+
   async function loadVolunteers() { const { data } = await supabase.from('profiles').select('*, shifts(*)').order('full_name'); setVolunteers(data || []) }
   async function loadActiveShifts() { const { data } = await supabase.from('shifts').select('*, profiles(id, full_name)').is('clock_out', null); setActiveShifts(data || []) }
   async function loadCallouts() {
@@ -589,25 +628,27 @@ export default function AdminPage() {
         <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>Provider Credentials</p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.6rem' }}>
           {fields.map(f => {
+            const isNA       = f.status === 'na'
             const isMissing  = f.status === 'missing'
             const isExpired  = f.status === 'expired'
             const isExpiring = f.status === 'expiring'
-            const borderColor = (isMissing || isExpired) ? 'rgba(239,68,68,0.4)' : isExpiring ? 'rgba(251,146,60,0.45)' : 'rgba(2,65,107,0.3)'
-            const bgColor     = (isMissing || isExpired) ? 'rgba(239,68,68,0.06)' : isExpiring ? 'rgba(251,146,60,0.06)' : 'rgba(2,65,107,0.05)'
-            const textColor   = (isMissing || isExpired) ? '#ef4444' : isExpiring ? '#f97316' : 'var(--text)'
+            const borderColor = (isMissing || isExpired) ? 'rgba(239,68,68,0.4)' : isExpiring ? 'rgba(251,146,60,0.45)' : isNA ? 'rgba(156,163,175,0.35)' : 'rgba(2,65,107,0.3)'
+            const bgColor     = (isMissing || isExpired) ? 'rgba(239,68,68,0.06)' : isExpiring ? 'rgba(251,146,60,0.06)' : isNA ? 'rgba(156,163,175,0.06)' : 'rgba(2,65,107,0.05)'
+            const textColor   = (isMissing || isExpired) ? '#ef4444' : isExpiring ? '#f97316' : isNA ? 'var(--muted)' : 'var(--text)'
             return (
               <div key={f.key} style={{ padding: '0.6rem 0.75rem', borderRadius: '8px', border: `1px solid ${borderColor}`, background: bgColor }}>
                 <p style={{ fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>{f.label}</p>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.35rem' }}>
-                  <p style={{ fontFamily: isMissing ? 'DM Sans, sans-serif' : 'DM Mono, monospace', fontSize: '0.82rem', fontWeight: isMissing ? 400 : 600, color: textColor, fontStyle: isMissing ? 'italic' : 'normal' }}>
+                  <p style={{ fontFamily: (isMissing || isNA) ? 'DM Sans, sans-serif' : 'DM Mono, monospace', fontSize: '0.82rem', fontWeight: (isMissing || isNA) ? 400 : 600, color: textColor, fontStyle: (isMissing || isNA) ? 'italic' : 'normal' }}>
                     {isMissing ? 'Not set' : formatExpDate(f.value)}
                   </p>
-                  <span style={{ fontSize: '0.8rem', fontWeight: 700, color: (isMissing || isExpired) ? '#ef4444' : isExpiring ? '#f97316' : '#22c55e', flexShrink: 0 }}>
-                    {(isMissing || isExpired) ? '✗' : isExpiring ? '!' : '✓'}
+                  <span style={{ fontSize: '0.8rem', fontWeight: 700, color: (isMissing || isExpired) ? '#ef4444' : isExpiring ? '#f97316' : isNA ? 'var(--muted)' : '#22c55e', flexShrink: 0 }}>
+                    {(isMissing || isExpired) ? '✗' : isExpiring ? '!' : isNA ? '—' : '✓'}
                   </span>
                 </div>
                 {isExpired  && <p style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 700, marginTop: '0.15rem' }}>EXPIRED</p>}
                 {isExpiring && <p style={{ fontSize: '0.65rem', color: '#f97316', fontWeight: 700, marginTop: '0.15rem' }}>EXP. SOON</p>}
+                {isNA       && <p style={{ fontSize: '0.65rem', color: 'var(--muted)', fontWeight: 600, marginTop: '0.15rem' }}>NOT APPLICABLE</p>}
               </div>
             )
           })}
@@ -713,73 +754,28 @@ export default function AdminPage() {
         {tab === 'schedule' && (
           <div>
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
-              {/* Day pills */}
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 {DAYS.map(d => (
-                  <button
-                    key={d}
-                    onClick={() => { setScheduleDay(d); setAddingRole(null); setScheduleDate(''); setDateCoverShifts([]) }}
-                    style={{ ...pillBtn(scheduleDay === d, false), textTransform: 'capitalize' }}
-                  >
-                    {d.slice(0,3)}
-                  </button>
+                  <button key={d} onClick={() => { setScheduleDay(d); setAddingRole(null); setScheduleDate(''); setDateCoverShifts([]) }} style={{ ...pillBtn(scheduleDay === d, false), textTransform: 'capitalize' }}>{d.slice(0,3)}</button>
                 ))}
               </div>
-
-              {/* Shift pills */}
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 {SHIFTS.map(sh => (
-                  <button
-                    key={sh}
-                    onClick={() => { setScheduleShift(sh); setAddingRole(null); setScheduleDate(''); setDateCoverShifts([]) }}
-                    style={pillBtn(scheduleShift === sh, true)}
-                  >
-                    {sh}
-                  </button>
+                  <button key={sh} onClick={() => { setScheduleShift(sh); setAddingRole(null); setScheduleDate(''); setDateCoverShifts([]) }} style={pillBtn(scheduleShift === sh, true)}>{sh}</button>
                 ))}
               </div>
-
-              {/* ── NEW: Clinic Openings toggle button ── */}
               <button
                 onClick={() => setShowClinicOpenings(o => !o)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '0.4rem',
-                  padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 600,
-                  cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-                  background: showClinicOpenings ? 'rgba(251,191,36,0.15)' : 'var(--surface)',
-                  color: showClinicOpenings ? '#eab308' : 'var(--muted)',
-                  border: showClinicOpenings ? '1px solid rgba(251,191,36,0.45)' : '1px solid var(--border)',
-                  transition: 'all 0.15s',
-                }}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showClinicOpenings ? 'rgba(251,191,36,0.15)' : 'var(--surface)', color: showClinicOpenings ? '#eab308' : 'var(--muted)', border: showClinicOpenings ? '1px solid rgba(251,191,36,0.45)' : '1px solid var(--border)', transition: 'all 0.15s' }}
               >
-                <span style={{ fontSize: '0.85rem' }}></span>
-                Clinic Openings
+                <span style={{ fontSize: '0.85rem' }}></span> Clinic Openings
               </button>
-
-              {/* Date picker — pushed to the right */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: 'auto' }}>
                 <label style={{ ...labelStyle, margin: 0, whiteSpace: 'nowrap' }}>View date:</label>
-                <input
-                  type="date"
-                  value={scheduleDate}
-                  onChange={e => {
-                    const val = e.target.value
-                    setScheduleDate(val)
-                    if (val) {
-                      loadDateCoverShifts(val)
-                      const d = new Date(val + 'T12:00:00')
-                      const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][d.getDay()]
-                      if (dayName !== 'sunday' && dayName !== 'saturday') setScheduleDay(dayName)
-                    } else {
-                      setDateCoverShifts([])
-                    }
-                  }}
-                  style={{ ...inputStyle, width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.85rem' }}
-                />
+                <input type="date" value={scheduleDate} onChange={e => { const val = e.target.value; setScheduleDate(val); if (val) { loadDateCoverShifts(val); const d = new Date(val + 'T12:00:00'); const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][d.getDay()]; if (dayName !== 'sunday' && dayName !== 'saturday') setScheduleDay(dayName) } else { setDateCoverShifts([]) } }} style={{ ...inputStyle, width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.85rem' }} />
               </div>
             </div>
 
-            {/* ── NEW: Clinic Openings panel — sits between toolbar and role cards ── */}
             {showClinicOpenings && (
               <div style={{ marginBottom: '1.25rem' }}>
                 <ClinicOpenings onClose={() => setShowClinicOpenings(false)} />
@@ -929,13 +925,11 @@ export default function AdminPage() {
                     </div>
                   ))}
 
-                  {/* Provider credentials grid */}
                   {selectedVolunteer.affiliation === 'provider' && (
                     <ProviderCredentialsView vol={selectedVolunteer} />
                   )}
                 </div>
 
-                {/* Recent / Scheduled shifts toggles */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
                     <button onClick={() => handleToggleRecentShifts(selectedVolunteer.id)} style={{ flex: 1, minWidth: '180px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', padding: '0.75rem 1rem', borderRadius: '10px', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showRecentShifts ? 'rgba(2,65,107,0.08)' : 'var(--bg)', border: `1px solid ${showRecentShifts ? 'var(--accent)' : 'var(--border)'}`, color: showRecentShifts ? 'var(--accent)' : 'var(--text)', transition: 'all 0.15s' }}>
@@ -982,7 +976,6 @@ export default function AdminPage() {
                   )}
                 </div>
 
-                {/* Status management */}
                 {(() => {
                   const isInactive = (selectedVolunteer.status || 'active') === 'inactive'
                   return (
@@ -1015,10 +1008,8 @@ export default function AdminPage() {
                   <div><label style={labelStyle}>Default Position</label><select value={editForm.default_role} onChange={e => setEditForm({...editForm, default_role: e.target.value})} style={inputStyle}><option value="">— None —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                   <div><label style={labelStyle}>Birthday</label><input type="date" value={editForm.birthday || ''} onChange={e => setEditForm({ ...editForm, birthday: e.target.value })} style={inputStyle} /></div>
 
-                  {/* Missionary fields */}
                   {editForm.affiliation === 'missionary' && (<><div><label style={labelStyle}>SMA Name</label><input value={editForm.sma_name} onChange={e => setEditForm({...editForm, sma_name: e.target.value})} placeholder="SMA full name" style={inputStyle} /></div><div><label style={labelStyle}>SMA Contact</label><input value={editForm.sma_contact} onChange={e => setEditForm({...editForm, sma_contact: e.target.value})} placeholder="Phone or email" style={inputStyle} /></div></>)}
 
-                  {/* Intern fields */}
                   {editForm.affiliation === 'intern' && (<>
                     <div><label style={labelStyle}>Advisor Name</label><input value={editForm.advisor_name} onChange={e => setEditForm({...editForm, advisor_name: e.target.value})} placeholder="Advisor full name" style={inputStyle} /></div>
                     <div><label style={labelStyle}>Advisor Contact</label><input value={editForm.advisor_contact} onChange={e => setEditForm({...editForm, advisor_contact: e.target.value})} placeholder="Phone or email" style={inputStyle} /></div>
@@ -1026,19 +1017,23 @@ export default function AdminPage() {
                     <div><label style={labelStyle}>Dept / Company</label><input value={editForm.intern_department} onChange={e => setEditForm({...editForm, intern_department: e.target.value})} placeholder="Department or company name" style={inputStyle} /></div>
                   </>)}
 
-                  {/* Student fields */}
                   {editForm.affiliation === 'student' && (<><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>School</label><select value={editForm.school} onChange={e => setEditForm({...editForm, school: e.target.value})} style={inputStyle}><option value="">— Select school —</option>{SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}</select></div><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Major</label><select value={editForm.major || ''} onChange={e => setEditForm({...editForm, major: e.target.value})} style={inputStyle}><option value="">— Select major —</option>{MAJORS.map(m => <option key={m} value={m}>{m}</option>)}</select></div></>)}
 
-                  {/* Provider credential fields */}
                   {editForm.affiliation === 'provider' && (
                     <div style={{ gridColumn: '1 / -1', padding: '1rem 1.25rem', borderRadius: '10px', border: '1px solid rgba(125,211,252,0.4)', background: 'rgba(125,211,252,0.04)' }}>
                       <p style={{ fontSize: '0.78rem', fontWeight: 600, color: '#7dd3fc', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.85rem' }}>Credential Expiration Dates</p>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.75rem' }}>
                         {PROVIDER_CRED_FIELDS.map(f => (
-                          <div key={f.key}>
-                            <label style={labelStyle}>{f.label}</label>
-                            <input type="date" value={editForm[f.key] || ''} onChange={e => setEditForm({...editForm, [f.key]: e.target.value})} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} />
-                          </div>
+                          <CredentialInput
+                            key={f.key}
+                            fieldKey={f.key}
+                            label={f.label}
+                            value={editForm[f.key] || ''}
+                            onChange={val => setEditForm({ ...editForm, [f.key]: val })}
+                            allowNA={f.key === 'dea_exp'}
+                            inputStyle={inputStyle}
+                            labelStyle={labelStyle}
+                          />
                         ))}
                       </div>
                     </div>
@@ -1280,13 +1275,10 @@ export default function AdminPage() {
                 <div><label style={labelStyle}>Default Position</label><select value={newDefaultRole} onChange={e => setNewDefaultRole(e.target.value)} style={inputStyle}><option value="">— None —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                 <div><label style={labelStyle}>Birthday</label><input type="date" value={newBirthday} onChange={e => setNewBirthday(e.target.value)} style={inputStyle} /></div>
 
-                {/* Missionary */}
                 {newAffiliation === 'missionary' && (<><div><label style={labelStyle}>SMA Name</label><input value={newSmaName} onChange={e => setNewSmaName(e.target.value)} placeholder="SMA full name" style={inputStyle} /></div><div><label style={labelStyle}>SMA Contact</label><input value={newSmaContact} onChange={e => setNewSmaContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div></>)}
 
-                {/* Student */}
                 {newAffiliation === 'student' && (<><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>School</label><select value={newSchool} onChange={e => setNewSchool(e.target.value)} style={inputStyle}><option value="">— Select school —</option>{SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}</select></div><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Major</label><select value={newMajor} onChange={e => setNewMajor(e.target.value)} style={inputStyle}><option value="">— Select major —</option>{MAJORS.map(m => <option key={m} value={m}>{m}</option>)}</select></div></>)}
 
-                {/* Intern */}
                 {newAffiliation === 'intern' && (<>
                   <div><label style={labelStyle}>Advisor Name</label><input value={newAdvisorName} onChange={e => setNewAdvisorName(e.target.value)} placeholder="Advisor full name" style={inputStyle} /></div>
                   <div><label style={labelStyle}>Advisor Contact</label><input value={newAdvisorContact} onChange={e => setNewAdvisorContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div>
@@ -1294,16 +1286,21 @@ export default function AdminPage() {
                   <div><label style={labelStyle}>Dept / Company</label><input value={newInternDepartment} onChange={e => setNewInternDepartment(e.target.value)} placeholder="Department or company" style={inputStyle} /></div>
                 </>)}
 
-                {/* Provider credentials */}
                 {newAffiliation === 'provider' && (
                   <div style={{ gridColumn: '1 / -1', padding: '1rem 1.25rem', borderRadius: '10px', border: '1px solid rgba(125,211,252,0.4)', background: 'rgba(125,211,252,0.04)' }}>
                     <p style={{ fontSize: '0.78rem', fontWeight: 600, color: '#7dd3fc', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.85rem' }}>Credential Expiration Dates</p>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.75rem' }}>
                       {PROVIDER_CRED_FIELDS.map(f => (
-                        <div key={f.key}>
-                          <label style={labelStyle}>{f.label}</label>
-                          <input type="date" value={newProviderCreds[f.key]} onChange={e => setNewProviderCreds(prev => ({ ...prev, [f.key]: e.target.value }))} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} />
-                        </div>
+                        <CredentialInput
+                          key={f.key}
+                          fieldKey={f.key}
+                          label={f.label}
+                          value={newProviderCreds[f.key]}
+                          onChange={val => setNewProviderCreds(prev => ({ ...prev, [f.key]: val }))}
+                          allowNA={f.key === 'dea_exp'}
+                          inputStyle={inputStyle}
+                          labelStyle={labelStyle}
+                        />
                       ))}
                     </div>
                   </div>
