@@ -13,11 +13,11 @@ const DAYS = ['monday','tuesday','wednesday','thursday','friday']
 
 // Provider credential fields definition (shared between view/edit/create)
 const PROVIDER_CRED_FIELDS = [
-  { key: 'license_exp', label: 'License Expiration' },
-  { key: 'bls_exp',     label: 'BLS Expiration' },
-  { key: 'dea_exp',     label: 'DEA Expiration' },
-  { key: 'ftca_exp',    label: 'FTCA Expiration' },
-  { key: 'tb_exp',      label: 'TB Expiration' },
+  { key: 'license_exp', label: 'License' },
+  { key: 'bls_exp',     label: 'BLS' },
+  { key: 'dea_exp',     label: 'DEA' },
+  { key: 'ftca_exp',    label: 'FTCA' },
+  { key: 'tb_exp',      label: 'TB' },
 ]
 
 function credentialStatus(dateStr) {
