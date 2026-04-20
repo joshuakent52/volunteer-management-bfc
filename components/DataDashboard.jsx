@@ -569,7 +569,7 @@ export default function DataDashboard({ supabase }) {
   useEffect(() => {
     if (!profiles.length) return
     const missing = profiles
-      .filter(p => p.role === 'volunteer')
+      .filter(p => p.role === 'volunteer' && (p.status ?? 'active') === 'active')
       .filter(p => {
         const needsSma    = p.affiliation === 'missionary' && !p.sma_name
         const needsSchool = p.affiliation === 'student'    && !p.school
