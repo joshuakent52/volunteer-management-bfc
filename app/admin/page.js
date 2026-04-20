@@ -410,7 +410,11 @@ export default function AdminPage() {
   async function handleAddEntry() {
     if (!addVolId) return; setAddingEntry(true)
     const currentEntries = getEntries(scheduleDay, scheduleShift, addingRole)
-    const effectiveCount = currentEntries.reduce((sum, entry) => sum + (entry.week_pattern === 'every' ? 1 : 0.5), 0)
+    const effectiveCount = currentEntries.reduce((sum, entry) => {
+      if (addStartDate && entry.end_date && entry.end_date < addStartDate) return sum
+      if (addEndDate && entry.start_date && entry.start_date > addEndDate) return sum
+      return sum + (entry.week_pattern === 'every' ? 1 : 0.5)
+    }, 0)
     const limit = ROLE_SUGGESTIONS[addingRole]
     if (limit && effectiveCount >= limit) { showMessage(`Limit reached for ${addingRole} (${limit})`, 'error'); setAddingEntry(false); return }
     const exists = schedule.find(s => {
