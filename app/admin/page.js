@@ -413,7 +413,23 @@ export default function AdminPage() {
     const effectiveCount = currentEntries.reduce((sum, entry) => sum + (entry.week_pattern === 'every' ? 1 : 0.5), 0)
     const limit = ROLE_SUGGESTIONS[addingRole]
     if (limit && effectiveCount >= limit) { showMessage(`Limit reached for ${addingRole} (${limit})`, 'error'); setAddingEntry(false); return }
-    const exists = schedule.find(s => s.volunteer_id === addVolId && s.day_of_week === scheduleDay && s.shift_time === scheduleShift && s.role === addingRole)
+    const exists = schedule.find(s => {
+      if (
+        s.volunteer_id !== addVolId ||
+        s.day_of_week !== scheduleDay ||
+        s.shift_time !== scheduleShift ||
+        s.role !== addingRole
+      ) return false
+
+      // Two ranges overlap unless one ends before the other starts
+      // Treat null start = beginning of time, null end = forever
+      const aStart = s.start_date || '0000-01-01'
+      const aEnd   = s.end_date   || '9999-12-31'
+      const bStart = addStartDate || '0000-01-01'
+      const bEnd   = addEndDate   || '9999-12-31'
+
+      return aStart <= bEnd && bStart <= aEnd
+    })
     if (exists) { showMessage('Volunteer already assigned to this slot', 'error'); setAddingEntry(false); return }
     const vol = volunteers.find(v => v.id === addVolId)
     const { error } = await supabase.from('schedule').insert({ volunteer_id: addVolId, day_of_week: scheduleDay, shift_time: scheduleShift, role: addingRole, start_date: addStartDate || null, end_date: addEndDate || null, week_pattern: addWeekPattern || 'every', notes: addNotes || null })
