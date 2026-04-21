@@ -12,6 +12,36 @@ export const dynamic = 'force-dynamic'
 // ── Broadcast types that show view counts ────────────────────────────────────
 const BROADCAST_TYPES = ['everyone', 'role', 'shift']
 
+// ── Provider credential fields ───────────────────────────────────────────────
+const PROVIDER_CRED_FIELDS = [
+  { key: 'license_exp', label: 'License Expiration' },
+  { key: 'bls_exp',     label: 'BLS Expiration' },
+  { key: 'dea_exp',     label: 'DEA Expiration' },
+  { key: 'ftca_exp',    label: 'FTCA Expiration' },
+  { key: 'tb_exp',      label: 'TB Expiration' },
+]
+
+function credentialStatus(dateStr) {
+  if (!dateStr) return 'missing'
+  if (dateStr === 'N/A') return 'na'
+  if (dateStr === 'expired') return 'expired'
+  const exp = new Date(dateStr + 'T12:00:00')
+  const now = new Date()
+  const oneMonthOut = new Date()
+  oneMonthOut.setMonth(oneMonthOut.getMonth() + 1)
+  if (exp < now) return 'expired'
+  if (exp <= oneMonthOut) return 'expiring'
+  return 'ok'
+}
+
+function formatExpDate(dateStr) {
+  if (!dateStr) return null
+  if (dateStr === 'N/A') return 'N/A'
+  if (dateStr === 'expired') return 'Expired'
+  const [y, m, d] = dateStr.split('-')
+  return `${m}/${d}/${y}`
+}
+
 export default function VolunteerPage() {
   const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
@@ -81,28 +111,31 @@ export default function VolunteerPage() {
   // All shifts for total hours (no limit)
   const [allShifts, setAllShifts] = useState([])
 
-  // Push notification state — must live here at top level, NOT inside init()
+  // Push notification state
   const [pushEnabled, setPushEnabled] = useState(false)
   const [pushLoading, setPushLoading] = useState(false)
 
-  // ── NEW: view counts for broadcast messages ──────────────────────────────
-  // Map of message_id -> read_count (number)
+  // ── Provider credential editing state ────────────────────────────────────
+  const [editingCreds, setEditingCreds] = useState(false)
+  const [credForm, setCredForm] = useState({})
+  const [savingCreds, setSavingCreds] = useState(false)
+
+  // ── Broadcast read counts ────────────────────────────────────────────────
   const [broadcastReadCounts, setBroadcastReadCounts] = useState({})
 
   const isAdmin = profile?.role === 'admin'
   const isClinicalSupervisor = profile?.default_role === 'Clinical Supervisor'
   const isIntern = profile?.affiliation === 'intern'
+  const isProvider = profile?.affiliation === 'provider'
 
   useEffect(() => { init() }, [])
 
-  // Mark all inbox messages as read when the user opens the messages tab to inbox
   useEffect(() => {
     if (tab === 'messages' && msgView === 'inbox' && user) {
       markInboxAsRead()
     }
   }, [tab, msgView, user])
 
-  // ── NEW: load broadcast read counts whenever messages or sent view changes ──
   useEffect(() => {
     if (messages.length > 0 && user) {
       loadBroadcastReadCounts(messages)
@@ -118,7 +151,17 @@ export default function VolunteerPage() {
       .from('profiles').select('*').eq('id', user.id).single()
     setProfile(profileData)
 
-    // Check if push is already subscribed — with timeout so it can't hang init()
+    // Seed credential form with current values
+    if (profileData?.affiliation === 'provider') {
+      setCredForm({
+        license_exp: profileData.license_exp || '',
+        bls_exp:     profileData.bls_exp     || '',
+        dea_exp:     profileData.dea_exp     || '',
+        ftca_exp:    profileData.ftca_exp    || '',
+        tb_exp:      profileData.tb_exp      || '',
+      })
+    }
+
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
       try {
         const reg = await Promise.race([
@@ -160,7 +203,6 @@ export default function VolunteerPage() {
 
     await loadMessages(user.id)
 
-    // Load all profiles for the Individual message recipient selector
     const { data: allProfiles } = await supabase
       .from('profiles')
       .select('id, full_name')
@@ -202,7 +244,6 @@ export default function VolunteerPage() {
       .limit(50)
     setMessages(msgs || [])
 
-    // Load which messages this user has already read
     if (userId) {
       const { data: reads } = await supabase
         .from('message_reads')
@@ -212,7 +253,6 @@ export default function VolunteerPage() {
     }
   }
 
-  // ── NEW: fetch read counts for all broadcast messages in one RPC call ─────
   async function loadBroadcastReadCounts(msgs) {
     const broadcastIds = (msgs || [])
       .filter(m => BROADCAST_TYPES.includes(m.recipient_type))
@@ -223,13 +263,11 @@ export default function VolunteerPage() {
       return
     }
 
-    // Use the RPC created in the SQL migration
     const { data, error } = await supabase.rpc('get_broadcast_read_counts', {
       message_ids: broadcastIds,
     })
 
     if (error) {
-      // Graceful fallback: query the view directly
       const { data: fallback } = await supabase
         .from('message_read_counts')
         .select('message_id, read_count')
@@ -245,10 +283,8 @@ export default function VolunteerPage() {
     setBroadcastReadCounts(map)
   }
 
-  // Insert read receipts for all current inbox messages
   async function markInboxAsRead() {
     if (!user) return
-    // Re-derive inbox using current state (same filter as render)
     const inbox = messages.filter(m => {
       if (m.sender_id === user.id) return false
       if (m.recipient_type === 'affiliation_missionary' && profile?.affiliation !== 'missionary') return false
@@ -266,8 +302,34 @@ export default function VolunteerPage() {
     })
   }
 
-  // ── Image helpers ─────────────────────────────────────────────────────────
+  // ── Provider credential save ─────────────────────────────────────────────
+  async function handleSaveCreds(e) {
+    e.preventDefault()
+    setSavingCreds(true)
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        license_exp: credForm.license_exp || null,
+        bls_exp:     credForm.bls_exp     || null,
+        dea_exp:     credForm.dea_exp     || null,
+        ftca_exp:    credForm.ftca_exp    || null,
+        tb_exp:      credForm.tb_exp      || null,
+      })
+      .eq('id', user.id)
 
+    if (error) {
+      showToast(error.message, 'error')
+    } else {
+      showToast('Credentials updated!', 'success')
+      // Refresh profile so the view reflects saved values
+      const { data: fresh } = await supabase.from('profiles').select('*').eq('id', user.id).single()
+      setProfile(fresh)
+      setEditingCreds(false)
+    }
+    setSavingCreds(false)
+  }
+
+  // ── Image helpers ────────────────────────────────────────────────────────
   function handleImageSelect(e) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -296,8 +358,7 @@ export default function VolunteerPage() {
     return publicUrl
   }
 
-  // ── Messaging ─────────────────────────────────────────────────────────────
-
+  // ── Messaging ────────────────────────────────────────────────────────────
   async function handleSendMessage(e) {
     e.preventDefault()
     if (!msgBody.trim() && !msgImageFile) return
@@ -326,7 +387,7 @@ export default function VolunteerPage() {
         recipient_volunteer_id: recipientType === 'volunteer' ? (msgRecipientVolId || null) : null,
       }),
     })
-  
+
     const result = await res.json()
     if (!res.ok) {
       showToast(result.error || 'Failed to send', 'error')
@@ -345,8 +406,7 @@ export default function VolunteerPage() {
     setSendingMsg(false)
   }
 
-  // ── Other handlers ────────────────────────────────────────────────────────
-
+  // ── Other handlers ───────────────────────────────────────────────────────
   function getCurrentShiftWindow() {
     const now = new Date()
     const mtnStr = now.toLocaleString('en-US', { timeZone: 'America/Denver' })
@@ -465,7 +525,7 @@ export default function VolunteerPage() {
     }
     setSubmittingHours(false)
   }
-  
+
   async function handleInternReport(e) {
     e.preventDefault()
     if (!internHours || !internRole || !internProgress.trim()) return
@@ -526,7 +586,7 @@ export default function VolunteerPage() {
       setSubmittingInternReport(false)
     }
   }
-  
+
   function showToast(text, type) {
     setToast({ text, type })
     setTimeout(() => setToast(null), 3500)
@@ -537,43 +597,17 @@ export default function VolunteerPage() {
 
   async function handleSignOut() { await supabase.auth.signOut(); window.location.href = '/' }
 
-  // ── NEW: View Count Badge component ──────────────────────────────────────
-  // Renders an eye-icon pill showing how many people have read a broadcast message.
-  // Only shown on messages with recipient_type: everyone | role | shift
+  // ── Broadcast read-count badge ───────────────────────────────────────────
   function ViewCountBadge({ message }) {
     const isBroadcast = BROADCAST_TYPES.includes(message?.recipient_type)
     if (!isBroadcast) return null
-
     const count = broadcastReadCounts[message.id] ?? null
-
     return (
       <span
         title={count === null ? 'Loading views…' : `${count} ${count === 1 ? 'person has' : 'people have'} read this`}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '0.3rem',
-          fontSize: '0.72rem',
-          fontWeight: 500,
-          color: 'var(--muted)',
-          background: 'var(--bg)',
-          border: '1px solid var(--border)',
-          borderRadius: '100px',
-          padding: '0.15rem 0.55rem',
-          marginTop: '0.35rem',
-          fontFamily: 'DM Mono, monospace',
-          letterSpacing: '0.01em',
-          userSelect: 'none',
-          whiteSpace: 'nowrap',
-          flexShrink: 0,
-        }}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', fontWeight: 500, color: 'var(--muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '100px', padding: '0.15rem 0.55rem', marginTop: '0.35rem', fontFamily: 'DM Mono, monospace', letterSpacing: '0.01em', userSelect: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}
       >
-        {/* Eye SVG icon */}
-        <svg
-          width="12" height="12" viewBox="0 0 20 20" fill="none"
-          stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-          style={{ opacity: 0.7 }}
-        >
+        <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }}>
           <path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z" />
           <circle cx="10" cy="10" r="2.5" />
         </svg>
@@ -582,24 +616,88 @@ export default function VolunteerPage() {
     )
   }
 
-  // ── NEW: Enhanced MessageCard wrapper that injects view count ─────────────
-  // Wraps the existing <MessageCard> and appends the ViewCountBadge below it
-  // for broadcast messages. This keeps MessageCard unchanged.
   function MessageCardWithViews({ m, readMessageIds, user, setLightboxUrl }) {
     const isBroadcast = BROADCAST_TYPES.includes(m?.recipient_type)
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-        <MessageCard
-          m={m}
-          readMessageIds={readMessageIds}
-          user={user}
-          setLightboxUrl={setLightboxUrl}
-        />
-        {isBroadcast && (
-          <div style={{ paddingLeft: '0.25rem' }}>
-            <ViewCountBadge message={m} />
-          </div>
-        )}
+        <MessageCard m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />
+        {isBroadcast && (<div style={{ paddingLeft: '0.25rem' }}><ViewCountBadge message={m} /></div>)}
+      </div>
+    )
+  }
+
+  // ── Provider credential input component ──────────────────────────────────
+  function CredentialInput({ fieldKey, label, value, onChange, allowNA = false, inputStyle, labelStyle }) {
+    const mode = value === 'N/A' ? 'na' : value === 'expired' ? 'expired' : 'date'
+    return (
+      <div>
+        <label style={labelStyle}>{label}</label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+          <select
+            value={mode}
+            onChange={e => {
+              const m = e.target.value
+              if (m === 'na') onChange('N/A')
+              else if (m === 'expired') onChange('expired')
+              else onChange('')
+            }}
+            style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+          >
+            <option value="date">Set date</option>
+            {allowNA && <option value="na">N/A</option>}
+            <option value="expired">Mark as expired</option>
+          </select>
+          {mode === 'date' && (
+            <input
+              type="date"
+              value={value && value !== 'N/A' && value !== 'expired' ? value : ''}
+              onChange={e => onChange(e.target.value)}
+              style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+            />
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Provider credential view card ────────────────────────────────────────
+  function ProviderCredCard({ vol, inputStyle, labelStyle }) {
+    const fields = PROVIDER_CRED_FIELDS.map(f => ({
+      ...f,
+      value: vol[f.key] || null,
+      status: credentialStatus(vol[f.key]),
+    }))
+
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.6rem' }}>
+        {fields.map(f => {
+          const isNA       = f.status === 'na'
+          const isMissing  = f.status === 'missing'
+          const isExpired  = f.status === 'expired'
+          const isExpiring = f.status === 'expiring'
+          const isOk       = f.status === 'ok'
+
+          const borderColor = (isMissing || isExpired) ? 'rgba(239,68,68,0.4)' : isExpiring ? 'rgba(251,146,60,0.45)' : isNA ? 'rgba(156,163,175,0.35)' : 'rgba(2,65,107,0.3)'
+          const bgColor     = (isMissing || isExpired) ? 'rgba(239,68,68,0.06)' : isExpiring ? 'rgba(251,146,60,0.06)' : isNA ? 'rgba(156,163,175,0.06)' : 'rgba(2,65,107,0.05)'
+          const textColor   = (isMissing || isExpired) ? '#ef4444' : isExpiring ? '#f97316' : isNA ? 'var(--muted)' : 'var(--text)'
+
+          return (
+            <div key={f.key} style={{ padding: '0.6rem 0.75rem', borderRadius: '8px', border: `1px solid ${borderColor}`, background: bgColor }}>
+              <p style={{ fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>{f.label}</p>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.35rem' }}>
+                <p style={{ fontFamily: (isMissing || isNA) ? 'DM Sans, sans-serif' : 'DM Mono, monospace', fontSize: '0.82rem', fontWeight: (isMissing || isNA) ? 400 : 600, color: textColor, fontStyle: (isMissing || isNA) ? 'italic' : 'normal' }}>
+                  {isMissing ? 'Not set' : formatExpDate(f.value)}
+                </p>
+                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: (isMissing || isExpired) ? '#ef4444' : isExpiring ? '#f97316' : isNA ? 'var(--muted)' : '#22c55e', flexShrink: 0 }}>
+                  {(isMissing || isExpired) ? '✗' : isExpiring ? '!' : isNA ? '—' : '✓'}
+                </span>
+              </div>
+              {isExpired  && <p style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 700, marginTop: '0.15rem' }}>EXPIRED</p>}
+              {isExpiring && <p style={{ fontSize: '0.65rem', color: '#f97316', fontWeight: 700, marginTop: '0.15rem' }}>EXP. SOON</p>}
+              {isNA       && <p style={{ fontSize: '0.65rem', color: 'var(--muted)', fontWeight: 600, marginTop: '0.15rem' }}>NOT APPLICABLE</p>}
+            </div>
+          )
+        })}
       </div>
     )
   }
@@ -683,14 +781,7 @@ export default function VolunteerPage() {
             }}>
               {label}
               {key === 'messages' && unreadCount > 0 && (
-                <span style={{
-                  position: 'absolute', top: '-5px', right: '-5px',
-                  background: '#ef4444', color: '#fff',
-                  borderRadius: '50%', width: '17px', height: '17px',
-                  fontSize: '0.65rem', fontWeight: 700,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  border: '2px solid var(--bg)', lineHeight: 1,
-                }}>
+                <span style={{ position: 'absolute', top: '-5px', right: '-5px', background: '#ef4444', color: '#fff', borderRadius: '50%', width: '17px', height: '17px', fontSize: '0.65rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--bg)', lineHeight: 1 }}>
                   {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
               )}
@@ -816,7 +907,6 @@ export default function VolunteerPage() {
               </form>
             </div>
 
-            {/* Open shifts */}
             <div style={card}>
               <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Open Shifts</h2>
               <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Shifts that need coverage — tap to volunteer.</p>
@@ -859,15 +949,8 @@ export default function VolunteerPage() {
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Inbox</h2>
                 {inboxMessages.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No messages yet.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {/* ── CHANGED: use MessageCardWithViews instead of MessageCard ── */}
                     {inboxMessages.map(m => (
-                      <MessageCardWithViews
-                        key={m.id}
-                        m={m}
-                        readMessageIds={readMessageIds}
-                        user={user}
-                        setLightboxUrl={setLightboxUrl}
-                      />
+                      <MessageCardWithViews key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />
                     ))}
                   </div>
                 )}
@@ -879,16 +962,8 @@ export default function VolunteerPage() {
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Sent Messages</h2>
                 {sentMessages.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No sent messages yet.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {/* ── CHANGED: use MessageCardWithViews — especially useful for
-                        senders to see how many people read their broadcast ── */}
                     {sentMessages.map(m => (
-                      <MessageCardWithViews
-                        key={m.id}
-                        m={m}
-                        readMessageIds={readMessageIds}
-                        user={user}
-                        setLightboxUrl={setLightboxUrl}
-                      />
+                      <MessageCardWithViews key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />
                     ))}
                   </div>
                 )}
@@ -909,12 +984,7 @@ export default function VolunteerPage() {
                         ...(myRoles.length > 0 ? [{ value: 'role', label: 'My Role' }] : []),
                         { value: 'user', label: 'Individual' },
                       ].map(opt => (
-                        <button key={opt.value} type="button" onClick={() => {
-                          setMsgRecipientType(opt.value)
-                          setMsgSelectedShift(null)
-                          setMsgSelectedRole(null)
-                          setMsgRecipientVolId('')
-                        }}
+                        <button key={opt.value} type="button" onClick={() => { setMsgRecipientType(opt.value); setMsgSelectedShift(null); setMsgSelectedRole(null); setMsgRecipientVolId('') }}
                           style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: msgRecipientType === opt.value ? 'var(--accent)' : 'var(--surface)', color: msgRecipientType === opt.value ? '#0a0f0a' : 'var(--muted)', border: msgRecipientType === opt.value ? 'none' : '1px solid var(--border)' }}>{opt.label}</button>
                       ))}
                     </div>
@@ -958,7 +1028,6 @@ export default function VolunteerPage() {
                     <label style={labelStyle}>Message</label>
                     <textarea value={msgBody} onChange={e => setMsgBody(e.target.value)} rows={4} placeholder="Write your message..." style={{ ...inputStyle, resize: 'vertical' }} />
                   </div>
-                  {/* Image attachment */}
                   <div>
                     <label style={labelStyle}>Attach image <span style={{ textTransform: 'none', fontSize: '0.72rem', color: 'var(--muted)' }}>(optional · max 5 MB)</span></label>
                     {msgImagePreview ? (
@@ -974,14 +1043,7 @@ export default function VolunteerPage() {
                     <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleImageSelect} style={{ display: 'none' }} />
                   </div>
                   <button type="submit"
-                    disabled={
-                      sendingMsg ||
-                      uploadingImage ||
-                      (!msgBody.trim() && !msgImageFile) ||
-                      (msgRecipientType === 'shift' && !msgSelectedShift) ||
-                      (msgRecipientType === 'role' && !msgSelectedRole) ||
-                      (msgRecipientType === 'user' && !msgRecipientVolId)
-                    }
+                    disabled={sendingMsg || uploadingImage || (!msgBody.trim() && !msgImageFile) || (msgRecipientType === 'shift' && !msgSelectedShift) || (msgRecipientType === 'role' && !msgSelectedRole) || (msgRecipientType === 'user' && !msgRecipientVolId)}
                     style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: sendingMsg ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                     {uploadingImage ? 'Uploading image...' : sendingMsg ? 'Sending...' : 'Send Message'}
                   </button>
@@ -1004,46 +1066,19 @@ export default function VolunteerPage() {
                   <label style={labelStyle}>Role</label>
                   <select value={internRole} onChange={e => setInternRole(e.target.value)} required style={inputStyle}>
                     <option value="">— Select role —</option>
-                    {[...ROLES, "Intern"].map(r => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
+                    {[...ROLES, "Intern"].map(r => (<option key={r} value={r}>{r}</option>))}
                   </select>
                 </div>
                 <div>
                   <label style={labelStyle}>Hours Worked This Week</label>
-                  <input
-                    type="number" min="0.5" max="60" step="0.5"
-                    value={internHours}
-                    onChange={e => setInternHours(e.target.value)}
-                    required placeholder="e.g. 20"
-                    style={inputStyle}
-                  />
+                  <input type="number" min="0.5" max="60" step="0.5" value={internHours} onChange={e => setInternHours(e.target.value)} required placeholder="e.g. 20" style={inputStyle} />
                 </div>
                 <div>
                   <label style={labelStyle}>Weekly Progress <span style={{ textTransform: 'none', color: '#ef4444' }}>*</span></label>
-                  <textarea
-                    value={internProgress}
-                    onChange={e => setInternProgress(e.target.value)}
-                    rows={5}
-                    required
-                    placeholder="Describe what you worked on this week, any challenges, and goals for next week..."
-                    style={{ ...inputStyle, resize: 'vertical' }}
-                  />
-                  <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.35rem' }}>
-                    This will be sent directly to your internship coordinator.
-                  </p>
+                  <textarea value={internProgress} onChange={e => setInternProgress(e.target.value)} rows={5} required placeholder="Describe what you worked on this week, any challenges, and goals for next week..." style={{ ...inputStyle, resize: 'vertical' }} />
+                  <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.35rem' }}>This will be sent directly to your internship coordinator.</p>
                 </div>
-                <button
-                  type="submit"
-                  disabled={submittingInternReport || !internHours || !internRole || !internProgress.trim()}
-                  style={{
-                    padding: '0.85rem', background: 'var(--accent)', color: '#fff',
-                    border: 'none', borderRadius: '8px', fontWeight: 600,
-                    cursor: submittingInternReport ? 'not-allowed' : 'pointer',
-                    fontFamily: 'DM Sans, sans-serif',
-                    opacity: (!internHours || !internRole || !internProgress.trim()) ? 0.5 : 1,
-                  }}
-                >
+                <button type="submit" disabled={submittingInternReport || !internHours || !internRole || !internProgress.trim()} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: submittingInternReport ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', opacity: (!internHours || !internRole || !internProgress.trim()) ? 0.5 : 1 }}>
                   {submittingInternReport ? 'Submitting…' : 'Submit Weekly Report'}
                 </button>
               </form>
@@ -1054,6 +1089,8 @@ export default function VolunteerPage() {
         {/* ACCOUNT TAB */}
         {tab === 'account' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+            {/* Hours summary */}
             <div style={{ ...card, borderColor: 'var(--accent)', background: 'rgba(2,65,107,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
                 <p style={{ fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>Total Hours</p>
@@ -1064,6 +1101,8 @@ export default function VolunteerPage() {
                 <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: 'var(--text)', lineHeight: 1 }}>{allShifts.length}</p>
               </div>
             </div>
+
+            {/* Shift history */}
             <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
               <button onClick={() => setShowShiftHistory(h => !h)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.25rem', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                 <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>Shift History</span>
@@ -1080,37 +1119,98 @@ export default function VolunteerPage() {
                 </div>
               )}
             </div>
-            {!isIntern && <div style={card}>
-              <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Submit Hours</h2>
-              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Submit hours worked outside of the clock-in system for admin approval.</p>
-              <form onSubmit={handleSubmitHours} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <div><label style={labelStyle}>Date Worked</label><input type="date" value={hoursDate} onChange={e => setHoursDate(e.target.value)} required style={inputStyle} /></div>
-                <div><label style={labelStyle}>Role</label><select value={hoursRole} onChange={e => setHoursRole(e.target.value)} required style={inputStyle}><option value="">— Select role —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
-                <div><label style={labelStyle}>Hours Worked</label><input type="number" min="0.5" max="12" step="0.5" value={hoursWorked} onChange={e => setHoursWorked(e.target.value)} required placeholder="e.g. 4" style={inputStyle} /></div>
-                <div><label style={labelStyle}>Notes (optional)</label><textarea value={hoursNotes} onChange={e => setHoursNotes(e.target.value)} rows={2} placeholder="Any context for the admin..." style={{ ...inputStyle, resize: 'vertical' }} /></div>
-                <button type="submit" disabled={submittingHours || !hoursDate || !hoursRole || !hoursWorked} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: submittingHours ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{submittingHours ? 'Submitting...' : 'Submit Hours'}</button>
-              </form>
-              {myHoursSubmissions.length > 0 && (
-                <div style={{ marginTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>Your Submissions</p>
-                  {myHoursSubmissions.map(h => (
-                    <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                      <div><span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{h.work_date}</span><span style={{ color: 'var(--muted)', fontSize: '0.8rem', marginLeft: '0.5rem' }}>{h.role}</span></div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem' }}>{h.hours}h</span>
-                        <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', fontWeight: 500, background: h.status === 'approved' ? 'rgba(74,222,128,0.12)' : h.status === 'rejected' ? 'rgba(239,68,68,0.1)' : 'rgba(251,191,36,0.12)', color: h.status === 'approved' ? 'var(--accent)' : h.status === 'rejected' ? '#ef4444' : 'var(--warn)', border: `1px solid ${h.status === 'approved' ? 'rgba(74,222,128,0.3)' : h.status === 'rejected' ? 'rgba(239,68,68,0.25)' : 'rgba(251,191,36,0.3)'}` }}>{h.status}</span>
-                      </div>
-                    </div>
-                  ))}
+
+            {/* ── PROVIDER CREDENTIALS SECTION ─────────────────────────── */}
+            {isProvider && (
+              <div style={{ ...card, borderColor: 'rgba(125,211,252,0.4)', background: 'rgba(125,211,252,0.03)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <div>
+                    <h2 style={{ fontWeight: 600, fontSize: '1rem' }}>My Credentials</h2>
+                    <p style={{ color: 'var(--muted)', fontSize: '0.82rem', marginTop: '0.15rem' }}>License &amp; certification expiration dates</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (!editingCreds) {
+                        // Seed form with current profile values when opening edit
+                        setCredForm({
+                          license_exp: profile?.license_exp || '',
+                          bls_exp:     profile?.bls_exp     || '',
+                          dea_exp:     profile?.dea_exp     || '',
+                          ftca_exp:    profile?.ftca_exp    || '',
+                          tb_exp:      profile?.tb_exp      || '',
+                        })
+                      }
+                      setEditingCreds(e => !e)
+                    }}
+                    style={{ padding: '0.4rem 0.9rem', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: editingCreds ? 'var(--surface)' : 'rgba(125,211,252,0.15)', color: editingCreds ? 'var(--muted)' : '#7dd3fc', border: editingCreds ? '1px solid var(--border)' : '1px solid rgba(125,211,252,0.4)' }}
+                  >
+                    {editingCreds ? 'Cancel' : 'Update'}
+                  </button>
                 </div>
-              )}
-            </div>
-            }
+
+                {!editingCreds ? (
+                  <ProviderCredCard vol={profile} inputStyle={inputStyle} labelStyle={labelStyle} />
+                ) : (
+                  <form onSubmit={handleSaveCreds} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.75rem' }}>
+                      {PROVIDER_CRED_FIELDS.map(f => (
+                        <CredentialInput
+                          key={f.key}
+                          fieldKey={f.key}
+                          label={f.label}
+                          value={credForm[f.key] || ''}
+                          onChange={val => setCredForm(prev => ({ ...prev, [f.key]: val }))}
+                          allowNA={f.key === 'dea_exp'}
+                          inputStyle={inputStyle}
+                          labelStyle={labelStyle}
+                        />
+                      ))}
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={savingCreds}
+                      style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: savingCreds ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}
+                    >
+                      {savingCreds ? 'Saving…' : 'Save Credentials'}
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+
+            {/* Submit hours (non-intern) */}
+            {!isIntern && (
+              <div style={card}>
+                <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Submit Hours</h2>
+                <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Submit hours worked outside of the clock-in system for admin approval.</p>
+                <form onSubmit={handleSubmitHours} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div><label style={labelStyle}>Date Worked</label><input type="date" value={hoursDate} onChange={e => setHoursDate(e.target.value)} required style={inputStyle} /></div>
+                  <div><label style={labelStyle}>Role</label><select value={hoursRole} onChange={e => setHoursRole(e.target.value)} required style={inputStyle}><option value="">— Select role —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+                  <div><label style={labelStyle}>Hours Worked</label><input type="number" min="0.5" max="12" step="0.5" value={hoursWorked} onChange={e => setHoursWorked(e.target.value)} required placeholder="e.g. 4" style={inputStyle} /></div>
+                  <div><label style={labelStyle}>Notes (optional)</label><textarea value={hoursNotes} onChange={e => setHoursNotes(e.target.value)} rows={2} placeholder="Any context for the admin..." style={{ ...inputStyle, resize: 'vertical' }} /></div>
+                  <button type="submit" disabled={submittingHours || !hoursDate || !hoursRole || !hoursWorked} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: submittingHours ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{submittingHours ? 'Submitting...' : 'Submit Hours'}</button>
+                </form>
+                {myHoursSubmissions.length > 0 && (
+                  <div style={{ marginTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>Your Submissions</p>
+                    {myHoursSubmissions.map(h => (
+                      <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <div><span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{h.work_date}</span><span style={{ color: 'var(--muted)', fontSize: '0.8rem', marginLeft: '0.5rem' }}>{h.role}</span></div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem' }}>{h.hours}h</span>
+                          <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', fontWeight: 500, background: h.status === 'approved' ? 'rgba(74,222,128,0.12)' : h.status === 'rejected' ? 'rgba(239,68,68,0.1)' : 'rgba(251,191,36,0.12)', color: h.status === 'approved' ? 'var(--accent)' : h.status === 'rejected' ? '#ef4444' : 'var(--warn)', border: `1px solid ${h.status === 'approved' ? 'rgba(74,222,128,0.3)' : h.status === 'rejected' ? 'rgba(239,68,68,0.25)' : 'rgba(251,191,36,0.3)'}` }}>{h.status}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Push notifications */}
             <div style={card}>
               <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Notifications</h2>
-              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-                Get notified about new messages and shift updates.
-              </p>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Get notified about new messages and shift updates.</p>
               <button
                 onClick={async () => {
                   setPushLoading(true)
@@ -1125,16 +1225,13 @@ export default function VolunteerPage() {
                   setPushLoading(false)
                 }}
                 disabled={pushLoading}
-                style={{
-                  padding: '0.85rem', width: '100%', border: 'none', borderRadius: '8px', fontWeight: 600,
-                  cursor: pushLoading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif',
-                  background: pushEnabled ? 'var(--danger)' : 'var(--accent)',
-                  color: pushEnabled ? '#fff' : '#0a0f0a',
-                }}
+                style={{ padding: '0.85rem', width: '100%', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: pushLoading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', background: pushEnabled ? 'var(--danger)' : 'var(--accent)', color: pushEnabled ? '#fff' : '#0a0f0a' }}
               >
                 {pushLoading ? 'Working...' : pushEnabled ? 'Turn off notifications' : 'Turn on notifications'}
               </button>
             </div>
+
+            {/* Change password */}
             <div style={card}>
               <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Change Password</h2>
               <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Must be at least 6 characters.</p>
@@ -1144,6 +1241,7 @@ export default function VolunteerPage() {
                 <button type="submit" disabled={changingPassword || !newPassword || !confirmPassword} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: changingPassword ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{changingPassword ? 'Updating...' : 'Update Password'}</button>
               </form>
             </div>
+
           </div>
         )}
 
