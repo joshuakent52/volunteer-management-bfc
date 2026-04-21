@@ -328,7 +328,7 @@ export default function DataDashboard({ supabase }) {
   const [topOpen,     setTopOpen]     = useState(false)
 
   const [noShowOpen,  setNoShowOpen]  = useState(false)
-  const [lateOpen,    setLateOpen]    = useState(true)
+  const [lateOpen,    setLateOpen]    = useState(false)
   const [missingOpen, setMissingOpen] = useState(false)
 
   // ── Data state ────────────────────────────────────────────
