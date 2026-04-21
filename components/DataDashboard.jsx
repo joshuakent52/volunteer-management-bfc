@@ -251,7 +251,7 @@ function PersonDrawer({ person, allExcusedRecordKeys, onClose, onExcuseClick }) 
                   )}
                 </div>
 
-                {isExcused ? (
+                {/* {isExcused ? (
                   <span style={{ ...pillStyle('#4ade80'), fontSize: '0.72rem' }}>Excused</span>
                 ) : (
                   <button
@@ -267,7 +267,7 @@ function PersonDrawer({ person, allExcusedRecordKeys, onClose, onExcuseClick }) 
                   >
                     Excuse
                   </button>
-                )}
+                )} */}
               </div>
             )
           })}
