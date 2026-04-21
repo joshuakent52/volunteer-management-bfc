@@ -724,13 +724,13 @@ export default function DataDashboard({ supabase }) {
               <Chevron open={noShowOpen} />
               <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>No-Shows</span>
               {(noShowsAll.length > 0 || noShowsWeek.length > 0) && (
-                <span style={{ ...pillStyle('#ef4444') }}>
+                <span style={{ ...pillStyle('#02416b') }}>
                   {noShowsAll.length}
                 </span>
               )}
             </button>
             <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>
-              Click a name to view &amp; excuse absences
+              Click a name to view shifts missed. Since March 29.
             </span>
           </div>
 
@@ -783,7 +783,7 @@ export default function DataDashboard({ supabase }) {
               <Chevron open={lateOpen} />
               <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>Repeat Late Arrivals</span>
               {latePeople.length > 0 && (
-                <span style={{ ...pillStyle('#f59e0b') }}>{latePeople.length}</span>
+                <span style={{ ...pillStyle('#92a6b9') }}>{latePeople.length}</span>
               )}
             </button>
             <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>≥2 times · since Mar 29</span>
