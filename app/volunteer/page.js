@@ -708,7 +708,7 @@ export default function VolunteerPage() {
                 <p style={{ fontFamily: (isMissing || isNA) ? 'DM Sans, sans-serif' : 'DM Mono, monospace', fontSize: '0.82rem', fontWeight: (isMissing || isNA) ? 400 : 600, color: textColor, fontStyle: (isMissing || isNA) ? 'italic' : 'normal' }}>
                   {isMissing ? 'Not set' : formatExpDate(f.value)}
                 </p>
-                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: (isMissing || isExpired) ? '#ef4444' : isExpiring ? '#f97316' : isNA ? 'var(--muted)' : '#22c55e', flexShrink: 0 }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: (isMissing || isExpired) ? '#02416b' : isExpiring ? '#02416b' : isNA ? 'var(--muted)' : '#02416b', flexShrink: 0 }}>
                   {(isMissing || isExpired) ? '✗' : isExpiring ? '!' : isNA ? '—' : '✓'}
                 </span>
               </div>
