@@ -626,8 +626,9 @@ export default function VolunteerPage() {
   const myRoles = [...new Set([
     ...schedule.filter(s => s.volunteer_id === user?.id).map(s => s.role).filter(Boolean),
     ...(profile?.default_role === 'Lab Director' ? ['Lab'] : []),
+    ...(profile?.default_role === 'Lab' ? ['Lab'] : []),
   ])]
-  
+
   const calloutSubmitDisabled = calloutMode === 'single' ? (!calloutDate || !calloutShift || !calloutRole) : (!calloutStartDate || !calloutEndDate)
 
   return (
