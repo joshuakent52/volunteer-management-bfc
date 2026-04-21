@@ -622,7 +622,12 @@ export default function VolunteerPage() {
     if (!acc.find(x => x.key === key)) acc.push({ key, day: s.day_of_week, shift_time: s.shift_time, label: `${s.day_of_week.charAt(0).toUpperCase() + s.day_of_week.slice(1,3)} ${s.shift_time}` })
     return acc
   }, [])
-  const myRoles = [...new Set(schedule.map(s => s.role))]
+
+  const myRoles = [...new Set([
+    ...schedule.filter(s => s.volunteer_id === user?.id).map(s => s.role).filter(Boolean),
+    ...(profile?.default_role === 'Lab Director' ? ['Lab'] : []),
+  ])]
+  
   const calloutSubmitDisabled = calloutMode === 'single' ? (!calloutDate || !calloutShift || !calloutRole) : (!calloutStartDate || !calloutEndDate)
 
   return (
