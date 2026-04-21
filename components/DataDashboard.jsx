@@ -319,15 +319,15 @@ export default function DataDashboard({ supabase }) {
   const [hoursMonth,  setHoursMonth]  = useState(new Date().getMonth() + 1)
   const [hoursYear,   setHoursYear]   = useState(CURRENT_YEAR)
   const [hoursAff,    setHoursAff]    = useState('All')
-  const [hoursOpen,   setHoursOpen]   = useState(true)
+  const [hoursOpen,   setHoursOpen]   = useState(false)
 
   const [topMonth,    setTopMonth]    = useState(0)
   const [topYear,     setTopYear]     = useState(CURRENT_YEAR)
   const [topAff,      setTopAff]      = useState('All')
   const [topCount,    setTopCount]    = useState(10)
-  const [topOpen,     setTopOpen]     = useState(true)
+  const [topOpen,     setTopOpen]     = useState(false)
 
-  const [noShowOpen,  setNoShowOpen]  = useState(true)
+  const [noShowOpen,  setNoShowOpen]  = useState(false)
   const [lateOpen,    setLateOpen]    = useState(true)
   const [missingOpen, setMissingOpen] = useState(false)
 
