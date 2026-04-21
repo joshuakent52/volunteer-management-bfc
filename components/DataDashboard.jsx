@@ -68,12 +68,12 @@ async function fetchAllRows(supabase, table, buildQuery, pageSize = 1000) {
 }
 
 // ── Excuse Modal ─────────────────────────────────────────────────────────────
-function ExcuseModal({ record, onClose, onExcused, supabase }) {
+{/* function ExcuseModal({ record, onClose, onExcused, supabase }) {
   const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState(null)
 
-  async function handleExcuse() {
+   async function handleExcuse() {
     if (!reason.trim()) { setError('Please enter a reason.'); return }
     setSaving(true)
     setError(null)
@@ -104,7 +104,7 @@ function ExcuseModal({ record, onClose, onExcused, supabase }) {
     } finally {
       setSaving(false)
     }
-  }
+  } 
 
   return (
     <div
@@ -177,7 +177,7 @@ function ExcuseModal({ record, onClose, onExcused, supabase }) {
       </div>
     </div>
   )
-}
+} */}
 
 // ── Person Detail Drawer ──────────────────────────────────────────────────────
 function PersonDrawer({ person, allExcusedRecordKeys, onClose, onExcuseClick }) {
