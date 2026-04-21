@@ -102,6 +102,9 @@ export async function GET(req) {
   if (targetIds.length === 0) {
     return Response.json({ pushed: 0, reason: 'All scheduled volunteers accounted for' })
   }
+  
+  console.log('Looking for subscriptions for these IDs:', targetIds)
+  console.log('Today:', todayStr, '| Day:', dayName, '| Shift:', currentShift)
 
   // ── 7. Fetch push subscriptions and send ─────────────────────────────────
   const { data: subs } = await supabaseAdmin
