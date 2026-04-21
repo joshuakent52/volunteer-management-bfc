@@ -17,7 +17,6 @@ const PROVIDER_CRED_FIELDS = [
   { key: 'license_exp', label: 'License Expiration' },
   { key: 'bls_exp',     label: 'BLS Expiration' },
   { key: 'dea_exp',     label: 'DEA Expiration' },
-  { key: 'ftca_exp',    label: 'FTCA Expiration' },
   { key: 'tb_exp',      label: 'TB Expiration' },
 ]
 
@@ -157,7 +156,6 @@ export default function VolunteerPage() {
         license_exp: profileData.license_exp || '',
         bls_exp:     profileData.bls_exp     || '',
         dea_exp:     profileData.dea_exp     || '',
-        ftca_exp:    profileData.ftca_exp    || '',
         tb_exp:      profileData.tb_exp      || '',
       })
     }
@@ -312,7 +310,6 @@ export default function VolunteerPage() {
         license_exp: credForm.license_exp || null,
         bls_exp:     credForm.bls_exp     || null,
         dea_exp:     credForm.dea_exp     || null,
-        ftca_exp:    credForm.ftca_exp    || null,
         tb_exp:      credForm.tb_exp      || null,
       })
       .eq('id', user.id)
@@ -677,9 +674,32 @@ export default function VolunteerPage() {
           const isExpiring = f.status === 'expiring'
           const isOk       = f.status === 'ok'
 
-          const borderColor = (isMissing || isExpired) ? 'rgba(239,68,68,0.4)' : isExpiring ? 'rgba(251,146,60,0.45)' : isNA ? 'rgba(156,163,175,0.35)' : 'rgba(2,65,107,0.3)'
-          const bgColor     = (isMissing || isExpired) ? 'rgba(239,68,68,0.06)' : isExpiring ? 'rgba(251,146,60,0.06)' : isNA ? 'rgba(156,163,175,0.06)' : 'rgba(2,65,107,0.05)'
-          const textColor   = (isMissing || isExpired) ? '#ef4444' : isExpiring ? '#f97316' : isNA ? 'var(--muted)' : 'var(--text)'
+          const borderColor =
+            (isMissing || isExpired)
+              ? 'rgba(2,65,107,0.45)'        // strong blue
+              : isExpiring
+              ? 'rgba(146,166,185,0.6)'      // softer blue-gray
+              : isNA
+              ? 'rgba(146,166,185,0.35)'     // muted
+              : 'rgba(2,65,107,0.3)'         // default
+
+          const bgColor =
+            (isMissing || isExpired)
+              ? 'rgba(2,65,107,0.08)'
+              : isExpiring
+              ? 'rgba(146,166,185,0.12)'
+              : isNA
+              ? 'rgba(146,166,185,0.06)'
+              : 'rgba(2,65,107,0.05)'
+
+          const textColor =
+            (isMissing || isExpired)
+              ? '#02416B'
+              : isExpiring
+              ? '#5f7f99'                    // your accent-dim
+              : isNA
+              ? 'var(--muted)'
+              : 'var(--text)'
 
           return (
             <div key={f.key} style={{ padding: '0.6rem 0.75rem', borderRadius: '8px', border: `1px solid ${borderColor}`, background: bgColor }}>
@@ -692,8 +712,8 @@ export default function VolunteerPage() {
                   {(isMissing || isExpired) ? '✗' : isExpiring ? '!' : isNA ? '—' : '✓'}
                 </span>
               </div>
-              {isExpired  && <p style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 700, marginTop: '0.15rem' }}>EXPIRED</p>}
-              {isExpiring && <p style={{ fontSize: '0.65rem', color: '#f97316', fontWeight: 700, marginTop: '0.15rem' }}>EXP. SOON</p>}
+              {isExpired  && <p style={{ fontSize: '0.65rem', color: '#02416B', fontWeight: 700, marginTop: '0.15rem' }}>EXPIRED</p>}
+              {isExpiring && <p style={{ fontSize: '0.65rem', color: '#5f7f99', fontWeight: 700, marginTop: '0.15rem' }}>EXP. SOON</p>}              
               {isNA       && <p style={{ fontSize: '0.65rem', color: 'var(--muted)', fontWeight: 600, marginTop: '0.15rem' }}>NOT APPLICABLE</p>}
             </div>
           )
@@ -1136,7 +1156,6 @@ export default function VolunteerPage() {
                           license_exp: profile?.license_exp || '',
                           bls_exp:     profile?.bls_exp     || '',
                           dea_exp:     profile?.dea_exp     || '',
-                          ftca_exp:    profile?.ftca_exp    || '',
                           tb_exp:      profile?.tb_exp      || '',
                         })
                       }
