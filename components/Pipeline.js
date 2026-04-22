@@ -57,7 +57,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     const { data } = await supabase
       .from('applicants')
       .select('*')
-      .order('submitted_at', { ascending: false })
+      .order('created_at', { ascending: false })
     setApplicants(data || [])
     setLoading(false)
   }
