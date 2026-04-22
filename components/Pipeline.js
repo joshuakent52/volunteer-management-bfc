@@ -29,11 +29,11 @@ const AFFILIATION_OPTIONS = [
 export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   const [applicants, setApplicants] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
   const [selected, setSelected] = useState(null)
   const [activeStageFilter, setActiveStageFilter] = useState('all')
   const [toast, setToast] = useState(null)
 
-  // Onboarding form state
   const [onboardForm, setOnboardForm] = useState({
     affiliation: '',
     school: '',
@@ -46,19 +46,30 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     intern_department: '',
     default_role: '',
   })
-  const [onboardStep, setOnboardStep] = useState(1) // 1, 2, 3
+  const [onboardStep, setOnboardStep] = useState(1)
   const [creatingProfile, setCreatingProfile] = useState(false)
   const [movingStage, setMovingStage] = useState(false)
+
+  // Interview scheduling
+  const [interviewDateTime, setInterviewDateTime] = useState('')
+  const [savingInterview, setSavingInterview] = useState(false)
 
   useEffect(() => { loadApplicants() }, [])
 
   async function loadApplicants() {
     setLoading(true)
-    const { data } = await supabase
+    setLoadError(null)
+    const { data, error } = await supabase
       .from('volunteer_applications')
       .select('*')
       .order('created_at', { ascending: false })
-    setApplicants(data || [])
+    if (error) {
+      console.error('Supabase load error:', error)
+      setLoadError(error.message)
+      setApplicants([])
+    } else {
+      setApplicants(data || [])
+    }
     setLoading(false)
   }
 
@@ -84,14 +95,43 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       .from('volunteer_applications')
       .update({ stage, stage_updated_at: new Date().toISOString() })
       .eq('id', applicant.id)
-    if (error) { showMessage(error.message, 'error') }
-    else {
+    if (error) {
+      showMessage(error.message, 'error')
+    } else {
       showMessage(`Moved to ${STAGE_LABELS[stage]}`, 'success')
       await audit(`pipeline_${stage}`, 'applicant', applicant.id, applicant.full_name, stage)
       await loadApplicants()
       setSelected(prev => prev?.id === applicant.id ? { ...prev, stage } : prev)
     }
     setMovingStage(false)
+  }
+
+  async function saveInterviewTime(applicant) {
+    if (!interviewDateTime) return
+    setSavingInterview(true)
+    const { error } = await supabase
+      .from('volunteer_applications')
+      .update({ interview_scheduled_at: new Date(interviewDateTime).toISOString() })
+      .eq('id', applicant.id)
+    if (error) {
+      showMessage(error.message, 'error')
+    } else {
+      showMessage('Interview time saved!', 'success')
+      await loadApplicants()
+      setSelected(prev => prev?.id === applicant.id
+        ? { ...prev, interview_scheduled_at: new Date(interviewDateTime).toISOString() }
+        : prev
+      )
+    }
+    setSavingInterview(false)
+  }
+
+  function getResumeUrl(resumeUrl) {
+    if (!resumeUrl) return null
+    if (resumeUrl.startsWith('http')) return resumeUrl
+    // Update 'resumes' below to match your Supabase storage bucket name
+    const { data } = supabase.storage.from('resumes').getPublicUrl(resumeUrl)
+    return data?.publicUrl || null
   }
 
   async function handleCreateProfile() {
@@ -102,14 +142,12 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     const isMission = onboardForm.affiliation === 'missionary'
     const isIntern  = onboardForm.affiliation === 'intern'
 
-    // Create auth user
     const { data: authData, error: authErr } = await supabase.auth.signUp({
       email: selected.email,
       password: 'BFC2025!',
     })
     if (authErr) { showMessage(authErr.message, 'error'); setCreatingProfile(false); return }
 
-    // Build profile payload from application + onboarding
     const { error: profileErr } = await supabase.from('profiles').insert({
       id: authData.user.id,
       full_name: selected.full_name,
@@ -121,28 +159,29 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       credentials: selected.credentials || null,
       default_role: onboardForm.default_role || null,
       birthday: selected.date_of_birth || null,
-      // affiliation-conditional fields
-      school:       isStudent ? (onboardForm.school || null) : null,
-      major:        isStudent ? (onboardForm.major || null) : null,
-      sma_name:     isMission ? (onboardForm.sma_name || null) : null,
-      sma_contact:  isMission ? (onboardForm.sma_contact || null) : null,
-      advisor_name:      isIntern ? (onboardForm.advisor_name || null) : null,
-      advisor_contact:   isIntern ? (onboardForm.advisor_contact || null) : null,
-      intern_school:     isIntern ? (onboardForm.intern_school || null) : null,
-      intern_department: isIntern ? (onboardForm.intern_department || null) : null,
+      school:            isStudent ? (onboardForm.school || null) : null,
+      major:             isStudent ? (onboardForm.major || null) : null,
+      sma_name:          isMission ? (onboardForm.sma_name || null) : null,
+      sma_contact:       isMission ? (onboardForm.sma_contact || null) : null,
+      advisor_name:      isIntern  ? (onboardForm.advisor_name || null) : null,
+      advisor_contact:   isIntern  ? (onboardForm.advisor_contact || null) : null,
+      intern_school:     isIntern  ? (onboardForm.intern_school || null) : null,
+      intern_department: isIntern  ? (onboardForm.intern_department || null) : null,
       status: 'active',
     })
 
     if (profileErr) { showMessage(profileErr.message, 'error'); setCreatingProfile(false); return }
 
-    // Mark applicant as completed
-    await supabase.from('volunteer_applications').update({ stage: 'completed', volunteer_id: authData.user.id }).eq('id', selected.id)
+    await supabase.from('volunteer_applications')
+      .update({ stage: 'completed', volunteer_id: authData.user.id })
+      .eq('id', selected.id)
     await audit('created_volunteer', 'volunteer', authData.user.id, selected.full_name, 'from pipeline')
 
     showMessage(`Volunteer profile created for ${selected.full_name}!`, 'success')
     if (onVolunteerCreated) onVolunteerCreated()
     setSelected(null)
     setOnboardStep(1)
+    setInterviewDateTime('')
     setOnboardForm({ affiliation: '', school: '', major: '', sma_name: '', sma_contact: '', advisor_name: '', advisor_contact: '', intern_school: '', intern_department: '', default_role: '' })
     await loadApplicants()
     setCreatingProfile(false)
@@ -176,6 +215,12 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     const isInterview  = applicant.stage === 'interview'
     const isOnboarding = applicant.stage === 'onboarding'
     const isApplied    = applicant.stage === 'applied'
+    const resumeUrl    = getResumeUrl(applicant.resume_url)
+
+    // Pre-fill the date picker if interview is already scheduled
+    const existingDt = applicant.interview_scheduled_at
+      ? new Date(applicant.interview_scheduled_at).toISOString().slice(0, 16)
+      : ''
 
     const fields = [
       { label: 'Email', value: applicant.email },
@@ -188,7 +233,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       { label: 'Start Date', value: applicant.start_date },
       { label: 'Reference 1', value: applicant.ref1_name ? `${applicant.ref1_name} — ${applicant.ref1_contact}` : null },
       { label: 'Reference 2', value: applicant.ref2_name ? `${applicant.ref2_name} — ${applicant.ref2_contact}` : null },
-      { label: 'Resume', value: applicant.resume_url },
     ].filter(f => f.value)
 
     return (
@@ -210,7 +254,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
             </div>
           </div>
           <button
-            onClick={() => { setSelected(null); setOnboardStep(1) }}
+            onClick={() => { setSelected(null); setOnboardStep(1); setInterviewDateTime('') }}
             style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'DM Sans, sans-serif' }}
           >
             ← Back
@@ -219,7 +263,25 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
         {/* Application fields */}
         <div style={{ ...card, padding: '1rem 1.25rem' }}>
-          <p style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.85rem' }}>Application</p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
+            <p style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Application</p>
+            {resumeUrl && (
+              <a
+                href={resumeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                  padding: '0.35rem 0.85rem', borderRadius: '8px',
+                  background: 'rgba(2,65,107,0.08)', color: 'var(--accent)',
+                  border: '1px solid rgba(2,65,107,0.3)', fontSize: '0.78rem',
+                  fontWeight: 600, textDecoration: 'none', fontFamily: 'DM Sans, sans-serif',
+                }}
+              >
+                📄 View Resume
+              </a>
+            )}
+          </div>
           {fields.length === 0
             ? <p style={{ color: 'var(--muted)', fontStyle: 'italic', fontSize: '0.88rem' }}>No application data on file.</p>
             : (
@@ -235,12 +297,57 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
           }
         </div>
 
-        {/* Stage actions */}
+        {/* Stage actions — shown for applied AND interview stages */}
         {(isApplied || isInterview) && (
           <div style={{ ...card, padding: '1rem 1.25rem', borderColor: STAGE_COLORS.interview + '44', background: STAGE_COLORS.interview + '06' }}>
-            <p style={{ fontSize: '0.78rem', fontWeight: 600, color: STAGE_COLORS.interview, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.85rem' }}>Interview Decision</p>
+            <p style={{ fontSize: '0.78rem', fontWeight: 600, color: STAGE_COLORS.interview, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '1rem' }}>Interview</p>
+
+            {/* ── Schedule interview ── */}
+            <div style={{ padding: '1rem', background: 'var(--bg)', borderRadius: '10px', border: '1px solid var(--border)', marginBottom: '1.25rem' }}>
+              <p style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>
+                Schedule Interview
+              </p>
+
+              {/* Existing scheduled time badge */}
+              {applicant.interview_scheduled_at && (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.85rem', padding: '0.45rem 0.9rem', borderRadius: '8px', background: STAGE_COLORS.interview + '14', border: `1px solid ${STAGE_COLORS.interview}44` }}>
+                  <span style={{ fontSize: '0.82rem', color: STAGE_COLORS.interview, fontWeight: 600 }}>
+                    📅 {new Date(applicant.interview_scheduled_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                  </span>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <label style={labelStyle}>{applicant.interview_scheduled_at ? 'Reschedule' : 'Date & Time'}</label>
+                  <input
+                    type="datetime-local"
+                    defaultValue={existingDt}
+                    onChange={e => setInterviewDateTime(e.target.value)}
+                    style={{ ...inputStyle, colorScheme: 'dark' }}
+                  />
+                </div>
+                <button
+                  onClick={() => saveInterviewTime(applicant)}
+                  disabled={savingInterview || !interviewDateTime}
+                  style={{
+                    padding: '0.75rem 1.25rem', borderRadius: '8px', border: 'none',
+                    background: interviewDateTime ? STAGE_COLORS.interview : 'var(--surface)',
+                    color: interviewDateTime ? '#fff' : 'var(--muted)',
+                    fontWeight: 600, cursor: interviewDateTime ? 'pointer' : 'not-allowed',
+                    fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem',
+                    opacity: interviewDateTime ? 1 : 0.5, whiteSpace: 'nowrap',
+                  }}
+                >
+                  {savingInterview ? 'Saving...' : '💾 Save Time'}
+                </button>
+              </div>
+            </div>
+
+            {/* ── Decision buttons ── */}
+            <p style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.65rem' }}>Decision</p>
             <p style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '1rem', lineHeight: 1.5 }}>
-              Review the application above. Once you've interviewed this applicant, accept them to move to onboarding or reject their application.
+              Once you've completed the interview, accept the applicant to move to onboarding or reject their application.
             </p>
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
               {isApplied && (
@@ -283,15 +390,11 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
               </p>
               <div style={{ display: 'flex', gap: '0.35rem' }}>
                 {[1, 2, 3].map(s => (
-                  <div
-                    key={s}
-                    style={{ width: 28, height: 6, borderRadius: 3, background: s <= onboardStep ? STAGE_COLORS.onboarding : 'var(--border)', transition: 'background 0.2s' }}
-                  />
+                  <div key={s} style={{ width: 28, height: 6, borderRadius: 3, background: s <= onboardStep ? STAGE_COLORS.onboarding : 'var(--border)', transition: 'background 0.2s' }} />
                 ))}
               </div>
             </div>
 
-            {/* Step 1: Affiliation */}
             {onboardStep === 1 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <p style={{ fontSize: '0.95rem', fontWeight: 600 }}>What is their affiliation?</p>
@@ -299,34 +402,20 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                   {AFFILIATION_OPTIONS.map(opt => {
                     const active = onboardForm.affiliation === opt.value
                     return (
-                      <button
-                        key={opt.value}
-                        onClick={() => setOnboardForm(f => ({ ...f, affiliation: opt.value }))}
-                        style={{
-                          padding: '0.75rem 1rem', borderRadius: '10px', border: `1px solid ${active ? STAGE_COLORS.onboarding : 'var(--border)'}`,
-                          background: active ? STAGE_COLORS.onboarding + '18' : 'var(--bg)',
-                          color: active ? STAGE_COLORS.onboarding : 'var(--text)',
-                          fontWeight: active ? 600 : 400, cursor: 'pointer',
-                          fontFamily: 'DM Sans, sans-serif', fontSize: '0.88rem',
-                          transition: 'all 0.15s',
-                        }}
-                      >
+                      <button key={opt.value} onClick={() => setOnboardForm(f => ({ ...f, affiliation: opt.value }))}
+                        style={{ padding: '0.75rem 1rem', borderRadius: '10px', border: `1px solid ${active ? STAGE_COLORS.onboarding : 'var(--border)'}`, background: active ? STAGE_COLORS.onboarding + '18' : 'var(--bg)', color: active ? STAGE_COLORS.onboarding : 'var(--text)', fontWeight: active ? 600 : 400, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.88rem', transition: 'all 0.15s' }}>
                         {opt.label}
                       </button>
                     )
                   })}
                 </div>
-                <button
-                  onClick={() => setOnboardStep(2)}
-                  disabled={!onboardForm.affiliation}
-                  style={{ alignSelf: 'flex-start', padding: '0.65rem 1.5rem', background: onboardForm.affiliation ? STAGE_COLORS.onboarding : 'var(--surface)', color: onboardForm.affiliation ? '#fff' : 'var(--muted)', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: onboardForm.affiliation ? 'pointer' : 'not-allowed', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem', opacity: onboardForm.affiliation ? 1 : 0.5 }}
-                >
+                <button onClick={() => setOnboardStep(2)} disabled={!onboardForm.affiliation}
+                  style={{ alignSelf: 'flex-start', padding: '0.65rem 1.5rem', background: onboardForm.affiliation ? STAGE_COLORS.onboarding : 'var(--surface)', color: onboardForm.affiliation ? '#fff' : 'var(--muted)', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: onboardForm.affiliation ? 'pointer' : 'not-allowed', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem', opacity: onboardForm.affiliation ? 1 : 0.5 }}>
                   Next →
                 </button>
               </div>
             )}
 
-            {/* Step 2: Affiliation-specific fields */}
             {onboardStep === 2 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <p style={{ fontSize: '0.95rem', fontWeight: 600 }}>
@@ -335,7 +424,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                   {onboardForm.affiliation === 'intern' && 'Internship Details'}
                   {(onboardForm.affiliation === 'volunteer' || onboardForm.affiliation === 'provider') && 'Additional Info'}
                 </p>
-
                 {onboardForm.affiliation === 'student' && (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
                     <div>
@@ -354,7 +442,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                     </div>
                   </div>
                 )}
-
                 {onboardForm.affiliation === 'missionary' && (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
                     <div>
@@ -367,7 +454,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                     </div>
                   </div>
                 )}
-
                 {onboardForm.affiliation === 'intern' && (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
                     <div>
@@ -388,11 +474,9 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                     </div>
                   </div>
                 )}
-
                 {(onboardForm.affiliation === 'volunteer' || onboardForm.affiliation === 'provider') && (
                   <p style={{ color: 'var(--muted)', fontSize: '0.88rem', fontStyle: 'italic' }}>No additional affiliation-specific info required.</p>
                 )}
-
                 <div style={{ display: 'flex', gap: '0.75rem' }}>
                   <button onClick={() => setOnboardStep(1)} style={{ padding: '0.65rem 1.25rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '8px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}>← Back</button>
                   <button onClick={() => setOnboardStep(3)} style={{ padding: '0.65rem 1.5rem', background: STAGE_COLORS.onboarding, color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}>Next →</button>
@@ -400,7 +484,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
               </div>
             )}
 
-            {/* Step 3: Default position */}
             {onboardStep === 3 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <p style={{ fontSize: '0.95rem', fontWeight: 600 }}>Default Position</p>
@@ -409,42 +492,20 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                   {ROLES.map(role => {
                     const active = onboardForm.default_role === role
                     return (
-                      <button
-                        key={role}
-                        onClick={() => setOnboardForm(f => ({ ...f, default_role: role }))}
-                        style={{
-                          padding: '0.65rem 0.9rem', borderRadius: '10px',
-                          border: `1px solid ${active ? STAGE_COLORS.onboarding : 'var(--border)'}`,
-                          background: active ? STAGE_COLORS.onboarding + '18' : 'var(--bg)',
-                          color: active ? STAGE_COLORS.onboarding : 'var(--text)',
-                          fontWeight: active ? 600 : 400, cursor: 'pointer',
-                          fontFamily: 'DM Sans, sans-serif', fontSize: '0.82rem',
-                          textAlign: 'left', transition: 'all 0.15s',
-                        }}
-                      >
+                      <button key={role} onClick={() => setOnboardForm(f => ({ ...f, default_role: role }))}
+                        style={{ padding: '0.65rem 0.9rem', borderRadius: '10px', border: `1px solid ${active ? STAGE_COLORS.onboarding : 'var(--border)'}`, background: active ? STAGE_COLORS.onboarding + '18' : 'var(--bg)', color: active ? STAGE_COLORS.onboarding : 'var(--text)', fontWeight: active ? 600 : 400, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.82rem', textAlign: 'left', transition: 'all 0.15s' }}>
                         {role}
                       </button>
                     )
                   })}
                 </div>
-
                 <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
                   <button onClick={() => setOnboardStep(2)} style={{ padding: '0.65rem 1.25rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '8px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}>← Back</button>
-                  <button
-                    onClick={handleCreateProfile}
-                    disabled={creatingProfile || !onboardForm.default_role}
-                    style={{
-                      padding: '0.65rem 1.5rem',
-                      background: (creatingProfile || !onboardForm.default_role) ? 'var(--surface)' : 'var(--accent)',
-                      color: (creatingProfile || !onboardForm.default_role) ? 'var(--muted)' : '#0a0f0a',
-                      border: 'none', borderRadius: '8px', fontWeight: 700, cursor: (creatingProfile || !onboardForm.default_role) ? 'not-allowed' : 'pointer',
-                      fontFamily: 'DM Sans, sans-serif', fontSize: '0.9rem', opacity: !onboardForm.default_role ? 0.5 : 1,
-                    }}
-                  >
+                  <button onClick={handleCreateProfile} disabled={creatingProfile || !onboardForm.default_role}
+                    style={{ padding: '0.65rem 1.5rem', background: (creatingProfile || !onboardForm.default_role) ? 'var(--surface)' : 'var(--accent)', color: (creatingProfile || !onboardForm.default_role) ? 'var(--muted)' : '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: (creatingProfile || !onboardForm.default_role) ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.9rem', opacity: !onboardForm.default_role ? 0.5 : 1 }}>
                     {creatingProfile ? 'Creating...' : '✓ Create Volunteer Profile'}
                   </button>
                 </div>
-
                 {onboardForm.default_role && !creatingProfile && (
                   <div style={{ padding: '0.85rem 1rem', borderRadius: '8px', background: 'rgba(2,65,107,0.05)', border: '1px solid rgba(2,65,107,0.25)' }}>
                     <p style={{ fontSize: '0.78rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Profile Summary</p>
@@ -501,26 +562,28 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       {/* Stage filter bar */}
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <button
-          onClick={() => setActiveStageFilter('all')}
-          style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: activeStageFilter === 'all' ? 'var(--accent)' : 'var(--surface)', color: activeStageFilter === 'all' ? '#0a0f0a' : 'var(--muted)', border: activeStageFilter === 'all' ? 'none' : '1px solid var(--border)' }}
-        >
+        <button onClick={() => setActiveStageFilter('all')}
+          style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: activeStageFilter === 'all' ? 'var(--accent)' : 'var(--surface)', color: activeStageFilter === 'all' ? '#0a0f0a' : 'var(--muted)', border: activeStageFilter === 'all' ? 'none' : '1px solid var(--border)' }}>
           All <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem' }}>({applicants.filter(a => a.stage !== 'completed').length})</span>
         </button>
         {STAGES.map(stage => {
           const color = STAGE_COLORS[stage]
           const active = activeStageFilter === stage
           return (
-            <button
-              key={stage}
-              onClick={() => setActiveStageFilter(stage)}
-              style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: active ? color + '18' : 'var(--surface)', color: active ? color : 'var(--muted)', border: active ? `1px solid ${color}55` : '1px solid var(--border)' }}
-            >
+            <button key={stage} onClick={() => setActiveStageFilter(stage)}
+              style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: active ? color + '18' : 'var(--surface)', color: active ? color : 'var(--muted)', border: active ? `1px solid ${color}55` : '1px solid var(--border)' }}>
               {STAGE_LABELS[stage]} <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem' }}>({stageCounts[stage]})</span>
             </button>
           )
         })}
       </div>
+
+      {/* Error banner */}
+      {loadError && (
+        <div style={{ padding: '0.85rem 1rem', borderRadius: '10px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.3)' }}>
+          <p style={{ fontSize: '0.85rem', color: '#ef4444', fontWeight: 500 }}>Failed to load: {loadError}</p>
+        </div>
+      )}
 
       {/* Applicant list */}
       <div style={card}>
@@ -531,9 +594,8 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
             {filteredApplicants.map(a => (
-              <div
-                key={a.id}
-                onClick={() => { setSelected(a); setOnboardStep(1); setOnboardForm({ affiliation: '', school: '', major: '', sma_name: '', sma_contact: '', advisor_name: '', advisor_contact: '', intern_school: '', intern_department: '', default_role: '' }) }}
+              <div key={a.id}
+                onClick={() => { setSelected(a); setOnboardStep(1); setInterviewDateTime(''); setOnboardForm({ affiliation: '', school: '', major: '', sma_name: '', sma_contact: '', advisor_name: '', advisor_contact: '', intern_school: '', intern_department: '', default_role: '' }) }}
                 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg)', cursor: 'pointer', transition: 'border-color 0.15s' }}
                 onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
                 onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
@@ -544,7 +606,14 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                   </div>
                   <div>
                     <p style={{ fontWeight: 500, fontSize: '0.9rem' }}>{a.full_name}</p>
-                    <p style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{a.email}</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <p style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{a.email}</p>
+                      {a.interview_scheduled_at && (
+                        <span style={{ fontSize: '0.72rem', color: STAGE_COLORS.interview, fontWeight: 600 }}>
+                          📅 {new Date(a.interview_scheduled_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
