@@ -204,7 +204,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.2rem' }}>
                 <StagePill stage={applicant.stage} />
                 <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>
-                  Applied {applicant.submitted_at ? new Date(applicant.submitted_at).toLocaleDateString() : '—'}
+                  Applied {applicant.created_at ? new Date(applicant.created_at).toLocaleDateString() : '—'}
                 </span>
               </div>
             </div>
@@ -549,7 +549,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <StagePill stage={a.stage} />
-                  {a.submitted_at && <span style={{ fontSize: '0.75rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>{new Date(a.submitted_at).toLocaleDateString()}</span>}
+                  {a.created_at && <span style={{ fontSize: '0.75rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>{new Date(a.created_at).toLocaleDateString()}</span>}
                   <span style={{ color: 'var(--muted)' }}>›</span>
                 </div>
               </div>
