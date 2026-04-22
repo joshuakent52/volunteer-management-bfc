@@ -5,12 +5,14 @@ import { SHIFTS, ROLES, ROLE_SUGGESTIONS, SCHOOLS, MAJORS, MAX_FILE_SIZE, ACTION
 import { getMountainNow, getMountainLabel, asUTC, formatMountain, formatDateMountain, formatDateTime, toMountainInputValue, fromMountainInputValue } from '../../lib/timeUtils'
 import DataDashboard from '../../components/DataDashboard'
 import ClinicOpenings from '../../components/ClinicOpenings'
+import Pipeline from '../../components/Pipeline'
 
 
 export const dynamic = 'force-dynamic'
 
 const DAYS = ['monday','tuesday','wednesday','thursday','friday']
 
+// Provider credential fields definition (shared between view/edit/create)
 const PROVIDER_CRED_FIELDS = [
   { key: 'license_exp', label: 'License' },
   { key: 'bls_exp',     label: 'BLS' },
@@ -18,14 +20,6 @@ const PROVIDER_CRED_FIELDS = [
   { key: 'ftca_exp',    label: 'FTCA' },
   { key: 'tb_exp',      label: 'TB' },
 ]
-
-const SHIFT_LABELS = {
-  shift_mon_10_2: 'Mon 10–2', shift_mon_2_6: 'Mon 2–6',
-  shift_tue_10_2: 'Tue 10–2', shift_tue_2_6: 'Tue 2–6',
-  shift_wed_10_2: 'Wed 10–2', shift_wed_2_6: 'Wed 2–6',
-  shift_thu_10_2: 'Thu 10–2', shift_thu_2_6: 'Thu 2–6',
-  shift_fri_10_2: 'Fri 10–2', shift_fri_2_6: 'Fri 2–6',
-}
 
 function credentialStatus(dateStr) {
   if (!dateStr) return 'missing'
@@ -79,6 +73,7 @@ export default function AdminPage() {
   const [editForm, setEditForm] = useState({})
   const [saving, setSaving] = useState(false)
 
+  // Volunteer list filters
   const [filterAffiliation, setFilterAffiliation] = useState('all')
   const [filterSchool, setFilterSchool] = useState('all')
   const [filterRole, setFilterRole] = useState('all')
@@ -87,6 +82,7 @@ export default function AdminPage() {
   const [filtersOpen, setFiltersOpen] = useState(true)
   const [volunteersOpen, setVolunteersOpen] = useState(true)
 
+  // Volunteer detail expandable sections
   const [showRecentShifts, setShowRecentShifts] = useState(false)
   const [showScheduledShifts, setShowScheduledShifts] = useState(false)
   const [recentShifts, setRecentShifts] = useState([])
@@ -94,15 +90,18 @@ export default function AdminPage() {
   const [loadingRecentShifts, setLoadingRecentShifts] = useState(false)
   const [loadingScheduledShifts, setLoadingScheduledShifts] = useState(false)
 
+  // Create volunteer form state
   const [newName, setNewName] = useState(''); const [newEmail, setNewEmail] = useState(''); const [newPassword, setNewPassword] = useState('')
   const [newRole, setNewRole] = useState('volunteer'); const [newAffiliation, setNewAffiliation] = useState(''); const [newCredentials, setNewCredentials] = useState('')
   const [newPhone, setNewPhone] = useState(''); const [newLanguages, setNewLanguages] = useState(''); const [newSmaName, setNewSmaName] = useState('')
   const [newSmaContact, setNewSmaContact] = useState(''); const [newSchool, setNewSchool] = useState(''); const [newMajor, setNewMajor] = useState('')
   const [newBirthday, setNewBirthday] = useState(''); const [newDefaultRole, setNewDefaultRole] = useState(''); const [creating, setCreating] = useState(false)
+  // Intern fields (create)
   const [newAdvisorName, setNewAdvisorName] = useState('')
   const [newAdvisorContact, setNewAdvisorContact] = useState('')
   const [newInternSchool, setNewInternSchool] = useState('')
   const [newInternDepartment, setNewInternDepartment] = useState('')
+  // Provider credential fields (create)
   const [newProviderCreds, setNewProviderCreds] = useState({ license_exp: '', bls_exp: '', dea_exp: '', ftca_exp: '', tb_exp: '' })
 
   const [lightboxUrl, setLightboxUrl] = useState(null)
@@ -133,21 +132,6 @@ export default function AdminPage() {
   const [auditFilterFrom, setAuditFilterFrom] = useState('')
   const [auditFilterTo, setAuditFilterTo] = useState('')
 
-  // ── Pipeline state ──────────────────────────────────────────────────────
-  const [pipelineTab, setPipelineTab] = useState('applications')
-  const [applications, setApplications] = useState([])
-  const [applicationsLoading, setApplicationsLoading] = useState(false)
-  const [selectedApplication, setSelectedApplication] = useState(null)
-  const [decidingAppId, setDecidingAppId] = useState(null)
-
-  const [interviews, setInterviews] = useState([])
-  const [interviewsLoading, setInterviewsLoading] = useState(false)
-  const [schedulingInterviewId, setSchedulingInterviewId] = useState(null)
-  const [interviewDateForm, setInterviewDateForm] = useState('')
-  const [interviewTimeForm, setInterviewTimeForm] = useState('')
-  const [savingInterview, setSavingInterview] = useState(null)
-  // ────────────────────────────────────────────────────────────────────────
-
   useEffect(() => {
     init()
     const interval = setInterval(() => setCurrentTime(getMountainNow()), 60000)
@@ -164,6 +148,7 @@ export default function AdminPage() {
     setLoading(false)
   }
 
+  // ── Credential input helper — used in both edit and create forms ──────────
   function CredentialInput({ fieldKey, label, value, onChange, allowNA = false, inputStyle, labelStyle }) {
     const mode = value === 'N/A' ? 'na' : value === 'expired' ? 'expired' : 'date'
     return (
@@ -311,88 +296,6 @@ export default function AdminPage() {
     setAuditLogs((data || []).filter(log => log.action !== 'sent_message'))
     setAuditLoading(false)
   }
-
-  // ── Pipeline loaders ────────────────────────────────────────────────────
-  async function loadApplications() {
-    setApplicationsLoading(true)
-    const { data } = await supabase
-      .from('volunteer_applications')
-      .select('*')
-      .is('decision', null)
-      .order('created_at', { ascending: false })
-    setApplications(data || [])
-    setApplicationsLoading(false)
-  }
-
-  async function loadInterviews() {
-    setInterviewsLoading(true)
-    const { data } = await supabase
-      .from('volunteer_applications')
-      .select('*')
-      .eq('decision', 'approved')
-      .order('created_at', { ascending: false })
-    setInterviews(data || [])
-    setInterviewsLoading(false)
-  }
-
-  async function handleApplicationDecision(app, decision) {
-    setDecidingAppId(app.id)
-    const { error } = await supabase
-      .from('volunteer_applications')
-      .update({ decision })
-      .eq('id', app.id)
-    if (error) {
-      showMessage(error.message, 'error')
-    } else {
-      showMessage(
-        decision === 'approved' ? `${app.full_name} moved to interviews.` : `Application from ${app.full_name} rejected.`,
-        'success'
-      )
-      await audit(
-        decision === 'approved' ? 'approved_application' : 'rejected_application',
-        'application',
-        app.id,
-        app.full_name,
-        app.email
-      )
-      await loadApplications()
-      if (decision === 'approved') await loadInterviews()
-      setSelectedApplication(null)
-    }
-    setDecidingAppId(null)
-  }
-
-  async function handleScheduleInterview(appId) {
-    if (!interviewDateForm || !interviewTimeForm) return
-    setSavingInterview(appId)
-    const datetimeStr = `${interviewDateForm}T${interviewTimeForm}`
-    const { error } = await supabase
-      .from('volunteer_applications')
-      .update({ interview_scheduled_at: datetimeStr })
-      .eq('id', appId)
-    if (error) {
-      showMessage(error.message, 'error')
-    } else {
-      showMessage('Interview scheduled!', 'success')
-      const app = interviews.find(i => i.id === appId)
-      await audit('scheduled_interview', 'application', appId, app?.full_name, datetimeStr)
-      await loadInterviews()
-      setSchedulingInterviewId(null)
-      setInterviewDateForm('')
-      setInterviewTimeForm('')
-    }
-    setSavingInterview(null)
-  }
-
-  async function handleClearInterviewTime(appId) {
-    const { error } = await supabase
-      .from('volunteer_applications')
-      .update({ interview_scheduled_at: null })
-      .eq('id', appId)
-    if (error) showMessage(error.message, 'error')
-    else { showMessage('Interview time cleared.', 'success'); await loadInterviews() }
-  }
-  // ────────────────────────────────────────────────────────────────────────
 
   async function audit(action, target_type, target_id, target_name, details) {
     try { await supabase.from('audit_logs').insert({ admin_id: profile.id, action, target_type, target_id: target_id ? String(target_id) : null, target_name: target_name || null, details: details || null }) } catch (e) { console.error('audit log failed:', e) }
@@ -734,6 +637,7 @@ export default function AdminPage() {
     )
   }
 
+  // ── Inline provider credential grid for the detail view ──────────────────
   function ProviderCredentialsView({ vol }) {
     const fields = PROVIDER_CRED_FIELDS.map(f => ({ ...f, value: vol[f.key] || null, status: credentialStatus(vol[f.key]) }))
     return (
@@ -765,115 +669,6 @@ export default function AdminPage() {
               </div>
             )
           })}
-        </div>
-      </div>
-    )
-  }
-
-  // ── Application Detail Modal ─────────────────────────────────────────────
-  function ApplicationDetail({ app, onClose, onDecide, deciding }) {
-    const availableShifts = Object.entries(SHIFT_LABELS).filter(([key]) => app[key])
-    return (
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1.5rem' }} onClick={onClose}>
-        <div style={{ background: 'var(--surface)', borderRadius: '16px', border: '1px solid var(--border)', maxWidth: '640px', width: '100%', maxHeight: '90vh', overflow: 'auto', padding: '1.75rem' }} onClick={e => e.stopPropagation()}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
-            <div>
-              <h2 style={{ fontWeight: 700, fontSize: '1.2rem', marginBottom: '0.2rem' }}>{app.full_name}</h2>
-              <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Applied {new Date(app.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
-            </div>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '1.1rem', padding: '0.2rem' }}>✕</button>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            {[
-              { label: 'Email', value: app.email },
-              { label: 'Phone', value: app.phone },
-              { label: 'Date of Birth', value: app.date_of_birth },
-              { label: 'Desired Start', value: app.start_date },
-              { label: 'Languages', value: app.languages },
-              { label: 'Credentials', value: app.credentials },
-            ].map(({ label, value }) => (
-              <div key={label} style={{ padding: '0.65rem 0.9rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                <p style={{ fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>{label}</p>
-                <p style={{ fontSize: '0.9rem', fontWeight: 500, color: value ? 'var(--text)' : 'var(--muted)', fontStyle: value ? 'normal' : 'italic' }}>{value || 'Not provided'}</p>
-              </div>
-            ))}
-          </div>
-
-          {availableShifts.length > 0 && (
-            <div style={{ marginBottom: '1.25rem' }}>
-              <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.6rem' }}>Available Shifts</p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-                {availableShifts.map(([key, label]) => (
-                  <span key={key} style={{ padding: '0.25rem 0.65rem', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 500, background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)' }}>{label}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {app.educational_background && (
-            <div style={{ marginBottom: '1.25rem', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-              <p style={{ fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem' }}>Educational Background</p>
-              <p style={{ fontSize: '0.9rem', color: 'var(--text)', lineHeight: 1.5 }}>{app.educational_background}</p>
-            </div>
-          )}
-
-          {app.skills && (
-            <div style={{ marginBottom: '1.25rem', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-              <p style={{ fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem' }}>Skills</p>
-              <p style={{ fontSize: '0.9rem', color: 'var(--text)', lineHeight: 1.5 }}>{app.skills}</p>
-            </div>
-          )}
-
-          {(app.ref1_name || app.ref2_name) && (
-            <div style={{ marginBottom: '1.25rem' }}>
-              <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.6rem' }}>References</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {app.ref1_name && (
-                  <div style={{ padding: '0.6rem 0.9rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{app.ref1_name}</span>
-                    {app.ref1_contact && <span style={{ fontSize: '0.82rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>{app.ref1_contact}</span>}
-                  </div>
-                )}
-                {app.ref2_name && (
-                  <div style={{ padding: '0.6rem 0.9rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{app.ref2_name}</span>
-                    {app.ref2_contact && <span style={{ fontSize: '0.82rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>{app.ref2_contact}</span>}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {app.resume_url && (
-            <div style={{ marginBottom: '1.5rem' }}>
-              <a
-                href={app.resume_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1.1rem', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.4)', borderRadius: '8px', fontSize: '0.88rem', fontWeight: 600, textDecoration: 'none', fontFamily: 'DM Sans, sans-serif' }}
-              >
-                <span>↗</span> View Resume
-              </a>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)' }}>
-            <button
-              onClick={() => onDecide(app, 'approved')}
-              disabled={deciding === app.id}
-              style={{ flex: 1, padding: '0.75rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: deciding === app.id ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.9rem' }}
-            >
-              {deciding === app.id ? '...' : '✓ Move to Interview'}
-            </button>
-            <button
-              onClick={() => onDecide(app, 'rejected')}
-              disabled={deciding === app.id}
-              style={{ flex: 1, padding: '0.75rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', fontWeight: 700, cursor: deciding === app.id ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.9rem' }}
-            >
-              ✕ Reject
-            </button>
-          </div>
         </div>
       </div>
     )
@@ -914,23 +709,22 @@ export default function AdminPage() {
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
           {[
-            ['dashboard','Live'],
-            ['schedule','Schedule'],
-            ['volunteers','Volunteers'],
-            ['shifts','Shifts'],
-            ['callouts','Call-Outs'],
-            ['hours','Hours'],
-            ['audit','Recent Activity'],
-            ['create','Add Volunteer'],
-            ['pipeline','Pipeline'],
-            ['data','Data'],
+            ['dashboard', 'Live'],
+            ['schedule', 'Schedule'],
+            ['volunteers', 'Volunteers'],
+            ['pipeline', 'Pipeline'],
+            ['shifts', 'Shifts'],
+            ['callouts', 'Call-Outs'],
+            ['hours', 'Hours'],
+            ['audit', 'Recent Activity'],
+            ['create', 'Add Volunteer'],
+            ['data', 'Data'],
           ].map(([key, label]) => (
             <button key={key} onClick={() => {
-              setTab(key); setSelectedVolunteer(null); setAddingRole(null); setSelectedApplication(null)
+              setTab(key); setSelectedVolunteer(null); setAddingRole(null)
               if (key === 'shifts' && allShifts.length === 0) loadAllShifts()
               if (key === 'hours') loadHoursSubmissions()
               if (key === 'audit') loadAuditLogs()
-              if (key === 'pipeline') { loadApplications(); loadInterviews() }
             }} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: tab === key ? 'var(--accent)' : 'var(--surface)', color: tab === key ? '#fff' : 'var(--muted)', border: tab === key ? 'none' : '1px solid var(--border)' }}>
               {label}
             </button>
@@ -1230,6 +1024,7 @@ export default function AdminPage() {
                 })()}
               </div>
             ) : (
+              /* ── Edit form ── */
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                   <div><label style={labelStyle}>Full Name</label><input value={editForm.full_name} onChange={e => setEditForm({...editForm, full_name: e.target.value})} style={inputStyle} /></div>
@@ -1276,6 +1071,15 @@ export default function AdminPage() {
               </div>
             )}
           </div>
+        )}
+
+        {/* ─────────────────────────── PIPELINE TAB ─────────────────────────── */}
+        {tab === 'pipeline' && (
+          <Pipeline
+            supabase={supabase}
+            profile={profile}
+            onVolunteerCreated={() => loadVolunteers()}
+          />
         )}
 
         {/* ─────────────────────────── SHIFTS TAB ─────────────────────────── */}
@@ -1544,248 +1348,6 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ─────────────────────────── PIPELINE TAB ─────────────────────────── */}
-        {tab === 'pipeline' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-
-            {/* Pipeline sub-nav */}
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              {[
-                ['applications', 'Applications', applications.length],
-                ['interviews',   'Interviews',   interviews.length],
-                ['onboarding',   'Onboarding',   null],
-              ].map(([key, label, count]) => (
-                <button
-                  key={key}
-                  onClick={() => {
-                    setPipelineTab(key)
-                    if (key === 'applications') loadApplications()
-                    if (key === 'interviews') loadInterviews()
-                  }}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '0.45rem',
-                    padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500,
-                    cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-                    background: pipelineTab === key ? 'rgba(2,65,107,0.15)' : 'var(--surface)',
-                    color: pipelineTab === key ? 'var(--accent)' : 'var(--muted)',
-                    border: pipelineTab === key ? '1px solid rgba(2,65,107,0.5)' : '1px solid var(--border)',
-                  }}
-                >
-                  {label}
-                  {count !== null && count > 0 && (
-                    <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: '100px', background: pipelineTab === key ? 'rgba(2,65,107,0.2)' : 'var(--bg)', color: pipelineTab === key ? 'var(--accent)' : 'var(--muted)', border: '1px solid var(--border)', fontFamily: 'DM Mono, monospace', fontWeight: 700 }}>{count}</span>
-                  )}
-                </button>
-              ))}
-            </div>
-
-            {/* ── Applications ── */}
-            {pipelineTab === 'applications' && (
-              <div style={card}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-                  <h2 style={{ fontWeight: 600 }}>
-                    Pending Applications
-                    {applications.length > 0 && (
-                      <span style={{ marginLeft: '0.6rem', padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>{applications.length}</span>
-                    )}
-                  </h2>
-                  <button onClick={loadApplications} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '7px', color: 'var(--muted)', padding: '0.35rem 0.8rem', cursor: 'pointer', fontSize: '0.8rem', fontFamily: 'DM Sans, sans-serif' }}>↻ Refresh</button>
-                </div>
-
-                {applicationsLoading ? (
-                  <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading applications...</p>
-                ) : applications.length === 0 ? (
-                  <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>
-                    <p style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>📋</p>
-                    <p style={{ fontSize: '0.9rem', fontStyle: 'italic' }}>No pending applications.</p>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {applications.map(app => {
-                      const availableCount = Object.keys(SHIFT_LABELS).filter(k => app[k]).length
-                      return (
-                        <div
-                          key={app.id}
-                          onClick={() => setSelectedApplication(app)}
-                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.9rem 1.1rem', background: 'var(--bg)', borderRadius: '10px', border: '1px solid var(--border)', cursor: 'pointer', gap: '1rem', flexWrap: 'wrap', transition: 'border-color 0.15s' }}
-                          onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
-                          onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-                            <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(2,65,107,0.1)', border: '1.5px solid rgba(2,65,107,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.95rem', color: 'var(--accent)', flexShrink: 0 }}>
-                              {app.full_name?.charAt(0)?.toUpperCase()}
-                            </div>
-                            <div>
-                              <p style={{ fontWeight: 600, fontSize: '0.95rem' }}>{app.full_name}</p>
-                              <p style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>{app.email}</p>
-                            </div>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-                            {app.languages && (
-                              <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.55rem', borderRadius: '100px', background: 'rgba(96,165,250,0.1)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)' }}>{app.languages}</span>
-                            )}
-                            {availableCount > 0 && (
-                              <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.55rem', borderRadius: '100px', background: 'rgba(2,65,107,0.08)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.25)' }}>{availableCount} shift{availableCount !== 1 ? 's' : ''}</span>
-                            )}
-                            <span style={{ fontSize: '0.75rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>
-                              {new Date(app.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            </span>
-                            {app.resume_url && (
-                              <span style={{ fontSize: '0.72rem', padding: '0.15rem 0.5rem', borderRadius: '6px', background: 'rgba(251,191,36,0.1)', color: '#eab308', border: '1px solid rgba(251,191,36,0.3)' }}>résumé</span>
-                            )}
-                            <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>›</span>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Interviews ── */}
-            {pipelineTab === 'interviews' && (
-              <div style={card}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-                  <h2 style={{ fontWeight: 600 }}>
-                    Interview Queue
-                    {interviews.length > 0 && (
-                      <span style={{ marginLeft: '0.6rem', padding: '0.15rem 0.55rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(2,65,107,0.35)' }}>{interviews.length}</span>
-                    )}
-                  </h2>
-                  <button onClick={loadInterviews} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '7px', color: 'var(--muted)', padding: '0.35rem 0.8rem', cursor: 'pointer', fontSize: '0.8rem', fontFamily: 'DM Sans, sans-serif' }}>↻ Refresh</button>
-                </div>
-
-                {interviewsLoading ? (
-                  <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading...</p>
-                ) : interviews.length === 0 ? (
-                  <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>
-                    <p style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>🗓</p>
-                    <p style={{ fontSize: '0.9rem', fontStyle: 'italic' }}>No approved applications yet. Approve applications to move them here.</p>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {interviews.map(app => {
-                      const hasTime = !!app.interview_scheduled_at
-                      const isScheduling = schedulingInterviewId === app.id
-                      const scheduledDate = hasTime ? new Date(app.interview_scheduled_at) : null
-                      const isPast = scheduledDate && scheduledDate < new Date()
-
-                      return (
-                        <div key={app.id} style={{ padding: '1rem 1.15rem', background: 'var(--bg)', borderRadius: '10px', border: `1px solid ${hasTime ? 'rgba(2,65,107,0.4)' : 'rgba(251,191,36,0.35)'}` }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', flexWrap: 'wrap', marginBottom: isScheduling ? '1rem' : 0 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-                              <div style={{ width: 38, height: 38, borderRadius: '50%', background: hasTime ? 'rgba(2,65,107,0.12)' : 'rgba(251,191,36,0.1)', border: `1.5px solid ${hasTime ? 'rgba(2,65,107,0.4)' : 'rgba(251,191,36,0.4)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.95rem', color: hasTime ? 'var(--accent)' : '#eab308', flexShrink: 0 }}>
-                                {app.full_name?.charAt(0)?.toUpperCase()}
-                              </div>
-                              <div>
-                                <p style={{ fontWeight: 600, fontSize: '0.95rem' }}>{app.full_name}</p>
-                                <p style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>{app.email}{app.phone ? ` · ${app.phone}` : ''}</p>
-                              </div>
-                            </div>
-
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-                              {/* Status pill */}
-                              {!hasTime ? (
-                                <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.7rem', borderRadius: '100px', background: 'rgba(251,191,36,0.12)', color: '#eab308', border: '1px solid rgba(251,191,36,0.4)', fontWeight: 600 }}>
-                                  To be Scheduled
-                                </span>
-                              ) : (
-                                <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.7rem', borderRadius: '100px', background: isPast ? 'rgba(156,163,175,0.1)' : 'rgba(34,197,94,0.1)', color: isPast ? 'var(--muted)' : '#22c55e', border: `1px solid ${isPast ? 'rgba(156,163,175,0.3)' : 'rgba(34,197,94,0.3)'}`, fontWeight: 600, fontFamily: 'DM Mono, monospace' }}>
-                                  {scheduledDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at {scheduledDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                                </span>
-                              )}
-
-                              {/* Action buttons */}
-                              {!isScheduling && (
-                                <button
-                                  onClick={() => {
-                                    setSchedulingInterviewId(app.id)
-                                    if (hasTime) {
-                                      const d = new Date(app.interview_scheduled_at)
-                                      setInterviewDateForm(d.toISOString().split('T')[0])
-                                      setInterviewTimeForm(d.toTimeString().slice(0, 5))
-                                    } else {
-                                      setInterviewDateForm('')
-                                      setInterviewTimeForm('')
-                                    }
-                                  }}
-                                  style={{ padding: '0.3rem 0.8rem', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}
-                                >
-                                  {hasTime ? '✏ Reschedule' : '+ Schedule'}
-                                </button>
-                              )}
-                              {hasTime && !isScheduling && (
-                                <button
-                                  onClick={() => handleClearInterviewTime(app.id)}
-                                  style={{ padding: '0.3rem 0.7rem', background: 'rgba(239,68,68,0.07)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', fontSize: '0.78rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}
-                                >
-                                  Clear
-                                </button>
-                              )}
-                              {isScheduling && (
-                                <button
-                                  onClick={() => { setSchedulingInterviewId(null); setInterviewDateForm(''); setInterviewTimeForm('') }}
-                                  style={{ padding: '0.3rem 0.7rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '0.78rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}
-                                >
-                                  Cancel
-                                </button>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Inline scheduler */}
-                          {isScheduling && (
-                            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.6rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
-                              <div style={{ flex: 1, minWidth: '140px' }}>
-                                <label style={labelStyle}>Date</label>
-                                <input type="date" value={interviewDateForm} onChange={e => setInterviewDateForm(e.target.value)} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} />
-                              </div>
-                              <div style={{ flex: 1, minWidth: '120px' }}>
-                                <label style={labelStyle}>Time</label>
-                                <input type="time" value={interviewTimeForm} onChange={e => setInterviewTimeForm(e.target.value)} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} />
-                              </div>
-                              <button
-                                onClick={() => handleScheduleInterview(app.id)}
-                                disabled={!interviewDateForm || !interviewTimeForm || savingInterview === app.id}
-                                style={{ padding: '0.6rem 1.1rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '7px', fontWeight: 700, cursor: (!interviewDateForm || !interviewTimeForm || savingInterview === app.id) ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem', whiteSpace: 'nowrap' }}
-                              >
-                                {savingInterview === app.id ? 'Saving...' : 'Confirm'}
-                              </button>
-                            </div>
-                          )}
-
-                          {/* Availability chips below */}
-                          {!isScheduling && (() => {
-                            const available = Object.entries(SHIFT_LABELS).filter(([k]) => app[k])
-                            return available.length > 0 ? (
-                              <div style={{ marginTop: '0.65rem', display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
-                                {available.map(([k, label]) => (
-                                  <span key={k} style={{ fontSize: '0.72rem', padding: '0.15rem 0.5rem', borderRadius: '5px', background: 'rgba(2,65,107,0.07)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.2)' }}>{label}</span>
-                                ))}
-                              </div>
-                            ) : null
-                          })()}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Onboarding placeholder ── */}
-            {pipelineTab === 'onboarding' && (
-              <div style={{ ...card, textAlign: 'center', padding: '3rem 2rem' }}>
-                <p style={{ fontSize: '1.75rem', marginBottom: '0.75rem' }}>🚧</p>
-                <p style={{ fontWeight: 600, fontSize: '1rem', marginBottom: '0.4rem' }}>Onboarding — Coming Soon</p>
-                <p style={{ color: 'var(--muted)', fontSize: '0.88rem' }}>This section will track document collection, orientation, and account setup for volunteers who have completed their interview.</p>
-              </div>
-            )}
-
-          </div>
-        )}
-
         {/* ─────────────────────────── DATA TAB ─────────────────────────── */}
         {tab === 'data' && (
           <DataDashboard supabase={supabase} />
@@ -1804,16 +1366,6 @@ export default function AdminPage() {
             <img src={lightboxUrl} alt="Full size" style={{ maxWidth: '100%', maxHeight: '90vh', borderRadius: '10px', objectFit: 'contain', boxShadow: '0 8px 40px rgba(0,0,0,0.5)' }} onClick={e => e.stopPropagation()} />
             <button onClick={() => setLightboxUrl(null)} style={{ position: 'fixed', top: '1rem', right: '1rem', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '50%', color: '#fff', width: '36px', height: '36px', cursor: 'pointer', fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
           </div>
-        )}
-
-        {/* Application Detail Modal */}
-        {selectedApplication && (
-          <ApplicationDetail
-            app={selectedApplication}
-            onClose={() => setSelectedApplication(null)}
-            onDecide={handleApplicationDecision}
-            deciding={decidingAppId}
-          />
         )}
 
       </div>
