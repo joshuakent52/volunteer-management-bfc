@@ -180,14 +180,15 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     const fields = [
       { label: 'Email', value: applicant.email },
       { label: 'Phone', value: applicant.phone },
-      { label: 'Birthday', value: applicant.birthday },
+      { label: 'Date of Birth', value: applicant.date_of_birth },
       { label: 'Languages', value: applicant.languages },
-      { label: 'Credentials / Skills', value: applicant.credentials },
-      { label: 'Availability', value: applicant.availability },
-      { label: 'Why volunteering', value: applicant.reason },
-      { label: 'Experience', value: applicant.experience },
-      { label: 'References', value: applicant.references },
-      { label: 'Additional Notes', value: applicant.notes },
+      { label: 'Credentials', value: applicant.credentials },
+      { label: 'Skills', value: applicant.skills },
+      { label: 'Education', value: applicant.educational_background },
+      { label: 'Start Date', value: applicant.start_date },
+      { label: 'Reference 1', value: applicant.ref1_name ? `${applicant.ref1_name} — ${applicant.ref1_contact}` : null },
+      { label: 'Reference 2', value: applicant.ref2_name ? `${applicant.ref2_name} — ${applicant.ref2_contact}` : null },
+      { label: 'Resume', value: applicant.resume_url },
     ].filter(f => f.value)
 
     return (
