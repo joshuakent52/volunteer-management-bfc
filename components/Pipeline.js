@@ -120,7 +120,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       languages: selected.languages || null,
       credentials: selected.credentials || null,
       default_role: onboardForm.default_role || null,
-      birthday: selected.birthday || null,
+      birthday: selected.date_of_birth || null,
       // affiliation-conditional fields
       school:       isStudent ? (onboardForm.school || null) : null,
       major:        isStudent ? (onboardForm.major || null) : null,
