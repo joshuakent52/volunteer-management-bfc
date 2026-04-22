@@ -55,7 +55,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   async function loadApplicants() {
     setLoading(true)
     const { data } = await supabase
-      .from('applicants')
+      .from('volunteer_applications')
       .select('*')
       .order('created_at', { ascending: false })
     setApplicants(data || [])
@@ -81,7 +81,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   async function moveToStage(applicant, stage) {
     setMovingStage(true)
     const { error } = await supabase
-      .from('applicants')
+      .from('volunteer_applications')
       .update({ stage, stage_updated_at: new Date().toISOString() })
       .eq('id', applicant.id)
     if (error) { showMessage(error.message, 'error') }
@@ -136,7 +136,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     if (profileErr) { showMessage(profileErr.message, 'error'); setCreatingProfile(false); return }
 
     // Mark applicant as completed
-    await supabase.from('applicants').update({ stage: 'completed', volunteer_id: authData.user.id }).eq('id', selected.id)
+    await supabase.from('volunteer_applications').update({ stage: 'completed', volunteer_id: authData.user.id }).eq('id', selected.id)
     await audit('created_volunteer', 'volunteer', authData.user.id, selected.full_name, 'from pipeline')
 
     showMessage(`Volunteer profile created for ${selected.full_name}!`, 'success')
