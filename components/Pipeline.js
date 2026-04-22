@@ -126,12 +126,13 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     setSavingInterview(false)
   }
 
-  function getResumeUrl(resumeUrl) {
-    if (!resumeUrl) return null
-    if (resumeUrl.startsWith('http')) return resumeUrl
-    // Update 'resumes' below to match your Supabase storage bucket name
-    const { data } = supabase.storage.from('resumes').getPublicUrl(resumeUrl)
-    return data?.publicUrl || null
+  async function openResume(resumeUrl) {
+    if (!resumeUrl) return
+    const { data, error } = await supabase.storage
+      .from('resumes')
+      .createSignedUrl(resumeUrl, 60)
+    if (error) { showMessage('Could not load resume', 'error'); return }
+    window.open(data.signedUrl, '_blank')
   }
 
   async function handleCreateProfile() {
@@ -215,7 +216,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     const isInterview  = applicant.stage === 'interview'
     const isOnboarding = applicant.stage === 'onboarding'
     const isApplied    = applicant.stage === 'applied'
-    const resumeUrl    = getResumeUrl(applicant.resume_url)
 
     // Pre-fill the date picker if interview is already scheduled
     const existingDt = applicant.interview_scheduled_at
@@ -265,21 +265,19 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
         <div style={{ ...card, padding: '1rem 1.25rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
             <p style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Application</p>
-            {resumeUrl && (
-              <a
-                href={resumeUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+            {applicant.resume_url && (
+              <button
+                onClick={() => openResume(applicant.resume_url)}
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
                   padding: '0.35rem 0.85rem', borderRadius: '8px',
                   background: 'rgba(2,65,107,0.08)', color: 'var(--accent)',
                   border: '1px solid rgba(2,65,107,0.3)', fontSize: '0.78rem',
-                  fontWeight: 600, textDecoration: 'none', fontFamily: 'DM Sans, sans-serif',
+                  fontWeight: 600, fontFamily: 'DM Sans, sans-serif', cursor: 'pointer',
                 }}
               >
                 📄 View Resume
-              </a>
+              </button>
             )}
           </div>
           {fields.length === 0
