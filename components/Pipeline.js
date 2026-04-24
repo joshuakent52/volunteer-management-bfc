@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { ROLES, SCHOOLS, MAJORS } from '../lib/constants'
 
 const STAGES = ['applied', 'interview', 'onboarding', 'rejected']
@@ -15,6 +15,7 @@ const C = {
   blue:   '#3b82f6',
   yellow: '#f59e0b',
   red:    '#ef4444',
+  green:  '#22c55e',
 }
 
 const STAGE_COLORS = {
@@ -32,12 +33,23 @@ const AFFILIATION_OPTIONS = [
   { value: 'provider',   label: 'Provider' },
 ]
 
+const PROVIDER_CRED_FIELDS = [
+  { key: 'license_exp', label: 'License' },
+  { key: 'bls_exp',     label: 'BLS' },
+  { key: 'dea_exp',     label: 'DEA', allowNA: true },
+  { key: 'ftca_exp',    label: 'FTCA' },
+  { key: 'tb_exp',      label: 'TB' },
+]
+
+// Checklist items. mandatory = true means the checkbox is visually marked as required.
 const CHECKLIST_ITEMS = [
-  { key: 'confidentiality_agreement', label: 'Confidentiality Agreement' },
-  { key: 'tb_test',                   label: 'TB Test' },
-  { key: 'background_check',          label: 'Background Check' },
-  { key: 'welcome_packet',            label: 'Welcome Packet' },
-  { key: 'parking_pass',              label: 'Parking Pass' },
+  { key: 'background_check',          label: 'Background Check',          mandatory: true,  bucket: 'onboarding-background-checks', urlKey: 'background_check_url' },
+  { key: 'id_check',                  label: 'ID',                        mandatory: true,  bucket: 'onboarding-ids',               urlKey: 'id_check_url' },
+  { key: 'immunization',              label: 'Immunization',              mandatory: true,  bucket: 'onboarding-immunizations',     urlKey: 'immunization_url' },
+  { key: 'tb_test',                   label: 'TB Test',                   mandatory: true,  bucket: 'onboarding-tb-tests',          urlKey: 'tb_test_url' },
+  { key: 'confidentiality_agreement', label: 'Confidentiality Agreement', mandatory: false, bucket: 'onboarding-confidentiality',   urlKey: 'confidentiality_url' },
+  { key: 'welcome_packet',            label: 'Welcome Packet',            mandatory: true,  bucket: null,                           urlKey: null },
+  { key: 'parking_pass',              label: 'Parking Pass',              mandatory: false, bucket: 'onboarding-parking-passes',    urlKey: 'parking_pass_url' },
 ]
 
 const TOTAL_STEPS = 4
@@ -59,20 +71,21 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   // Onboarding form — 4 independent steps
   const EMPTY_FORM = {
     affiliation:       '',
-    // Missionary fields
     sma_name:          '',
     sma_contact:       '',
-    // Student fields
     school:            '',
     major:             '',
-    // Intern fields
     intern_school:     '',
     intern_department: '',
     advisor_name:      '',
     advisor_contact:   '',
-    // Provider fields
     credentials:       '',
-    // Shared
+    // Provider credential expiration dates
+    license_exp:       '',
+    bls_exp:           '',
+    dea_exp:           '',
+    ftca_exp:          '',
+    tb_exp:            '',
     birthday:          '',
     default_role:      '',
   }
@@ -87,9 +100,19 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     background_check:          false,
     welcome_packet:            false,
     parking_pass:              false,
+    id_check:                  false,
+    immunization:              false,
+    // File URLs
+    background_check_url:      null,
+    id_check_url:              null,
+    confidentiality_url:       null,
+    immunization_url:          null,
+    tb_test_url:               null,
+    parking_pass_url:          null,
   }
   const [checklist, setChecklist]         = useState(EMPTY_CHECKLIST)
   const [savingChecklist, setSavingChecklist] = useState(false)
+  const [uploadingKey, setUploadingKey]   = useState(null)
 
   useEffect(() => { loadApplicants() }, [])
 
@@ -118,11 +141,19 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       .maybeSingle()
     if (data) {
       setChecklist({
-        confidentiality_agreement: data.confidentiality_agreement,
-        tb_test:                   data.tb_test,
-        background_check:          data.background_check,
-        welcome_packet:            data.welcome_packet,
-        parking_pass:              data.parking_pass,
+        confidentiality_agreement: data.confidentiality_agreement ?? false,
+        tb_test:                   data.tb_test ?? false,
+        background_check:          data.background_check ?? false,
+        welcome_packet:            data.welcome_packet ?? false,
+        parking_pass:              data.parking_pass ?? false,
+        id_check:                  data.id_check ?? false,
+        immunization:              data.immunization ?? false,
+        background_check_url:      data.background_check_url ?? null,
+        id_check_url:              data.id_check_url ?? null,
+        confidentiality_url:       data.confidentiality_url ?? null,
+        immunization_url:          data.immunization_url ?? null,
+        tb_test_url:               data.tb_test_url ?? null,
+        parking_pass_url:          data.parking_pass_url ?? null,
       })
     } else {
       setChecklist(EMPTY_CHECKLIST)
@@ -190,15 +221,73 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     const { error } = await supabase
       .from('onboarding_checklists')
       .upsert({
-        applicant_id: applicantId,
-        ...next,
-        updated_at: new Date().toISOString(),
+        applicant_id:              applicantId,
+        confidentiality_agreement: next.confidentiality_agreement,
+        tb_test:                   next.tb_test,
+        background_check:          next.background_check,
+        welcome_packet:            next.welcome_packet,
+        parking_pass:              next.parking_pass,
+        id_check:                  next.id_check,
+        immunization:              next.immunization,
+        background_check_url:      next.background_check_url,
+        id_check_url:              next.id_check_url,
+        confidentiality_url:       next.confidentiality_url,
+        immunization_url:          next.immunization_url,
+        tb_test_url:               next.tb_test_url,
+        parking_pass_url:          next.parking_pass_url,
+        updated_at:                new Date().toISOString(),
       }, { onConflict: 'applicant_id' })
     if (error) {
       showMessage(error.message, 'error')
-      setChecklist(checklist) // revert
+      setChecklist(checklist)
     }
     setSavingChecklist(false)
+  }
+
+  async function handleFileUpload(applicantId, item, file) {
+    if (!file || !item.bucket || !item.urlKey) return
+    setUploadingKey(item.key)
+    try {
+      const ext      = file.name.split('.').pop()
+      const path     = `${applicantId}/${item.key}-${Date.now()}.${ext}`
+      const { error: upErr } = await supabase.storage
+        .from(item.bucket)
+        .upload(path, file, { upsert: true })
+      if (upErr) { showMessage(upErr.message, 'error'); setUploadingKey(null); return }
+
+      const next = { ...checklist, [item.urlKey]: path }
+      setChecklist(next)
+      const { error: dbErr } = await supabase
+        .from('onboarding_checklists')
+        .upsert({
+          applicant_id:              applicantId,
+          confidentiality_agreement: next.confidentiality_agreement,
+          tb_test:                   next.tb_test,
+          background_check:          next.background_check,
+          welcome_packet:            next.welcome_packet,
+          parking_pass:              next.parking_pass,
+          id_check:                  next.id_check,
+          immunization:              next.immunization,
+          background_check_url:      next.background_check_url,
+          id_check_url:              next.id_check_url,
+          confidentiality_url:       next.confidentiality_url,
+          immunization_url:          next.immunization_url,
+          tb_test_url:               next.tb_test_url,
+          parking_pass_url:          next.parking_pass_url,
+          updated_at:                new Date().toISOString(),
+        }, { onConflict: 'applicant_id' })
+      if (dbErr) showMessage(dbErr.message, 'error')
+      else showMessage(`${item.label} uploaded`)
+    } catch (e) {
+      showMessage(e.message, 'error')
+    }
+    setUploadingKey(null)
+  }
+
+  async function openFile(bucket, storagePath) {
+    const { data, error } = await supabase.storage.from(bucket).createSignedUrl(storagePath, 120)
+    if (error) { showMessage('Could not open file', 'error'); return }
+    window.open(data.signedUrl, '_blank')
   }
 
   async function openResume(resumeUrl) {
@@ -224,6 +313,8 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     })
     if (authErr) { showMessage(authErr.message, 'error'); setCreatingProfile(false); return }
 
+    const isProvider = affil === 'provider'
+
     const profilePayload = {
       id:           authData.user.id,
       full_name:    selected.full_name,
@@ -235,19 +326,20 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       default_role: onboardForm.default_role || null,
       birthday:     onboardForm.birthday || null,
       status:       'active',
-      // Missionary
       sma_name:     affil === 'missionary' ? (onboardForm.sma_name || null) : null,
       sma_contact:  affil === 'missionary' ? (onboardForm.sma_contact || null) : null,
-      // Student
       school:       affil === 'student'    ? (onboardForm.school || null) : null,
       major:        affil === 'student'    ? (onboardForm.major || null) : null,
-      // Intern
       intern_school:     affil === 'intern' ? (onboardForm.intern_school || null) : null,
       intern_department: affil === 'intern' ? (onboardForm.intern_department || null) : null,
       advisor_name:      affil === 'intern' ? (onboardForm.advisor_name || null) : null,
       advisor_contact:   affil === 'intern' ? (onboardForm.advisor_contact || null) : null,
-      // Provider (credentials optional)
-      credentials:  affil === 'provider'   ? (onboardForm.credentials || null) : (selected.credentials || null),
+      credentials:  isProvider ? (onboardForm.credentials || null) : (selected.credentials || null),
+      license_exp:  isProvider ? (onboardForm.license_exp || null) : null,
+      bls_exp:      isProvider ? (onboardForm.bls_exp || null) : null,
+      dea_exp:      isProvider ? (onboardForm.dea_exp || null) : null,
+      ftca_exp:     isProvider ? (onboardForm.ftca_exp || null) : null,
+      tb_exp:       isProvider ? (onboardForm.tb_exp || null) : null,
     }
 
     const { error: profileErr } = await supabase.from('profiles').insert(profilePayload)
@@ -355,7 +447,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     )
   }
 
-  // ── Step indicator ──
   function StepDots({ current, total, color }) {
     return (
       <div style={{ display: 'flex', gap: '0.35rem' }}>
@@ -370,7 +461,41 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     )
   }
 
-  // ── Affiliation-specific extra fields for step 1 ──
+  // ── Provider credential input widget ──
+  function CredentialInput({ fieldKey, label, value, onChange, allowNA }) {
+    const mode = value === 'N/A' ? 'na' : value === 'expired' ? 'expired' : 'date'
+    return (
+      <div>
+        <label style={labelStyle}>{label}</label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+          <select
+            value={mode}
+            onChange={e => {
+              const m = e.target.value
+              if (m === 'na') onChange('N/A')
+              else if (m === 'expired') onChange('expired')
+              else onChange('')
+            }}
+            style={{ ...inputStyle, fontSize: '0.82rem', padding: '0.45rem 0.65rem' }}
+          >
+            <option value="date">Set date</option>
+            {allowNA && <option value="na">N/A</option>}
+            <option value="expired">Mark expired</option>
+          </select>
+          {mode === 'date' && (
+            <input
+              type="date"
+              value={value && value !== 'N/A' && value !== 'expired' ? value : ''}
+              onChange={e => onChange(e.target.value)}
+              style={{ ...inputStyle, fontSize: '0.82rem', padding: '0.45rem 0.65rem' }}
+            />
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Affiliation-specific extra fields ──
   function AffiliationExtras() {
     const affil = onboardForm.affiliation
 
@@ -381,21 +506,11 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
             <div>
               <label style={labelStyle}>SMA Name</label>
-              <input
-                value={onboardForm.sma_name}
-                onChange={e => setOnboardForm(f => ({ ...f, sma_name: e.target.value }))}
-                placeholder="Full name"
-                style={inputStyle}
-              />
+              <input value={onboardForm.sma_name} onChange={e => setOnboardForm(f => ({ ...f, sma_name: e.target.value }))} placeholder="Full name" style={inputStyle} />
             </div>
             <div>
               <label style={labelStyle}>SMA Contact</label>
-              <input
-                value={onboardForm.sma_contact}
-                onChange={e => setOnboardForm(f => ({ ...f, sma_contact: e.target.value }))}
-                placeholder="Phone or email"
-                style={inputStyle}
-              />
+              <input value={onboardForm.sma_contact} onChange={e => setOnboardForm(f => ({ ...f, sma_contact: e.target.value }))} placeholder="Phone or email" style={inputStyle} />
             </div>
           </div>
         </div>
@@ -409,21 +524,11 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
             <div>
               <label style={labelStyle}>School <span style={{ color: C.red }}>*</span></label>
-              <input
-                value={onboardForm.school}
-                onChange={e => setOnboardForm(f => ({ ...f, school: e.target.value }))}
-                placeholder="University or college name"
-                style={inputStyle}
-              />
+              <input value={onboardForm.school} onChange={e => setOnboardForm(f => ({ ...f, school: e.target.value }))} placeholder="University or college name" style={inputStyle} />
             </div>
             <div>
               <label style={labelStyle}>Major <span style={{ color: C.red }}>*</span></label>
-              <input
-                value={onboardForm.major}
-                onChange={e => setOnboardForm(f => ({ ...f, major: e.target.value }))}
-                placeholder="Field of study"
-                style={inputStyle}
-              />
+              <input value={onboardForm.major} onChange={e => setOnboardForm(f => ({ ...f, major: e.target.value }))} placeholder="Field of study" style={inputStyle} />
             </div>
           </div>
         </div>
@@ -437,39 +542,19 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
             <div>
               <label style={labelStyle}>School <span style={{ color: C.red }}>*</span></label>
-              <input
-                value={onboardForm.intern_school}
-                onChange={e => setOnboardForm(f => ({ ...f, intern_school: e.target.value }))}
-                placeholder="University or college name"
-                style={inputStyle}
-              />
+              <input value={onboardForm.intern_school} onChange={e => setOnboardForm(f => ({ ...f, intern_school: e.target.value }))} placeholder="University or college name" style={inputStyle} />
             </div>
             <div>
               <label style={labelStyle}>Department <span style={{ color: C.red }}>*</span></label>
-              <input
-                value={onboardForm.intern_department}
-                onChange={e => setOnboardForm(f => ({ ...f, intern_department: e.target.value }))}
-                placeholder="e.g. Nursing, Social Work"
-                style={inputStyle}
-              />
+              <input value={onboardForm.intern_department} onChange={e => setOnboardForm(f => ({ ...f, intern_department: e.target.value }))} placeholder="e.g. Nursing, Social Work" style={inputStyle} />
             </div>
             <div>
               <label style={labelStyle}>Advisor Name <span style={{ color: C.red }}>*</span></label>
-              <input
-                value={onboardForm.advisor_name}
-                onChange={e => setOnboardForm(f => ({ ...f, advisor_name: e.target.value }))}
-                placeholder="Full name"
-                style={inputStyle}
-              />
+              <input value={onboardForm.advisor_name} onChange={e => setOnboardForm(f => ({ ...f, advisor_name: e.target.value }))} placeholder="Full name" style={inputStyle} />
             </div>
             <div>
               <label style={labelStyle}>Advisor Contact <span style={{ color: C.red }}>*</span></label>
-              <input
-                value={onboardForm.advisor_contact}
-                onChange={e => setOnboardForm(f => ({ ...f, advisor_contact: e.target.value }))}
-                placeholder="Phone or email"
-                style={inputStyle}
-              />
+              <input value={onboardForm.advisor_contact} onChange={e => setOnboardForm(f => ({ ...f, advisor_contact: e.target.value }))} placeholder="Phone or email" style={inputStyle} />
             </div>
           </div>
         </div>
@@ -478,16 +563,33 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
     if (affil === 'provider') {
       return (
-        <div style={{ padding: '1rem', background: 'var(--bg)', borderRadius: '10px', border: `1px solid ${C.blue}33` }}>
-          <p style={{ ...sectionLabel, marginBottom: '0.75rem' }}>Credentials <span style={{ color: 'var(--muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></p>
-          <div>
-            <label style={labelStyle}>Credentials / Licensure</label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+          {/* Credentials / Licensure text */}
+          <div style={{ padding: '1rem', background: 'var(--bg)', borderRadius: '10px', border: `1px solid ${C.blue}33` }}>
+            <p style={{ ...sectionLabel, marginBottom: '0.75rem' }}>Credentials / Licensure <span style={{ color: 'var(--muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></p>
             <input
               value={onboardForm.credentials}
               onChange={e => setOnboardForm(f => ({ ...f, credentials: e.target.value }))}
               placeholder="e.g. MD, NP, RN, PA — leave blank if not yet known"
               style={inputStyle}
             />
+          </div>
+
+          {/* Credential expiration dates */}
+          <div style={{ padding: '1rem', background: 'var(--bg)', borderRadius: '10px', border: `1px solid rgba(125,211,252,0.35)` }}>
+            <p style={{ ...sectionLabel, color: '#7dd3fc', marginBottom: '0.85rem' }}>Credential Expiration Dates <span style={{ color: 'var(--muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '0.75rem' }}>
+              {PROVIDER_CRED_FIELDS.map(f => (
+                <CredentialInput
+                  key={f.key}
+                  fieldKey={f.key}
+                  label={f.label}
+                  value={onboardForm[f.key] || ''}
+                  onChange={val => setOnboardForm(prev => ({ ...prev, [f.key]: val }))}
+                  allowNA={!!f.allowNA}
+                />
+              ))}
+            </div>
           </div>
         </div>
       )
@@ -496,16 +598,14 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     return null
   }
 
-  // ── Per-affiliation step 1 validation ──
   function step1Valid() {
     const affil = onboardForm.affiliation
     if (!affil) return false
     if (affil === 'student')  return !!(onboardForm.school && onboardForm.major)
     if (affil === 'intern')   return !!(onboardForm.intern_school && onboardForm.intern_department && onboardForm.advisor_name && onboardForm.advisor_contact)
-    return true // missionary (SMA optional), volunteer, provider (credentials optional)
+    return true
   }
 
-  // ── Build profile summary chips ──
   function profileSummaryItems() {
     const affil = onboardForm.affiliation
     const base = [
@@ -515,9 +615,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       { label: 'Birthday',    value: onboardForm.birthday },
       { label: 'Position',    value: onboardForm.default_role },
     ]
-    if (affil === 'missionary') {
-      if (onboardForm.sma_name) base.push({ label: 'SMA', value: onboardForm.sma_name })
-    }
+    if (affil === 'missionary' && onboardForm.sma_name)  base.push({ label: 'SMA', value: onboardForm.sma_name })
     if (affil === 'student') {
       if (onboardForm.school) base.push({ label: 'School', value: onboardForm.school })
       if (onboardForm.major)  base.push({ label: 'Major',  value: onboardForm.major })
@@ -527,10 +625,73 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       if (onboardForm.intern_department) base.push({ label: 'Department', value: onboardForm.intern_department })
       if (onboardForm.advisor_name)      base.push({ label: 'Advisor',    value: onboardForm.advisor_name })
     }
-    if (affil === 'provider' && onboardForm.credentials) {
-      base.push({ label: 'Credentials', value: onboardForm.credentials })
-    }
+    if (affil === 'provider' && onboardForm.credentials) base.push({ label: 'Credentials', value: onboardForm.credentials })
     return base
+  }
+
+  // ── File upload row sub-component ──
+  function FileRow({ item, applicantId }) {
+    const fileInputRef = useRef(null)
+    const hasFile = !!(checklist[item.urlKey])
+    const isUploading = uploadingKey === item.key
+    if (!item.bucket || !item.urlKey) return null
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.4rem' }}>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,image/*"
+          style={{ display: 'none' }}
+          onChange={e => {
+            const f = e.target.files?.[0]
+            if (f) handleFileUpload(applicantId, item, f)
+            e.target.value = ''
+          }}
+        />
+        {hasFile ? (
+          <>
+            <button
+              onClick={() => openFile(item.bucket, checklist[item.urlKey])}
+              style={{
+                padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.72rem',
+                fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                background: C.blue + '14', color: C.blue,
+                border: `1px solid ${C.blue}44`,
+              }}
+            >
+              View File
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              style={{
+                padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.72rem',
+                fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                background: 'var(--surface)', color: 'var(--muted)',
+                border: '1px solid var(--border)',
+              }}
+            >
+              Replace
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+            style={{
+              padding: '0.2rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem',
+              fontWeight: 600, cursor: isUploading ? 'not-allowed' : 'pointer',
+              fontFamily: 'DM Sans, sans-serif',
+              background: 'var(--surface)', color: 'var(--muted)',
+              border: '1px solid var(--border)',
+              opacity: isUploading ? 0.5 : 1,
+            }}
+          >
+            {isUploading ? 'Uploading...' : '+ Attach File'}
+          </button>
+        )}
+      </div>
+    )
   }
 
   // ── Detail panel ──
@@ -559,12 +720,14 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       { label: 'Reference 2', value: applicant.ref2_name ? `${applicant.ref2_name} — ${applicant.ref2_contact}` : null },
     ].filter(f => f.value)
 
-    const s1Valid = step1Valid()
+    const s1Valid    = step1Valid()
     const step2Valid = !!onboardForm.birthday
     const step3Valid = !!onboardForm.default_role
     const allStepsValid = s1Valid && step2Valid && step3Valid
 
-    const checklistCount = Object.values(checklist).filter(Boolean).length
+    const checklistCount = CHECKLIST_ITEMS.filter(i => checklist[i.key]).length
+    const mandatoryItems = CHECKLIST_ITEMS.filter(i => i.mandatory)
+    const mandatoryComplete = mandatoryItems.every(i => checklist[i.key])
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -627,7 +790,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
           }
         </div>
 
-        {/* ── Applied stage: move to interview OR reject ── */}
+        {/* ── Applied stage ── */}
         {isApplied && (
           <div style={{ ...card, padding: '1rem 1.25rem', borderColor: C.yellow + '55', background: C.yellow + '06' }}>
             <p style={{ ...sectionLabel, color: C.yellow }}>Review</p>
@@ -650,10 +813,8 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
           <div style={{ ...card, padding: '1rem 1.25rem', borderColor: C.yellow + '55', background: C.yellow + '06' }}>
             <p style={{ ...sectionLabel, color: C.yellow }}>Interview</p>
 
-            {/* Schedule */}
             <div style={{ padding: '1rem', background: 'var(--bg)', borderRadius: '10px', border: '1px solid var(--border)', marginBottom: '1.25rem' }}>
               <p style={{ ...sectionLabel, marginBottom: '0.75rem' }}>Schedule</p>
-
               {existingDate && (
                 <div style={{
                   display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
@@ -663,45 +824,27 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                   <span style={{ fontSize: '0.82rem', color: C.yellow, fontWeight: 600 }}>
                     {existingDate}{existingTime ? ` at ${existingTime}` : ''}
                   </span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
-                    {existingDate ? '— scheduled' : ''}
-                  </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>— scheduled</span>
                 </div>
               )}
-
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '0.75rem', alignItems: 'flex-end' }}>
                 <div>
                   <label style={labelStyle}>Date</label>
-                  <input
-                    type="date"
-                    value={interviewDate}
-                    onChange={e => setInterviewDate(e.target.value)}
-                    style={inputStyle}
-                  />
+                  <input type="date" value={interviewDate} onChange={e => setInterviewDate(e.target.value)} style={inputStyle} />
                 </div>
                 <div>
                   <label style={labelStyle}>Time (optional)</label>
-                  <input
-                    type="time"
-                    value={interviewTime}
-                    onChange={e => setInterviewTime(e.target.value)}
-                    style={inputStyle}
-                  />
+                  <input type="time" value={interviewTime} onChange={e => setInterviewTime(e.target.value)} style={inputStyle} />
                 </div>
-                <button
-                  onClick={() => saveInterviewTime(applicant)}
-                  disabled={savingInterview || !interviewDate}
-                  style={btn(C.yellow, savingInterview || !interviewDate)}
-                >
+                <button onClick={() => saveInterviewTime(applicant)} disabled={savingInterview || !interviewDate} style={btn(C.yellow, savingInterview || !interviewDate)}>
                   {savingInterview ? 'Saving...' : 'Save'}
                 </button>
               </div>
             </div>
 
-            {/* Decision */}
             <p style={{ ...sectionLabel, marginBottom: '0.65rem' }}>Decision</p>
             <p style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '1rem', lineHeight: 1.5 }}>
-              Once you have completed the interview, accept the applicant to move to onboarding or reject their application.
+              Once the interview is complete, accept to move to onboarding or reject the application.
             </p>
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
               <button onClick={() => moveToStage(applicant, 'onboarding')} disabled={movingStage} style={outlineBtn(C.blue)}>
@@ -746,7 +889,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                     color: onboardStep === n ? C.blue : (valid ? C.blue : 'var(--muted)'),
                   }}
                 >
-                  {valid && onboardStep !== n ? `${label} \u2713` : label}
+                  {valid && onboardStep !== n ? `${label} ✓` : label}
                 </button>
               ))}
             </div>
@@ -778,7 +921,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                   })}
                 </div>
 
-                {/* Affiliation-specific extras */}
                 {onboardForm.affiliation && <AffiliationExtras />}
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -793,23 +935,14 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
             {onboardStep === 2 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <p style={{ fontSize: '0.95rem', fontWeight: 600 }}>Date of Birth</p>
-                <p style={{ fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.5 }}>
-                  Required for volunteer records.
-                </p>
+                <p style={{ fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.5 }}>Required for volunteer records.</p>
                 <div style={{ maxWidth: 260 }}>
                   <label style={labelStyle}>Birthday</label>
-                  <input
-                    type="date"
-                    value={onboardForm.birthday}
-                    onChange={e => setOnboardForm(f => ({ ...f, birthday: e.target.value }))}
-                    style={inputStyle}
-                  />
+                  <input type="date" value={onboardForm.birthday} onChange={e => setOnboardForm(f => ({ ...f, birthday: e.target.value }))} style={inputStyle} />
                 </div>
                 <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
                   <button onClick={() => setOnboardStep(1)} style={ghostBtn()}>Back</button>
-                  <button onClick={() => setOnboardStep(3)} disabled={!onboardForm.birthday} style={btn(C.blue, !onboardForm.birthday)}>
-                    Next
-                  </button>
+                  <button onClick={() => setOnboardStep(3)} disabled={!onboardForm.birthday} style={btn(C.blue, !onboardForm.birthday)}>Next</button>
                 </div>
               </div>
             )}
@@ -845,9 +978,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                 </div>
                 <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
                   <button onClick={() => setOnboardStep(2)} style={ghostBtn()}>Back</button>
-                  <button onClick={() => setOnboardStep(4)} disabled={!onboardForm.default_role} style={btn(C.blue, !onboardForm.default_role)}>
-                    Next
-                  </button>
+                  <button onClick={() => setOnboardStep(4)} disabled={!onboardForm.default_role} style={btn(C.blue, !onboardForm.default_role)}>Next</button>
                 </div>
               </div>
             )}
@@ -857,53 +988,84 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <p style={{ fontSize: '0.95rem', fontWeight: 600 }}>Onboarding Checklist</p>
-                  <span style={{ fontSize: '0.78rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>
-                    {checklistCount} / {CHECKLIST_ITEMS.length}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>
+                      {checklistCount} / {CHECKLIST_ITEMS.length}
+                    </span>
+                    {mandatoryComplete && (
+                      <span style={{ fontSize: '0.72rem', padding: '0.15rem 0.5rem', borderRadius: '100px', background: C.green + '18', color: C.green, border: `1px solid ${C.green}44`, fontWeight: 600 }}>
+                        Required Complete
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <p style={{ fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.5 }}>
-                  Check each item off as it is completed. Changes save automatically.
+                  Check items off as completed. Changes save automatically. Attach files where available.
                 </p>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {/* Legend */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', fontSize: '0.75rem', color: 'var(--muted)' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <span style={{ color: C.red, fontWeight: 700 }}>*</span> Required
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <span style={{ color: 'var(--muted)' }}>○</span> Optional
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                   {CHECKLIST_ITEMS.map(item => {
                     const checked = checklist[item.key]
                     return (
                       <div
                         key={item.key}
-                        onClick={() => !savingChecklist && toggleChecklistItem(applicant.id, item.key, !checked)}
                         style={{
-                          display: 'flex', alignItems: 'center', gap: '0.85rem',
-                          padding: '0.85rem 1rem', borderRadius: '10px', cursor: 'pointer',
-                          border: `1px solid ${checked ? C.blue + '55' : 'var(--border)'}`,
-                          background: checked ? C.blue + '08' : 'var(--bg)',
+                          padding: '0.85rem 1rem', borderRadius: '10px',
+                          border: `1px solid ${checked ? C.blue + '55' : item.mandatory ? 'rgba(239,68,68,0.2)' : 'var(--border)'}`,
+                          background: checked ? C.blue + '08' : item.mandatory ? 'rgba(239,68,68,0.02)' : 'var(--bg)',
                           transition: 'all 0.15s',
                         }}
                       >
-                        <div style={{
-                          width: 20, height: 20, borderRadius: '5px', flexShrink: 0,
-                          border: `2px solid ${checked ? C.blue : 'var(--border)'}`,
-                          background: checked ? C.blue : 'transparent',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          transition: 'all 0.15s',
-                        }}>
+                        {/* Row: checkbox + label */}
+                        <div
+                          onClick={() => !savingChecklist && toggleChecklistItem(applicant.id, item.key, !checked)}
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', cursor: 'pointer' }}
+                        >
+                          <div style={{
+                            width: 20, height: 20, borderRadius: '5px', flexShrink: 0,
+                            border: `2px solid ${checked ? C.blue : item.mandatory ? C.red + '66' : 'var(--border)'}`,
+                            background: checked ? C.blue : 'transparent',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            transition: 'all 0.15s',
+                          }}>
+                            {checked && (
+                              <svg width="11" height="9" viewBox="0 0 11 9" fill="none">
+                                <path d="M1 4L4 7L10 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                          </div>
+                          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <span style={{
+                              fontSize: '0.9rem', fontWeight: checked ? 600 : 400,
+                              color: checked ? 'var(--text)' : 'var(--muted)',
+                              transition: 'color 0.15s',
+                            }}>
+                              {item.label}
+                            </span>
+                            {item.mandatory && (
+                              <span style={{ color: C.red, fontWeight: 700, fontSize: '0.85rem', lineHeight: 1 }}>*</span>
+                            )}
+                          </div>
                           {checked && (
-                            <svg width="11" height="9" viewBox="0 0 11 9" fill="none">
-                              <path d="M1 4L4 7L10 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
+                            <span style={{ fontSize: '0.72rem', color: C.blue, fontWeight: 600, flexShrink: 0 }}>
+                              Complete
+                            </span>
                           )}
                         </div>
-                        <span style={{
-                          fontSize: '0.9rem', fontWeight: checked ? 600 : 400,
-                          color: checked ? 'var(--text)' : 'var(--muted)',
-                          transition: 'color 0.15s',
-                        }}>
-                          {item.label}
-                        </span>
-                        {checked && (
-                          <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: C.blue, fontWeight: 600 }}>
-                            Complete
-                          </span>
+
+                        {/* File attachment row */}
+                        {item.bucket && (
+                          <FileRow item={item} applicantId={applicant.id} />
                         )}
                       </div>
                     )
@@ -982,7 +1144,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-      {/* Filter bar — no "All" tab */}
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
         {STAGES.map(stage => {
           const color  = STAGE_COLORS[stage]
@@ -1005,15 +1166,13 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
         })}
       </div>
 
-      {/* Error banner */}
       {loadError && (
         <div style={{ padding: '0.85rem 1rem', borderRadius: '10px', background: C.red + '08', border: `1px solid ${C.red}33` }}>
           <p style={{ fontSize: '0.85rem', color: C.red, fontWeight: 500 }}>Failed to load: {loadError}</p>
         </div>
       )}
 
-      {/* Applicant list */}
-      <div style={card}>
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }}>
         {loading ? (
           <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading applicants...</p>
         ) : filteredApplicants.length === 0 ? (
