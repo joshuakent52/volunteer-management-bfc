@@ -6,7 +6,7 @@ import { getMountainNow, getMountainLabel, asUTC, formatMountain, formatDateMoun
 import DataDashboard from '../../components/DataDashboard'
 import ClinicOpenings from '../../components/ClinicOpenings'
 import Pipeline from '../../components/Pipeline'
-
+import Waitlist from '../../components/Waitlist'
 
 export const dynamic = 'force-dynamic'
 
@@ -64,6 +64,7 @@ export default function AdminPage() {
   const [addWeekPattern, setAddWeekPattern] = useState('every')
   const [addNotes, setAddNotes] = useState('')
   const [showClinicOpenings, setShowClinicOpenings] = useState(false)
+  const [showWaitlist, setShowWaitlist] = useState(false)
 
   const [selectedVolunteer, setSelectedVolunteer] = useState(null)
   const [editing, setEditing] = useState(false)
@@ -793,6 +794,12 @@ export default function AdminPage() {
                 ))}
               </div>
               <button
+                onClick={() => setShowWaitlist(o => !o)}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showWaitlist ? 'rgba(59,130,246,0.15)' : 'var(--surface)', color: showWaitlist ? '#3b82f6' : 'var(--muted)', border: showWaitlist ? '1px solid rgba(59,130,246,0.45)' : '1px solid var(--border)', transition: 'all 0.15s' }}
+              >
+                Waitlist
+              </button>              
+              <button
                 onClick={() => setShowClinicOpenings(o => !o)}
                 style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showClinicOpenings ? 'rgba(251,191,36,0.15)' : 'var(--surface)', color: showClinicOpenings ? '#eab308' : 'var(--muted)', border: showClinicOpenings ? '1px solid rgba(251,191,36,0.45)' : '1px solid var(--border)', transition: 'all 0.15s' }}
               >
@@ -804,11 +811,17 @@ export default function AdminPage() {
               </div>
             </div>
 
+            {showWaitlist && (
+              <div style={{ marginBottom: '1.25rem' }}>
+                <Waitlist supabase={supabase} profile={profile} />
+              </div>
+            )}
+
             {showClinicOpenings && (
               <div style={{ marginBottom: '1.25rem' }}>
                 <ClinicOpenings onClose={() => setShowClinicOpenings(false)} />
               </div>
-            )}
+            )}  
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {ROLES.map(role => {
