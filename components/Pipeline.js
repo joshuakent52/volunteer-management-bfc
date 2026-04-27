@@ -226,7 +226,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     setWaitlistError(null)
     const { data, error } = await supabase
       .from('waitlist')
-      .select('*, profiles(id, full_name, email, phone, affiliation, default_role, status)')
+      .select('*, profiles!waitlist_volunteer_id_fkey(id, full_name, email, phone, affiliation, default_role, status)')
       .order('added_at', { ascending: true })
 
     if (error) {
