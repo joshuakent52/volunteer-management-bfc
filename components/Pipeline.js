@@ -1,7 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { ROLES, SHIFTS } from '../lib/constants'
-
+import { ROLES, SHIFTS, ROLE_SUGGESTIONS } from '../lib/constants'
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
@@ -434,7 +433,9 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       const { day, shift } = parseSlotKey(key)
       for (const role of roles) {
         const filled = schedule.filter(s => s.day_of_week === day && s.shift_time === shift && s.role === role).length
-        result.push({ key, day, shift, role, filled })
+        const limit = ROLE_SUGGESTIONS[role]
+        const hasCapacity = limit === undefined || limit === 0 ? false : filled < limit
+        if (hasCapacity) result.push({ key, day, shift, role, filled })
       }
     }
     return result
