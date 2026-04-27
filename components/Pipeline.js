@@ -425,24 +425,33 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
   // ─── Waitlist actions ─────────────────────────────────────────────────────
 
-  function getAvailableSlots(entry) {
+  async function getAvailableSlots(entry) {
+    const { data: freshSchedule } = await supabase.from('schedule').select('*')
     const slotKeys = entry.preferred_slots.length > 0 ? entry.preferred_slots : ALL_SLOTS.map(s => s.key)
     const roles    = entry.preferred_roles.length  > 0 ? entry.preferred_roles  : ROLES
-    const result   = []
+
+    const result = []
     for (const key of slotKeys) {
       const { day, shift } = parseSlotKey(key)
       for (const role of roles) {
-        const filled = schedule.filter(s => s.day_of_week === day && s.shift_time === shift && s.role === role).length
         const limit = ROLE_SUGGESTIONS[role]
-        const hasCapacity = limit === undefined || limit === 0 ? false : filled < limit
-        if (hasCapacity) result.push({ key, day, shift, role, filled })
+        if (!limit) continue // 0 or undefined = no capacity, never open
+
+        const entries = (freshSchedule || []).filter(s =>
+          s.day_of_week === day && s.shift_time === shift && s.role === role
+        )
+        const effectiveCount = entries.reduce((sum, e) =>
+          sum + (e.week_pattern === 'every' ? 1 : 0.5), 0
+        )
+
+        if (effectiveCount < limit) result.push({ key, day, shift, role, filled: effectiveCount })
       }
     }
     return result
   }
 
-  function openAssign(entry) {
-    const slots = getAvailableSlots(entry)
+  async function openAssign(entry) {
+    const slots = await getAvailableSlots(entry)
     setAssignModal(entry)
     setAssignSlotKey(slots[0]?.key  || ALL_SLOTS[0].key)
     setAssignRole(slots[0]?.role    || ROLES[0])
@@ -454,7 +463,22 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     const { day, shift } = parseSlotKey(assignSlotKey)
     const volId = assignModal.volunteer_id
 
-    const dup = schedule.find(s =>
+    // Re-query fresh at moment of assignment
+    const { data: freshSchedule } = await supabase.from('schedule').select('*')
+    const entries = (freshSchedule || []).filter(s =>
+      s.day_of_week === day && s.shift_time === shift && s.role === assignRole
+    )
+    const effectiveCount = entries.reduce((sum, e) =>
+      sum + (e.week_pattern === 'every' ? 1 : 0.5), 0
+    )
+    const limit = ROLE_SUGGESTIONS[assignRole]
+    if (limit && effectiveCount >= limit) {
+      msg(`${assignRole} is full for ${day} ${shift} (${effectiveCount}/${limit})`, 'error')
+      setAssigningSlot(false)
+      return
+    }
+
+    const dup = (freshSchedule || []).find(s =>
       s.volunteer_id === volId && s.day_of_week === day &&
       s.shift_time   === shift && s.role === assignRole
     )
