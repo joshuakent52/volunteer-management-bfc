@@ -2,11 +2,28 @@
 import { useState, useEffect, useRef } from 'react'
 import { ROLES, SHIFTS } from '../lib/constants'
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
 
+// All possible day+shift combos shown in the picker
+// Stored as strings like 'monday-10-2'
+const ALL_SLOTS = DAYS.flatMap(day =>
+  SHIFTS.map(shift => ({ key: `${day}-${shift}`, day, shift, label: `${day.slice(0,3).charAt(0).toUpperCase()}${day.slice(1,3)} ${shift}` }))
+)
+
+function parseSlotKey(key) {
+  // 'monday-10-2' → { day: 'monday', shift: '10-2' }
+  const idx = key.indexOf('-')
+  const day  = key.slice(0, idx)
+  const shift = key.slice(idx + 1)
+  return { day, shift }
+}
+
 const STAGES = ['applied', 'interview', 'onboarding', 'rejected']
-const STAGE_LABELS  = { applied: 'Applied', interview: 'Interview', onboarding: 'Onboarding', rejected: 'Rejected' }
-const STAGE_COLORS  = { applied: '#3b82f6', interview: '#f59e0b', onboarding: '#3b82f6', rejected: '#ef4444' }
+const STAGE_LABELS = { applied: 'Applied', interview: 'Interview', onboarding: 'Onboarding', rejected: 'Rejected' }
+const STAGE_COLORS = { applied: '#3b82f6', interview: '#f59e0b', onboarding: '#3b82f6', rejected: '#ef4444' }
+
 const AFFILIATION_OPTIONS = [
   { value: 'missionary', label: 'Missionary' },
   { value: 'student',    label: 'Student'    },
@@ -15,43 +32,126 @@ const AFFILIATION_OPTIONS = [
   { value: 'provider',   label: 'Provider'   },
 ]
 const PROVIDER_CRED_FIELDS = [
-  { key: 'license_exp', label: 'License'              },
-  { key: 'bls_exp',     label: 'BLS'                  },
-  { key: 'dea_exp',     label: 'DEA',   allowNA: true },
-  { key: 'ftca_exp',    label: 'FTCA'                 },
-  { key: 'tb_exp',      label: 'TB'                   },
+  { key: 'license_exp', label: 'License'             },
+  { key: 'bls_exp',     label: 'BLS'                 },
+  { key: 'dea_exp',     label: 'DEA', allowNA: true  },
+  { key: 'ftca_exp',    label: 'FTCA'                },
+  { key: 'tb_exp',      label: 'TB'                  },
 ]
 const CHECKLIST_ITEMS = [
-  { key: 'background_check',          label: 'Background Check',          mandatory: true,  bucket: 'onboarding-background-checks', urlKey: 'background_check_url'   },
-  { key: 'id_check',                  label: 'ID',                        mandatory: true,  bucket: 'onboarding-ids',               urlKey: 'id_check_url'           },
-  { key: 'immunization',              label: 'Immunization',              mandatory: true,  bucket: 'onboarding-immunizations',     urlKey: 'immunization_url'       },
-  { key: 'tb_test',                   label: 'TB Test',                   mandatory: true,  bucket: 'onboarding-tb-tests',          urlKey: 'tb_test_url'            },
-  { key: 'confidentiality_agreement', label: 'Confidentiality Agreement', mandatory: false, bucket: 'onboarding-confidentiality',   urlKey: 'confidentiality_url'    },
-  { key: 'welcome_packet',            label: 'Welcome Packet',            mandatory: true,  bucket: null,                           urlKey: null                     },
-  { key: 'parking_pass',              label: 'Parking Pass',              mandatory: false, bucket: 'onboarding-parking-passes',    urlKey: 'parking_pass_url'       },
+  { key: 'background_check',          label: 'Background Check',          mandatory: true,  bucket: 'onboarding-background-checks', urlKey: 'background_check_url'  },
+  { key: 'id_check',                  label: 'ID',                        mandatory: true,  bucket: 'onboarding-ids',               urlKey: 'id_check_url'          },
+  { key: 'immunization',              label: 'Immunization',              mandatory: true,  bucket: 'onboarding-immunizations',     urlKey: 'immunization_url'      },
+  { key: 'tb_test',                   label: 'TB Test',                   mandatory: true,  bucket: 'onboarding-tb-tests',          urlKey: 'tb_test_url'           },
+  { key: 'confidentiality_agreement', label: 'Confidentiality Agreement', mandatory: false, bucket: 'onboarding-confidentiality',   urlKey: 'confidentiality_url'   },
+  { key: 'welcome_packet',            label: 'Welcome Packet',            mandatory: true,  bucket: null,                           urlKey: null                    },
+  { key: 'parking_pass',              label: 'Parking Pass',              mandatory: false, bucket: 'onboarding-parking-passes',    urlKey: 'parking_pass_url'      },
 ]
-const TOTAL_STEPS = 5   // 1 Affiliation · 2 Birthday · 3 Position · 4 Availability · 5 Checklist
+const TOTAL_STEPS = 5
 
 const C = { blue: '#3b82f6', yellow: '#f59e0b', red: '#ef4444', green: '#22c55e', purple: '#a78bfa' }
+
+// ─── Slot picker component (day × shift grid) ─────────────────────────────────
+function SlotPicker({ selected, onChange }) {
+  // selected: string[] of slot keys like ['monday-10-2']
+  const toggle = (key) =>
+    onChange(selected.includes(key) ? selected.filter(k => k !== key) : [...selected, key])
+
+  // Group by day for the grid header
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      {/* Header row */}
+      <div style={{ display: 'grid', gridTemplateColumns: `120px repeat(${SHIFTS.length}, 1fr)`, gap: '0.35rem', alignItems: 'center' }}>
+        <div />
+        {SHIFTS.map(s => (
+          <div key={s} style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 700, color: 'var(--muted)', fontFamily: 'DM Mono, monospace', letterSpacing: '0.04em' }}>{s}</div>
+        ))}
+      </div>
+      {/* Day rows */}
+      {DAYS.map(day => (
+        <div key={day} style={{ display: 'grid', gridTemplateColumns: `120px repeat(${SHIFTS.length}, 1fr)`, gap: '0.35rem', alignItems: 'center' }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text)', textTransform: 'capitalize', paddingRight: '0.5rem' }}>{day}</div>
+          {SHIFTS.map(shift => {
+            const key    = `${day}-${shift}`
+            const active = selected.includes(key)
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggle(key)}
+                style={{
+                  padding: '0.5rem 0.25rem',
+                  borderRadius: '8px',
+                  border: `1px solid ${active ? C.blue + '88' : 'var(--border)'}`,
+                  background: active ? C.blue + '1a' : 'var(--bg)',
+                  color: active ? C.blue : 'var(--muted)',
+                  fontWeight: active ? 700 : 400,
+                  fontSize: '0.72rem',
+                  cursor: 'pointer',
+                  fontFamily: 'DM Mono, monospace',
+                  transition: 'all 0.12s',
+                  textAlign: 'center',
+                }}
+              >
+                {active ? '✓' : '○'}
+              </button>
+            )
+          })}
+        </div>
+      ))}
+      {/* Quick-select row */}
+      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', paddingTop: '0.25rem' }}>
+        <button type="button" onClick={() => onChange(ALL_SLOTS.map(s => s.key))} style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>All</button>
+        <button type="button" onClick={() => onChange([])} style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>None</button>
+        {SHIFTS.map(shift => (
+          <button key={shift} type="button"
+            onClick={() => {
+              const shiftKeys = DAYS.map(d => `${d}-${shift}`)
+              const allOn = shiftKeys.every(k => selected.includes(k))
+              onChange(allOn ? selected.filter(k => !shiftKeys.includes(k)) : [...new Set([...selected, ...shiftKeys])])
+            }}
+            style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Mono, monospace', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}
+          >All {shift}</button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Role picker ──────────────────────────────────────────────────────────────
+function RolePicker({ selected, onChange }) {
+  const toggle = (r) => onChange(selected.includes(r) ? selected.filter(x => x !== r) : [...selected, r])
+  return (
+    <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+      {ROLES.map(r => {
+        const active = selected.includes(r)
+        return (
+          <button key={r} type="button" onClick={() => toggle(r)} style={{ padding: '0.35rem 0.8rem', borderRadius: '100px', fontSize: '0.78rem', fontWeight: active ? 600 : 400, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', border: `1px solid ${active ? C.blue + '66' : 'var(--border)'}`, background: active ? C.blue + '18' : 'var(--bg)', color: active ? C.blue : 'var(--muted)', transition: 'all 0.12s' }}>{r}</button>
+        )
+      })}
+    </div>
+  )
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
-  // ── Top-level tab ──
+  // Top tab
   const [topTab, setTopTab] = useState('pipeline')
 
-  // ── Pipeline ──
-  const [applicants,       setApplicants]       = useState([])
-  const [loading,          setLoading]          = useState(true)
-  const [loadError,        setLoadError]        = useState(null)
-  const [selected,         setSelected]         = useState(null)
-  const [stageFilter,      setStageFilter]      = useState('applied')
-  const [movingStage,      setMovingStage]      = useState(false)
-  const [interviewDate,    setInterviewDate]    = useState('')
-  const [interviewTime,    setInterviewTime]    = useState('')
-  const [savingInterview,  setSavingInterview]  = useState(false)
-  const [creatingProfile,  setCreatingProfile]  = useState(false)
+  // Pipeline state
+  const [applicants,      setApplicants]      = useState([])
+  const [loading,         setLoading]         = useState(true)
+  const [loadError,       setLoadError]       = useState(null)
+  const [selected,        setSelected]        = useState(null)
+  const [stageFilter,     setStageFilter]     = useState('applied')
+  const [movingStage,     setMovingStage]     = useState(false)
+  const [interviewDate,   setInterviewDate]   = useState('')
+  const [interviewTime,   setInterviewTime]   = useState('')
+  const [savingInterview, setSavingInterview] = useState(false)
+  const [creatingProfile, setCreatingProfile] = useState(false)
 
+  // Onboarding form — persisted to volunteer_applications
   const EMPTY_FORM = {
     affiliation: '', sma_name: '', sma_contact: '',
     school: '', major: '',
@@ -59,11 +159,14 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     credentials: '',
     license_exp: '', bls_exp: '', dea_exp: '', ftca_exp: '', tb_exp: '',
     birthday: '', default_role: '',
-    preferred_days: [], preferred_shifts: [], preferred_roles: [],
+    preferred_slots: [],   // ['monday-10-2', ...]
+    preferred_roles: [],
   }
-  const [onboardForm, setOnboardForm] = useState(EMPTY_FORM)
-  const [onboardStep, setOnboardStep] = useState(1)
+  const [onboardForm,  setOnboardForm]  = useState(EMPTY_FORM)
+  const [onboardStep,  setOnboardStep]  = useState(1)
+  const [savingStep,   setSavingStep]   = useState(false)  // auto-save indicator
 
+  // Checklist
   const EMPTY_CHECKLIST = {
     confidentiality_agreement: false, tb_test: false, background_check: false,
     welcome_packet: false, parking_pass: false, id_check: false, immunization: false,
@@ -74,44 +177,40 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   const [savingChecklist, setSavingChecklist] = useState(false)
   const [uploadingKey,    setUploadingKey]    = useState(null)
 
-  // ── Waitlist ──
-  // Each entry is a waitlist row joined with profiles
-  const [waitlist,        setWaitlist]        = useState([])   // [{...waitlist, profiles:{...}}]
+  // Waitlist state
+  const [waitlist,        setWaitlist]        = useState([])
   const [waitlistLoading, setWaitlistLoading] = useState(false)
+  const [waitlistError,   setWaitlistError]   = useState(null)
   const [schedule,        setSchedule]        = useState([])
-  const [allVolunteers,   setAllVolunteers]   = useState([])   // for manual-add picker
+  const [allVolunteers,   setAllVolunteers]   = useState([])
 
   // Waitlist filters
-  const [wlDay,   setWlDay]   = useState('all')
-  const [wlShift, setWlShift] = useState('all')
+  const [wlSlot,  setWlSlot]  = useState('all')
   const [wlRole,  setWlRole]  = useState('all')
 
   // Assign modal
-  const [assignModal,  setAssignModal]  = useState(null)   // waitlist entry
-  const [assignDay,    setAssignDay]    = useState('')
-  const [assignShift,  setAssignShift]  = useState('')
-  const [assignRole,   setAssignRole]   = useState('')
+  const [assignModal,   setAssignModal]   = useState(null)
+  const [assignSlotKey, setAssignSlotKey] = useState('')
+  const [assignRole,    setAssignRole]    = useState('')
   const [assigningSlot, setAssigningSlot] = useState(false)
 
   // Manual add
   const [showManualAdd, setShowManualAdd] = useState(false)
   const [manualVolId,   setManualVolId]   = useState('')
-  const [manualDays,    setManualDays]    = useState([])
-  const [manualShifts,  setManualShifts]  = useState([])
+  const [manualSlots,   setManualSlots]   = useState([])
   const [manualRoles,   setManualRoles]   = useState([])
   const [manualNotes,   setManualNotes]   = useState('')
   const [savingManual,  setSavingManual]  = useState(false)
 
-  // Toast
   const [toast, setToast] = useState(null)
 
-  // ── Boot ──
+  // Boot
   useEffect(() => { loadApplicants() }, [])
   useEffect(() => {
     if (topTab === 'waitlist') { loadWaitlist(); loadSchedule(); loadAllVolunteers() }
   }, [topTab])
 
-  // ─── Loaders ───────────────────────────────────────────────────────────────
+  // ─── Loaders ──────────────────────────────────────────────────────────────
 
   async function loadApplicants() {
     setLoading(true); setLoadError(null)
@@ -124,25 +223,30 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
   async function loadWaitlist() {
     setWaitlistLoading(true)
-    const { data } = await supabase
+    setWaitlistError(null)
+    const { data, error } = await supabase
       .from('waitlist')
       .select('*, profiles(id, full_name, email, phone, affiliation, default_role, status)')
       .order('added_at', { ascending: true })
-    setWaitlist(data || [])
+
+    if (error) {
+      console.error('Waitlist load error:', error)
+      setWaitlistError(`Failed to load waitlist: ${error.message} (code: ${error.code})`)
+      setWaitlist([])
+    } else {
+      setWaitlist(data || [])
+    }
     setWaitlistLoading(false)
   }
 
   async function loadSchedule() {
-    const { data } = await supabase.from('schedule').select('*, profiles(id, full_name)').order('role')
-    setSchedule(data || [])
+    const { data, error } = await supabase.from('schedule').select('*').order('role')
+    if (!error) setSchedule(data || [])
   }
 
   async function loadAllVolunteers() {
     const { data } = await supabase
-      .from('profiles')
-      .select('id, full_name, email, status')
-      .eq('role', 'volunteer')
-      .order('full_name')
+      .from('profiles').select('id, full_name, email, status').eq('role', 'volunteer').order('full_name')
     setAllVolunteers(data || [])
   }
 
@@ -150,22 +254,22 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     const { data } = await supabase.from('onboarding_checklists').select('*').eq('applicant_id', applicantId).maybeSingle()
     setChecklist(data ? {
       confidentiality_agreement: data.confidentiality_agreement ?? false,
-      tb_test:        data.tb_test        ?? false,
+      tb_test:          data.tb_test          ?? false,
       background_check: data.background_check ?? false,
-      welcome_packet: data.welcome_packet ?? false,
-      parking_pass:   data.parking_pass   ?? false,
-      id_check:       data.id_check       ?? false,
-      immunization:   data.immunization   ?? false,
+      welcome_packet:   data.welcome_packet   ?? false,
+      parking_pass:     data.parking_pass     ?? false,
+      id_check:         data.id_check         ?? false,
+      immunization:     data.immunization     ?? false,
       background_check_url: data.background_check_url ?? null,
-      id_check_url:   data.id_check_url   ?? null,
+      id_check_url:     data.id_check_url     ?? null,
       confidentiality_url: data.confidentiality_url ?? null,
       immunization_url: data.immunization_url ?? null,
-      tb_test_url:    data.tb_test_url    ?? null,
+      tb_test_url:      data.tb_test_url      ?? null,
       parking_pass_url: data.parking_pass_url ?? null,
     } : EMPTY_CHECKLIST)
   }
 
-  // ─── Helpers ───────────────────────────────────────────────────────────────
+  // ─── Helpers ──────────────────────────────────────────────────────────────
 
   function msg(text, type = 'success') { setToast({ text, type }); setTimeout(() => setToast(null), 3500) }
 
@@ -180,9 +284,15 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     } catch (e) { console.error('audit failed:', e) }
   }
 
-  function toggleArr(arr, val) { return arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val] }
+  // ─── Persist onboarding step to volunteer_applications ────────────────────
+  // Called after each step so progress survives tab switches / refresh.
+  async function saveOnboardProgress(applicantId, patch) {
+    setSavingStep(true)
+    await supabase.from('volunteer_applications').update(patch).eq('id', applicantId)
+    setSavingStep(false)
+  }
 
-  // ─── Pipeline actions ───────────────────────────────────────────────────────
+  // ─── Pipeline actions ─────────────────────────────────────────────────────
 
   async function moveToStage(applicant, stage) {
     setMovingStage(true)
@@ -204,7 +314,8 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     const iso = interviewTime
       ? new Date(`${interviewDate}T${interviewTime}`).toISOString()
       : new Date(`${interviewDate}T00:00`).toISOString()
-    const { error } = await supabase.from('volunteer_applications').update({ interview_scheduled_at: iso }).eq('id', applicant.id)
+    const { error } = await supabase.from('volunteer_applications')
+      .update({ interview_scheduled_at: iso }).eq('id', applicant.id)
     if (error) msg(error.message, 'error')
     else { msg('Interview scheduled'); await loadApplicants(); setSelected(p => p?.id === applicant.id ? { ...p, interview_scheduled_at: iso } : p) }
     setSavingInterview(false)
@@ -251,7 +362,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     window.open(data.signedUrl, '_blank')
   }
 
-  // ─── Create profile + auto-add to waitlist ──────────────────────────────────
+  // ─── Create volunteer profile + auto-add to waitlist ──────────────────────
 
   async function handleCreateProfile() {
     if (!selected) return
@@ -262,54 +373,50 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
     setCreatingProfile(true)
 
-    // 1. Create auth user
     const { data: authData, error: authErr } = await supabase.auth.signUp({ email: selected.email, password: 'BFC2025!' })
     if (authErr) { msg(authErr.message, 'error'); setCreatingProfile(false); return }
 
-    const uid       = authData.user.id
+    const uid        = authData.user.id
     const isProvider = affil === 'provider'
+    const affiliData = onboardForm // convenience alias
 
-    // 2. Insert profile
     const { error: profileErr } = await supabase.from('profiles').insert({
       id: uid, full_name: selected.full_name, email: selected.email,
       phone: selected.phone || null, role: 'volunteer', affiliation: affil || null,
       languages: selected.languages || null,
-      default_role: onboardForm.default_role || null,
-      birthday:     onboardForm.birthday     || null,
+      default_role: affiliData.default_role || null,
+      birthday:     affiliData.birthday     || null,
       status: 'active',
-      sma_name:     affil === 'missionary' ? (onboardForm.sma_name    || null) : null,
-      sma_contact:  affil === 'missionary' ? (onboardForm.sma_contact || null) : null,
-      school:       affil === 'student'    ? (onboardForm.school      || null) : null,
-      major:        affil === 'student'    ? (onboardForm.major       || null) : null,
-      intern_school:     affil === 'intern' ? (onboardForm.intern_school     || null) : null,
-      intern_department: affil === 'intern' ? (onboardForm.intern_department || null) : null,
-      advisor_name:      affil === 'intern' ? (onboardForm.advisor_name      || null) : null,
-      advisor_contact:   affil === 'intern' ? (onboardForm.advisor_contact   || null) : null,
-      credentials: isProvider ? (onboardForm.credentials || null) : (selected.credentials || null),
-      license_exp: isProvider ? (onboardForm.license_exp || null) : null,
-      bls_exp:     isProvider ? (onboardForm.bls_exp     || null) : null,
-      dea_exp:     isProvider ? (onboardForm.dea_exp     || null) : null,
-      ftca_exp:    isProvider ? (onboardForm.ftca_exp    || null) : null,
-      tb_exp:      isProvider ? (onboardForm.tb_exp      || null) : null,
+      sma_name:    affil === 'missionary' ? (affiliData.sma_name    || null) : null,
+      sma_contact: affil === 'missionary' ? (affiliData.sma_contact || null) : null,
+      school:      affil === 'student'    ? (affiliData.school      || null) : null,
+      major:       affil === 'student'    ? (affiliData.major       || null) : null,
+      intern_school:     affil === 'intern' ? (affiliData.intern_school     || null) : null,
+      intern_department: affil === 'intern' ? (affiliData.intern_department || null) : null,
+      advisor_name:      affil === 'intern' ? (affiliData.advisor_name      || null) : null,
+      advisor_contact:   affil === 'intern' ? (affiliData.advisor_contact   || null) : null,
+      credentials: isProvider ? (affiliData.credentials || null) : (selected.credentials || null),
+      license_exp: isProvider ? (affiliData.license_exp || null) : null,
+      bls_exp:     isProvider ? (affiliData.bls_exp     || null) : null,
+      dea_exp:     isProvider ? (affiliData.dea_exp     || null) : null,
+      ftca_exp:    isProvider ? (affiliData.ftca_exp    || null) : null,
+      tb_exp:      isProvider ? (affiliData.tb_exp      || null) : null,
     })
     if (profileErr) { msg(profileErr.message, 'error'); setCreatingProfile(false); return }
 
-    // 3. Auto-add to waitlist (always — every new volunteer starts here)
+    // Always add to waitlist
     await supabase.from('waitlist').insert({
-      volunteer_id:     uid,
-      preferred_days:   onboardForm.preferred_days,
-      preferred_shifts: onboardForm.preferred_shifts,
-      preferred_roles:  onboardForm.preferred_roles,
-      source:           'pipeline',
-      added_by:         profile.id,
+      volunteer_id:    uid,
+      preferred_slots: affiliData.preferred_slots,
+      preferred_roles: affiliData.preferred_roles,
+      source:          'pipeline',
+      added_by:        profile.id,
     })
 
-    // 4. Mark application complete
     await supabase.from('volunteer_applications')
       .update({ stage: 'completed', volunteer_id: uid }).eq('id', selected.id)
 
     await audit('created_volunteer', 'volunteer', uid, selected.full_name, 'from pipeline → added to waitlist')
-
     msg(`Profile created for ${selected.full_name} — added to waitlist`)
     if (onVolunteerCreated) onVolunteerCreated()
     setSelected(null); setOnboardStep(1); setOnboardForm(EMPTY_FORM); setChecklist(EMPTY_CHECKLIST)
@@ -317,61 +424,53 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     setCreatingProfile(false)
   }
 
-  // ─── Waitlist actions ───────────────────────────────────────────────────────
+  // ─── Waitlist actions ─────────────────────────────────────────────────────
 
   function getAvailableSlots(entry) {
-    // If no preferences set, treat as open to everything
-    const days   = entry.preferred_days.length   > 0 ? entry.preferred_days   : DAYS
-    const shifts = entry.preferred_shifts.length > 0 ? entry.preferred_shifts : SHIFTS
-    const roles  = entry.preferred_roles.length  > 0 ? entry.preferred_roles  : ROLES
-    const slots  = []
-    for (const day of days) {
-      for (const shift of shifts) {
-        for (const role of roles) {
-          const filled = schedule.filter(s => s.day_of_week === day && s.shift_time === shift && s.role === role).length
-          // No hard cap enforced here — admin decides; just show the slot
-          slots.push({ day, shift, role, filled })
-        }
+    const slotKeys = entry.preferred_slots.length > 0 ? entry.preferred_slots : ALL_SLOTS.map(s => s.key)
+    const roles    = entry.preferred_roles.length  > 0 ? entry.preferred_roles  : ROLES
+    const result   = []
+    for (const key of slotKeys) {
+      const { day, shift } = parseSlotKey(key)
+      for (const role of roles) {
+        const filled = schedule.filter(s => s.day_of_week === day && s.shift_time === shift && s.role === role).length
+        result.push({ key, day, shift, role, filled })
       }
     }
-    return slots
+    return result
   }
 
   function openAssign(entry) {
     const slots = getAvailableSlots(entry)
     setAssignModal(entry)
-    setAssignDay(slots[0]?.day    || DAYS[0])
-    setAssignShift(slots[0]?.shift || SHIFTS[0])
-    setAssignRole(slots[0]?.role   || ROLES[0])
+    setAssignSlotKey(slots[0]?.key  || ALL_SLOTS[0].key)
+    setAssignRole(slots[0]?.role    || ROLES[0])
   }
 
   async function handleAssignSlot() {
-    if (!assignModal || !assignDay || !assignShift || !assignRole) return
+    if (!assignModal || !assignSlotKey || !assignRole) return
     setAssigningSlot(true)
+    const { day, shift } = parseSlotKey(assignSlotKey)
     const volId = assignModal.volunteer_id
 
-    // Guard: already in this slot?
     const dup = schedule.find(s =>
-      s.volunteer_id === volId && s.day_of_week === assignDay &&
-      s.shift_time   === assignShift && s.role === assignRole
+      s.volunteer_id === volId && s.day_of_week === day &&
+      s.shift_time   === shift && s.role === assignRole
     )
     if (dup) { msg('Already scheduled in this slot', 'error'); setAssigningSlot(false); return }
 
     const { error } = await supabase.from('schedule').insert({
-      volunteer_id: volId, day_of_week: assignDay, shift_time: assignShift, role: assignRole,
+      volunteer_id: volId, day_of_week: day, shift_time: shift, role: assignRole,
     })
     if (error) { msg(error.message, 'error'); setAssigningSlot(false); return }
 
-    // Remove from waitlist
     await supabase.from('waitlist').delete().eq('id', assignModal.id)
     await audit('assigned_from_waitlist', 'waitlist', assignModal.id,
-      assignModal.profiles?.full_name,
-      `${assignDay} ${assignShift} — ${assignRole}`)
+      assignModal.profiles?.full_name, `${day} ${shift} — ${assignRole}`)
 
-    msg(`${assignModal.profiles?.full_name} assigned to ${assignDay} ${assignShift} — ${assignRole}`)
+    msg(`${assignModal.profiles?.full_name} assigned to ${day} ${shift} — ${assignRole}`)
     setAssignModal(null)
-    await loadWaitlist()
-    await loadSchedule()
+    await loadWaitlist(); await loadSchedule()
     setAssigningSlot(false)
   }
 
@@ -383,39 +482,65 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     await loadWaitlist()
   }
 
-  // Manual add — volunteer must already have a profile
   async function handleManualAdd(e) {
     e.preventDefault()
     if (!manualVolId) return
     setSavingManual(true)
-
-    // Prevent duplicate
     const already = waitlist.find(w => w.volunteer_id === manualVolId)
     if (already) { msg('This volunteer is already on the waitlist', 'error'); setSavingManual(false); return }
 
     const { error } = await supabase.from('waitlist').insert({
-      volunteer_id:     manualVolId,
-      preferred_days:   manualDays,
-      preferred_shifts: manualShifts,
-      preferred_roles:  manualRoles,
-      notes:            manualNotes || null,
-      source:           'manual',
-      added_by:         profile.id,
+      volunteer_id:    manualVolId,
+      preferred_slots: manualSlots,
+      preferred_roles: manualRoles,
+      notes:           manualNotes || null,
+      source:          'manual',
+      added_by:        profile.id,
     })
     if (error) { msg(error.message, 'error'); setSavingManual(false); return }
 
     const vol = allVolunteers.find(v => v.id === manualVolId)
     await audit('added_waitlist', 'waitlist', null, vol?.full_name, 'manual add')
     msg(`${vol?.full_name} added to waitlist`)
-    setManualVolId(''); setManualDays([]); setManualShifts([]); setManualRoles([]); setManualNotes('')
+    setManualVolId(''); setManualSlots([]); setManualRoles([]); setManualNotes('')
     setShowManualAdd(false)
     await loadWaitlist()
     setSavingManual(false)
   }
 
+  // ─── Select applicant — restore saved onboarding progress ────────────────
+
   function selectApplicant(a) {
-    setSelected(a); setOnboardStep(1); setOnboardForm(EMPTY_FORM); setChecklist(EMPTY_CHECKLIST)
+    setSelected(a)
+    setOnboardStep(1)
+    setChecklist(EMPTY_CHECKLIST)
     setInterviewDate(''); setInterviewTime('')
+
+    // Restore persisted onboarding data from the application row
+    const affiliData = a.onboard_affil_data || {}
+    setOnboardForm({
+      affiliation:   a.onboard_affiliation   || '',
+      birthday:      a.onboard_birthday      || '',
+      default_role:  a.onboard_default_role  || '',
+      preferred_slots: a.onboard_preferred_slots || [],
+      preferred_roles: a.onboard_preferred_roles || [],
+      // Affiliation extras from jsonb blob
+      sma_name:          affiliData.sma_name          || '',
+      sma_contact:       affiliData.sma_contact        || '',
+      school:            affiliData.school             || '',
+      major:             affiliData.major              || '',
+      intern_school:     affiliData.intern_school      || '',
+      intern_department: affiliData.intern_department  || '',
+      advisor_name:      affiliData.advisor_name       || '',
+      advisor_contact:   affiliData.advisor_contact    || '',
+      credentials:       affiliData.credentials        || '',
+      license_exp:       affiliData.license_exp        || '',
+      bls_exp:           affiliData.bls_exp            || '',
+      dea_exp:           affiliData.dea_exp            || '',
+      ftca_exp:          affiliData.ftca_exp           || '',
+      tb_exp:            affiliData.tb_exp             || '',
+    })
+
     if (a.stage === 'onboarding') loadChecklist(a.id)
     if (a.interview_scheduled_at) {
       const d = new Date(a.interview_scheduled_at)
@@ -424,23 +549,21 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     }
   }
 
-  // ─── Derived ───────────────────────────────────────────────────────────────
+  // ─── Derived ──────────────────────────────────────────────────────────────
 
   const filteredApplicants = applicants.filter(a => a.stage === stageFilter)
   const stageCounts = STAGES.reduce((acc, s) => { acc[s] = applicants.filter(a => a.stage === s).length; return acc }, {})
 
-  // Volunteers not already on waitlist (for manual-add picker)
-  const waitlistVolIds  = new Set(waitlist.map(w => w.volunteer_id))
-  const notOnWaitlist   = allVolunteers.filter(v => !waitlistVolIds.has(v.id) && (v.status ?? 'active') === 'active')
+  const waitlistVolIds = new Set(waitlist.map(w => w.volunteer_id))
+  const notOnWaitlist  = allVolunteers.filter(v => !waitlistVolIds.has(v.id) && (v.status ?? 'active') === 'active')
 
   const filteredWaitlist = waitlist.filter(entry => {
-    if (wlDay   !== 'all' && entry.preferred_days.length   > 0 && !entry.preferred_days.includes(wlDay))     return false
-    if (wlShift !== 'all' && entry.preferred_shifts.length > 0 && !entry.preferred_shifts.includes(wlShift)) return false
-    if (wlRole  !== 'all' && entry.preferred_roles.length  > 0 && !entry.preferred_roles.includes(wlRole))   return false
+    if (wlSlot !== 'all' && entry.preferred_slots.length > 0 && !entry.preferred_slots.includes(wlSlot)) return false
+    if (wlRole !== 'all' && entry.preferred_roles.length > 0 && !entry.preferred_roles.includes(wlRole)) return false
     return true
   })
 
-  // ─── Shared styles ──────────────────────────────────────────────────────────
+  // ─── Shared styles ────────────────────────────────────────────────────────
 
   const card       = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }
   const inputStyle = { width: '100%', padding: '0.75rem 1rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '0.95rem', outline: 'none', fontFamily: 'DM Sans, sans-serif', boxSizing: 'border-box', colorScheme: 'dark' }
@@ -473,7 +596,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     color: active ? color : 'var(--muted)', transition: 'all 0.12s',
   })
 
-  // ─── Sub-components ─────────────────────────────────────────────────────────
+  // ─── Sub-components ───────────────────────────────────────────────────────
 
   function StagePill({ stage }) {
     const color = STAGE_COLORS[stage] || '#94a3b8'
@@ -490,30 +613,10 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     )
   }
 
-  // Availability toggles — reused in onboarding step 4 and manual-add
-  function AvailabilityPicker({ days, onDays, shifts, onShifts, roles, onRoles }) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <div>
-          <p style={{ ...labelStyle, marginBottom: '0.55rem' }}>Available Days</p>
-          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-            {DAYS.map(d => <button key={d} type="button" onClick={() => onDays(toggleArr(days, d))} style={{ ...pillBtn(days.includes(d)), textTransform: 'capitalize' }}>{d.slice(0, 3)}</button>)}
-          </div>
-        </div>
-        <div>
-          <p style={{ ...labelStyle, marginBottom: '0.55rem' }}>Available Shifts</p>
-          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-            {SHIFTS.map(s => <button key={s} type="button" onClick={() => onShifts(toggleArr(shifts, s))} style={pillBtn(shifts.includes(s))}>{s}</button>)}
-          </div>
-        </div>
-        <div>
-          <p style={{ ...labelStyle, marginBottom: '0.55rem' }}>Willing to Fill Roles</p>
-          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-            {ROLES.map(r => <button key={r} type="button" onClick={() => onRoles(toggleArr(roles, r))} style={pillBtn(roles.includes(r))}>{r}</button>)}
-          </div>
-        </div>
-      </div>
-    )
+  function SavedBadge() {
+    return savingStep
+      ? <span style={{ fontSize: '0.7rem', color: 'var(--muted)', fontStyle: 'italic' }}>saving…</span>
+      : <span style={{ fontSize: '0.7rem', color: C.green, fontWeight: 600 }}>✓ saved</span>
   }
 
   function CredentialInput({ fieldKey, label, value, onChange, allowNA }) {
@@ -557,10 +660,10 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       <div style={{ padding: '1rem', background: 'var(--bg)', borderRadius: '10px', border: `1px solid ${C.blue}33` }}>
         <p style={{ ...secLabel, marginBottom: '0.75rem' }}>Internship Details</p>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
-          <div><label style={labelStyle}>School <span style={{ color: C.red }}>*</span></label><input value={onboardForm.intern_school} onChange={e => setOnboardForm(f => ({ ...f, intern_school: e.target.value }))} placeholder="University" style={inputStyle} /></div>
-          <div><label style={labelStyle}>Department <span style={{ color: C.red }}>*</span></label><input value={onboardForm.intern_department} onChange={e => setOnboardForm(f => ({ ...f, intern_department: e.target.value }))} placeholder="e.g. Nursing" style={inputStyle} /></div>
-          <div><label style={labelStyle}>Advisor Name <span style={{ color: C.red }}>*</span></label><input value={onboardForm.advisor_name} onChange={e => setOnboardForm(f => ({ ...f, advisor_name: e.target.value }))} placeholder="Full name" style={inputStyle} /></div>
-          <div><label style={labelStyle}>Advisor Contact <span style={{ color: C.red }}>*</span></label><input value={onboardForm.advisor_contact} onChange={e => setOnboardForm(f => ({ ...f, advisor_contact: e.target.value }))} placeholder="Phone or email" style={inputStyle} /></div>
+          <div><label style={labelStyle}>School <span style={{ color: C.red }}>*</span></label><input value={onboardForm.intern_school} onChange={e => setOnboardForm(f => ({ ...f, intern_school: e.target.value }))} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Department <span style={{ color: C.red }}>*</span></label><input value={onboardForm.intern_department} onChange={e => setOnboardForm(f => ({ ...f, intern_department: e.target.value }))} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Advisor Name <span style={{ color: C.red }}>*</span></label><input value={onboardForm.advisor_name} onChange={e => setOnboardForm(f => ({ ...f, advisor_name: e.target.value }))} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Advisor Contact <span style={{ color: C.red }}>*</span></label><input value={onboardForm.advisor_contact} onChange={e => setOnboardForm(f => ({ ...f, advisor_contact: e.target.value }))} style={inputStyle} /></div>
         </div>
       </div>
     )
@@ -570,7 +673,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
           <p style={{ ...secLabel, marginBottom: '0.75rem' }}>Credentials / Licensure <span style={{ color: 'var(--muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></p>
           <input value={onboardForm.credentials} onChange={e => setOnboardForm(f => ({ ...f, credentials: e.target.value }))} placeholder="e.g. MD, NP, RN, PA" style={inputStyle} />
         </div>
-        <div style={{ padding: '1rem', background: 'var(--bg)', borderRadius: '10px', border: 'rgba(125,211,252,0.35) 1px solid' }}>
+        <div style={{ padding: '1rem', background: 'var(--bg)', borderRadius: '10px', border: '1px solid rgba(125,211,252,0.35)' }}>
           <p style={{ ...secLabel, color: '#7dd3fc', marginBottom: '0.85rem' }}>Credential Expiration Dates <span style={{ color: 'var(--muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '0.75rem' }}>
             {PROVIDER_CRED_FIELDS.map(f => <CredentialInput key={f.key} fieldKey={f.key} label={f.label} value={onboardForm[f.key] || ''} onChange={val => setOnboardForm(p => ({ ...p, [f.key]: val }))} allowNA={!!f.allowNA} />)}
@@ -583,7 +686,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
   function FileRow({ item, applicantId }) {
     const ref = useRef(null)
-    const has = !!(checklist[item.urlKey])
+    const has       = !!(checklist[item.urlKey])
     const uploading = uploadingKey === item.key
     if (!item.bucket || !item.urlKey) return null
     return (
@@ -597,7 +700,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     )
   }
 
-  // ─── Validity helpers ───────────────────────────────────────────────────────
+  // ─── Validity ─────────────────────────────────────────────────────────────
   function step1Valid() {
     const a = onboardForm.affiliation
     if (!a) return false
@@ -610,26 +713,39 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   const allStepsValid = step1Valid() && step2Valid && step3Valid
 
   function profileSummary() {
-    const a = onboardForm.affiliation
     const base = [
       { label: 'Name',     value: selected?.full_name },
       { label: 'Email',    value: selected?.email },
-      { label: 'Affil.',   value: a },
+      { label: 'Affil.',   value: onboardForm.affiliation },
       { label: 'Birthday', value: onboardForm.birthday },
       { label: 'Position', value: onboardForm.default_role },
     ]
-    if (onboardForm.preferred_days.length   > 0) base.push({ label: 'Days',   value: onboardForm.preferred_days.map(d => d.slice(0,3)).join(', ') })
-    if (onboardForm.preferred_shifts.length > 0) base.push({ label: 'Shifts', value: onboardForm.preferred_shifts.join(', ') })
-    if (onboardForm.preferred_roles.length  > 0) base.push({ label: 'Roles',  value: onboardForm.preferred_roles.join(', ') })
+    if (onboardForm.preferred_slots.length > 0)
+      base.push({ label: 'Slots', value: `${onboardForm.preferred_slots.length} selected` })
     return base
   }
 
-  // ─────────────────────────── APPLICANT DETAIL ───────────────────────────────
+  // ─── Build affil_data blob for persistence ────────────────────────────────
+  function buildAffilData() {
+    const f = onboardForm
+    return {
+      sma_name: f.sma_name, sma_contact: f.sma_contact,
+      school: f.school, major: f.major,
+      intern_school: f.intern_school, intern_department: f.intern_department,
+      advisor_name: f.advisor_name, advisor_contact: f.advisor_contact,
+      credentials: f.credentials,
+      license_exp: f.license_exp, bls_exp: f.bls_exp, dea_exp: f.dea_exp,
+      ftca_exp: f.ftca_exp, tb_exp: f.tb_exp,
+    }
+  }
+
+  // ─────────────────────────── APPLICANT DETAIL ─────────────────────────────
   function ApplicantDetail({ applicant }) {
     const isApplied    = applicant.stage === 'applied'
     const isInterview  = applicant.stage === 'interview'
     const isOnboarding = applicant.stage === 'onboarding'
     const isRejected   = applicant.stage === 'rejected'
+
     const existingDate = applicant.interview_scheduled_at ? new Date(applicant.interview_scheduled_at).toLocaleDateString([], { dateStyle: 'medium' }) : null
     const existingTime = applicant.interview_scheduled_at ? new Date(applicant.interview_scheduled_at).toLocaleTimeString([], { timeStyle: 'short' })  : null
 
@@ -647,7 +763,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
     const checklistCount    = CHECKLIST_ITEMS.filter(i => checklist[i.key]).length
     const mandatoryComplete = CHECKLIST_ITEMS.filter(i => i.mandatory).every(i => checklist[i.key])
-
     const s1 = step1Valid()
 
     return (
@@ -720,22 +835,25 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
           </div>
         )}
 
-        {/* Onboarding — 5 steps */}
+        {/* Onboarding — 5 steps, each auto-saves */}
         {isOnboarding && (
           <div style={{ ...card, padding: '1rem 1.25rem', borderColor: C.blue + '55', background: C.blue + '06' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-              <p style={{ ...secLabel, color: C.blue, marginBottom: 0 }}>Onboarding — Step {onboardStep} of {TOTAL_STEPS}</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <p style={{ ...secLabel, color: C.blue, marginBottom: 0 }}>Onboarding — Step {onboardStep} of {TOTAL_STEPS}</p>
+                <SavedBadge />
+              </div>
               <StepDots current={onboardStep} total={TOTAL_STEPS} color={C.blue} />
             </div>
 
             {/* Step tabs */}
             <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
               {[
-                { n: 1, label: 'Affiliation', valid: s1 },
-                { n: 2, label: 'Birthday',    valid: step2Valid },
-                { n: 3, label: 'Position',    valid: step3Valid },
-                { n: 4, label: 'Availability',valid: onboardForm.preferred_days.length > 0 || onboardForm.preferred_shifts.length > 0 },
-                { n: 5, label: 'Checklist',   valid: checklistCount > 0 },
+                { n: 1, label: 'Affiliation',  valid: s1 },
+                { n: 2, label: 'Birthday',     valid: step2Valid },
+                { n: 3, label: 'Position',     valid: step3Valid },
+                { n: 4, label: 'Availability', valid: onboardForm.preferred_slots.length > 0 },
+                { n: 5, label: 'Checklist',    valid: checklistCount > 0 },
               ].map(({ n, label, valid }) => (
                 <button key={n} onClick={() => setOnboardStep(n)} style={{ padding: '0.35rem 0.85rem', borderRadius: '8px', fontSize: '0.78rem', fontWeight: onboardStep === n ? 700 : 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', border: `1px solid ${onboardStep === n ? C.blue : valid ? C.blue + '44' : 'var(--border)'}`, background: onboardStep === n ? C.blue + '18' : 'var(--bg)', color: onboardStep === n ? C.blue : valid ? C.blue : 'var(--muted)' }}>
                   {valid && onboardStep !== n ? `${label} ✓` : label}
@@ -743,15 +861,27 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
               ))}
             </div>
 
-            {/* Step 1 — Affiliation */}
+            {/* Step 1 — Affiliation (auto-saves on Next) */}
             {onboardStep === 1 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <p style={{ fontSize: '0.95rem', fontWeight: 600 }}>What is their affiliation?</p>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.6rem' }}>
-                  {AFFILIATION_OPTIONS.map(opt => { const active = onboardForm.affiliation === opt.value; return <button key={opt.value} onClick={() => setOnboardForm(f => ({ ...EMPTY_FORM, affiliation: opt.value }))} style={{ padding: '0.75rem 1rem', borderRadius: '10px', border: `1px solid ${active ? C.blue : 'var(--border)'}`, background: active ? C.blue + '18' : 'var(--bg)', color: active ? C.blue : 'var(--text)', fontWeight: active ? 700 : 400, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.88rem', transition: 'all 0.15s' }}>{opt.label}</button> })}
+                  {AFFILIATION_OPTIONS.map(opt => { const active = onboardForm.affiliation === opt.value; return <button key={opt.value} onClick={() => setOnboardForm(f => ({ ...EMPTY_FORM, affiliation: opt.value, birthday: f.birthday, default_role: f.default_role, preferred_slots: f.preferred_slots, preferred_roles: f.preferred_roles }))} style={{ padding: '0.75rem 1rem', borderRadius: '10px', border: `1px solid ${active ? C.blue : 'var(--border)'}`, background: active ? C.blue + '18' : 'var(--bg)', color: active ? C.blue : 'var(--text)', fontWeight: active ? 700 : 400, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.88rem', transition: 'all 0.15s' }}>{opt.label}</button> })}
                 </div>
                 {onboardForm.affiliation && <AffiliationExtras />}
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button onClick={() => setOnboardStep(2)} disabled={!s1} style={solidBtn(C.blue, !s1)}>Next</button></div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={async () => {
+                      await saveOnboardProgress(applicant.id, {
+                        onboard_affiliation: onboardForm.affiliation,
+                        onboard_affil_data:  buildAffilData(),
+                      })
+                      setOnboardStep(2)
+                    }}
+                    disabled={!s1}
+                    style={solidBtn(C.blue, !s1)}
+                  >Save &amp; Next</button>
+                </div>
               </div>
             )}
 
@@ -760,54 +890,90 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <p style={{ fontSize: '0.95rem', fontWeight: 600 }}>Date of Birth</p>
                 <div style={{ maxWidth: 260 }}><label style={labelStyle}>Birthday</label><input type="date" value={onboardForm.birthday} onChange={e => setOnboardForm(f => ({ ...f, birthday: e.target.value }))} style={inputStyle} /></div>
-                <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}><button onClick={() => setOnboardStep(1)} style={ghostBtn()}>Back</button><button onClick={() => setOnboardStep(3)} disabled={!step2Valid} style={solidBtn(C.blue, !step2Valid)}>Next</button></div>
+                <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                  <button onClick={() => setOnboardStep(1)} style={ghostBtn()}>Back</button>
+                  <button
+                    onClick={async () => {
+                      await saveOnboardProgress(applicant.id, { onboard_birthday: onboardForm.birthday || null })
+                      setOnboardStep(3)
+                    }}
+                    disabled={!step2Valid}
+                    style={solidBtn(C.blue, !step2Valid)}
+                  >Save &amp; Next</button>
+                </div>
               </div>
             )}
 
-            {/* Step 3 — Position */}
+            {/* Step 3 — Default Position */}
             {onboardStep === 3 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <p style={{ fontSize: '0.95rem', fontWeight: 600 }}>Default Position</p>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.6rem' }}>
                   {ROLES.map(role => { const active = onboardForm.default_role === role; return <button key={role} onClick={() => setOnboardForm(f => ({ ...f, default_role: role }))} style={{ padding: '0.65rem 0.9rem', borderRadius: '10px', textAlign: 'left', border: `1px solid ${active ? C.blue : 'var(--border)'}`, background: active ? C.blue + '18' : 'var(--bg)', color: active ? C.blue : 'var(--text)', fontWeight: active ? 700 : 400, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.82rem', transition: 'all 0.15s' }}>{role}</button> })}
                 </div>
-                <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}><button onClick={() => setOnboardStep(2)} style={ghostBtn()}>Back</button><button onClick={() => setOnboardStep(4)} disabled={!step3Valid} style={solidBtn(C.blue, !step3Valid)}>Next</button></div>
+                <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                  <button onClick={() => setOnboardStep(2)} style={ghostBtn()}>Back</button>
+                  <button
+                    onClick={async () => {
+                      await saveOnboardProgress(applicant.id, { onboard_default_role: onboardForm.default_role || null })
+                      setOnboardStep(4)
+                    }}
+                    disabled={!step3Valid}
+                    style={solidBtn(C.blue, !step3Valid)}
+                  >Save &amp; Next</button>
+                </div>
               </div>
             )}
 
-            {/* Step 4 — Availability (waitlist preferences) */}
+            {/* Step 4 — Availability: individual slot grid */}
             {onboardStep === 4 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                 <div>
-                  <p style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: '0.35rem' }}>Availability & Waitlist Preferences</p>
+                  <p style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: '0.35rem' }}>Availability &amp; Waitlist Preferences</p>
                   <p style={{ fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.6 }}>
-                    Select which days, shifts, and roles this volunteer is open to. This will be used to match them with open slots in the waitlist. All fields are optional — leaving everything blank means they're flexible and will appear for any available slot.
+                    Select which specific shifts this volunteer can cover. Each cell is one day+shift combo. Leave everything unchecked to mark them as fully flexible.
                   </p>
                 </div>
 
-                <div style={{ padding: '1.1rem 1.25rem', borderRadius: '10px', background: 'var(--bg)', border: `1px solid ${C.blue}2a` }}>
-                  <AvailabilityPicker
-                    days={onboardForm.preferred_days}     onDays={val   => setOnboardForm(f => ({ ...f, preferred_days:   val }))}
-                    shifts={onboardForm.preferred_shifts} onShifts={val => setOnboardForm(f => ({ ...f, preferred_shifts: val }))}
-                    roles={onboardForm.preferred_roles}   onRoles={val  => setOnboardForm(f => ({ ...f, preferred_roles:  val }))}
+                <div style={{ padding: '1.1rem 1.25rem', borderRadius: '10px', background: 'var(--bg)', border: `1px solid ${C.blue}2a`, overflowX: 'auto' }}>
+                  <p style={{ ...secLabel, color: C.blue, marginBottom: '0.85rem' }}>Shift Grid</p>
+                  <SlotPicker
+                    selected={onboardForm.preferred_slots}
+                    onChange={val => setOnboardForm(f => ({ ...f, preferred_slots: val }))}
                   />
                 </div>
 
-                {/* Summary chips */}
-                {(onboardForm.preferred_days.length > 0 || onboardForm.preferred_shifts.length > 0 || onboardForm.preferred_roles.length > 0) && (
-                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                    {onboardForm.preferred_days.map(d    => <span key={d} style={{ padding: '0.2rem 0.6rem', borderRadius: '100px', fontSize: '0.75rem', background: C.blue   + '14', color: C.blue,   border: `1px solid ${C.blue}33`,   textTransform: 'capitalize' }}>{d.slice(0,3)}</span>)}
-                    {onboardForm.preferred_shifts.map(s  => <span key={s} style={{ padding: '0.2rem 0.6rem', borderRadius: '100px', fontSize: '0.75rem', background: C.purple + '14', color: C.purple, border: `1px solid ${C.purple}33` }}>{s}</span>)}
-                    {onboardForm.preferred_roles.map(r   => <span key={r} style={{ padding: '0.2rem 0.6rem', borderRadius: '100px', fontSize: '0.75rem', background: C.green  + '14', color: C.green,  border: `1px solid ${C.green}33`  }}>{r}</span>)}
-                  </div>
-                )}
-                {onboardForm.preferred_days.length === 0 && onboardForm.preferred_shifts.length === 0 && (
-                  <p style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic' }}>No preferences selected — will be added as fully flexible.</p>
-                )}
+                <div style={{ padding: '1rem 1.25rem', borderRadius: '10px', background: 'var(--bg)', border: `1px solid ${C.blue}2a` }}>
+                  <p style={{ ...secLabel, color: C.blue, marginBottom: '0.75rem' }}>Willing to Fill Roles <span style={{ color: 'var(--muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></p>
+                  <RolePicker
+                    selected={onboardForm.preferred_roles}
+                    onChange={val => setOnboardForm(f => ({ ...f, preferred_roles: val }))}
+                  />
+                </div>
+
+                {/* Summary */}
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                  {onboardForm.preferred_slots.length === 0
+                    ? <span style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic' }}>No slots selected — will be added as fully flexible.</span>
+                    : onboardForm.preferred_slots.map(k => {
+                        const s = ALL_SLOTS.find(x => x.key === k)
+                        return <span key={k} style={{ padding: '0.2rem 0.55rem', borderRadius: '100px', fontSize: '0.72rem', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}33`, fontFamily: 'DM Mono, monospace' }}>{s?.label || k}</span>
+                      })
+                  }
+                </div>
 
                 <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
                   <button onClick={() => setOnboardStep(3)} style={ghostBtn()}>Back</button>
-                  <button onClick={() => setOnboardStep(5)} style={solidBtn(C.blue, false)}>Next</button>
+                  <button
+                    onClick={async () => {
+                      await saveOnboardProgress(applicant.id, {
+                        onboard_preferred_slots: onboardForm.preferred_slots,
+                        onboard_preferred_roles: onboardForm.preferred_roles,
+                      })
+                      setOnboardStep(5)
+                    }}
+                    style={solidBtn(C.blue, false)}
+                  >Save &amp; Next</button>
                 </div>
               </div>
             )}
@@ -874,9 +1040,9 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     )
   }
 
-  // ─────────────────────────── WAITLIST VIEW ──────────────────────────────────
+  // ─────────────────────────── WAITLIST VIEW ────────────────────────────────
   function WaitlistView() {
-    const hasFilters = wlDay !== 'all' || wlShift !== 'all' || wlRole !== 'all'
+    const hasFilters = wlSlot !== 'all' || wlRole !== 'all'
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -889,16 +1055,27 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
               {waitlist.length} volunteer{waitlist.length !== 1 ? 's' : ''} waiting · ordered by wait time
             </p>
           </div>
-          <button onClick={() => setShowManualAdd(v => !v)} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showManualAdd ? 'var(--surface)' : C.blue + '14', color: showManualAdd ? 'var(--muted)' : C.blue, border: showManualAdd ? '1px solid var(--border)' : `1px solid ${C.blue}55` }}>
-            {showManualAdd ? 'Cancel' : '+ Add Volunteer'}
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button onClick={() => { loadWaitlist(); loadSchedule() }} style={{ padding: '0.45rem 0.85rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>↻ Refresh</button>
+            <button onClick={() => setShowManualAdd(v => !v)} style={{ padding: '0.45rem 0.85rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showManualAdd ? 'var(--surface)' : C.blue + '14', color: showManualAdd ? 'var(--muted)' : C.blue, border: showManualAdd ? '1px solid var(--border)' : `1px solid ${C.blue}55` }}>
+              {showManualAdd ? 'Cancel' : '+ Add Volunteer'}
+            </button>
+          </div>
         </div>
 
-        {/* Manual add — pick from existing profiles */}
+        {/* Error banner */}
+        {waitlistError && (
+          <div style={{ padding: '0.85rem 1rem', borderRadius: '10px', background: C.red + '08', border: `1px solid ${C.red}33` }}>
+            <p style={{ fontSize: '0.85rem', color: C.red, fontWeight: 500, marginBottom: '0.35rem' }}>{waitlistError}</p>
+            <p style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>Make sure you've run the migrations.sql file and that the RLS policies are applied. Check the Supabase SQL editor diagnostic query at the bottom of the SQL file.</p>
+          </div>
+        )}
+
+        {/* Manual add */}
         {showManualAdd && (
           <div style={{ ...card, borderColor: C.blue + '55', background: C.blue + '04' }}>
             <p style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.4rem' }}>Add Volunteer to Waitlist</p>
-            <p style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '1rem' }}>Only active volunteers with existing profiles can be added here. To add someone new, create their profile first via the Add Volunteer tab.</p>
+            <p style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '1rem' }}>Only active volunteers with existing profiles can be added here. Create their profile first via the Add Volunteer tab if needed.</p>
             <form onSubmit={handleManualAdd} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div>
                 <label style={labelStyle}>Volunteer <span style={{ color: C.red }}>*</span></label>
@@ -908,14 +1085,18 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                 </select>
                 {notOnWaitlist.length === 0 && <p style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: '0.4rem', fontStyle: 'italic' }}>All active volunteers are already on the waitlist.</p>}
               </div>
-              <div style={{ padding: '1rem', borderRadius: '10px', background: 'var(--bg)', border: `1px solid ${C.blue}22` }}>
-                <p style={{ ...labelStyle, marginBottom: '0.85rem' }}>Availability Preferences <span style={{ textTransform: 'none', fontWeight: 400, color: 'var(--muted)' }}>(optional)</span></p>
-                <AvailabilityPicker
-                  days={manualDays}     onDays={setManualDays}
-                  shifts={manualShifts} onShifts={setManualShifts}
-                  roles={manualRoles}   onRoles={setManualRoles}
-                />
+
+              {/* Slot grid */}
+              <div style={{ padding: '1rem 1.25rem', borderRadius: '10px', background: 'var(--bg)', border: `1px solid ${C.blue}22`, overflowX: 'auto' }}>
+                <p style={{ ...labelStyle, marginBottom: '0.85rem' }}>Preferred Shifts <span style={{ textTransform: 'none', fontWeight: 400, color: 'var(--muted)' }}>(optional — leave blank for flexible)</span></p>
+                <SlotPicker selected={manualSlots} onChange={setManualSlots} />
               </div>
+
+              <div style={{ padding: '1rem 1.25rem', borderRadius: '10px', background: 'var(--bg)', border: `1px solid ${C.blue}22` }}>
+                <p style={{ ...labelStyle, marginBottom: '0.75rem' }}>Preferred Roles <span style={{ textTransform: 'none', fontWeight: 400, color: 'var(--muted)' }}>(optional)</span></p>
+                <RolePicker selected={manualRoles} onChange={setManualRoles} />
+              </div>
+
               <div>
                 <label style={labelStyle}>Notes <span style={{ textTransform: 'none', fontWeight: 400, color: 'var(--muted)' }}>(optional)</span></label>
                 <input value={manualNotes} onChange={e => setManualNotes(e.target.value)} placeholder="Any context..." style={inputStyle} />
@@ -932,19 +1113,15 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
         <div style={{ ...card, padding: '0.85rem 1.25rem' }}>
           <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap', alignItems: 'center' }}>
             <span style={{ fontSize: '0.75rem', color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0 }}>Filter by</span>
-            <select value={wlDay} onChange={e => setWlDay(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.82rem' }}>
-              <option value="all">All days</option>
-              {DAYS.map(d => <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>)}
-            </select>
-            <select value={wlShift} onChange={e => setWlShift(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.82rem' }}>
-              <option value="all">All shifts</option>
-              {SHIFTS.map(s => <option key={s} value={s}>{s}</option>)}
+            <select value={wlSlot} onChange={e => setWlSlot(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.82rem' }}>
+              <option value="all">All slots</option>
+              {ALL_SLOTS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
             </select>
             <select value={wlRole} onChange={e => setWlRole(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.82rem' }}>
               <option value="all">All roles</option>
               {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
-            {hasFilters && <button onClick={() => { setWlDay('all'); setWlShift('all'); setWlRole('all') }} style={{ fontSize: '0.78rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' }}>Clear</button>}
+            {hasFilters && <button onClick={() => { setWlSlot('all'); setWlRole('all') }} style={{ fontSize: '0.78rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' }}>Clear</button>}
           </div>
         </div>
 
@@ -958,11 +1135,11 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
             {filteredWaitlist.map((entry, idx) => {
-              const vol       = entry.profiles
-              const slots     = getAvailableSlots(entry)
-              const hasSlots  = slots.length > 0
-              const waitDays  = Math.floor((Date.now() - new Date(entry.added_at).getTime()) / 86400000)
-              const flexible  = entry.preferred_days.length === 0 && entry.preferred_shifts.length === 0
+              const vol      = entry.profiles
+              const slots    = getAvailableSlots(entry)
+              const hasSlots = slots.length > 0
+              const waitDays = Math.floor((Date.now() - new Date(entry.added_at).getTime()) / 86400000)
+              const flexible = entry.preferred_slots.length === 0
 
               return (
                 <div key={entry.id} style={{ padding: '1rem 1.25rem', borderRadius: '12px', border: `1px solid ${hasSlots ? 'rgba(34,197,94,0.3)' : 'var(--border)'}`, background: hasSlots ? 'rgba(34,197,94,0.025)' : 'var(--surface)' }}>
@@ -970,10 +1147,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
                     {/* Left */}
                     <div style={{ display: 'flex', gap: '0.85rem', alignItems: 'flex-start' }}>
-                      {/* Queue number */}
-                      <div style={{ width: 32, height: 32, borderRadius: '8px', background: 'var(--bg)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', fontWeight: 700, color: 'var(--muted)', flexShrink: 0 }}>
-                        {idx + 1}
-                      </div>
+                      <div style={{ width: 32, height: 32, borderRadius: '8px', background: 'var(--bg)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', fontWeight: 700, color: 'var(--muted)', flexShrink: 0 }}>{idx + 1}</div>
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.3rem' }}>
                           <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{vol?.full_name}</span>
@@ -982,17 +1156,21 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                         </div>
                         {vol?.email && <p style={{ fontSize: '0.78rem', color: 'var(--muted)', marginBottom: '0.5rem' }}>{vol.email}</p>}
 
-                        {/* Preference chips */}
-                        <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                        {/* Slot chips */}
+                        <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
                           {flexible
                             ? <span style={{ padding: '0.15rem 0.55rem', borderRadius: '100px', fontSize: '0.7rem', background: 'var(--bg)', color: 'var(--muted)', border: '1px solid var(--border)', fontStyle: 'italic' }}>flexible — any slot</span>
-                            : <>
-                                {entry.preferred_days.map(d    => <span key={d} style={{ padding: '0.15rem 0.5rem', borderRadius: '100px', fontSize: '0.7rem', background: C.blue   + '12', color: C.blue,   border: `1px solid ${C.blue}30`,   textTransform: 'capitalize' }}>{d.slice(0,3)}</span>)}
-                                {entry.preferred_shifts.map(s  => <span key={s} style={{ padding: '0.15rem 0.5rem', borderRadius: '100px', fontSize: '0.7rem', background: C.purple + '12', color: C.purple, border: `1px solid ${C.purple}30` }}>{s}</span>)}
-                                {entry.preferred_roles.map(r   => <span key={r} style={{ padding: '0.15rem 0.5rem', borderRadius: '100px', fontSize: '0.7rem', background: C.green  + '12', color: C.green,  border: `1px solid ${C.green}30`  }}>{r}</span>)}
-                              </>
+                            : entry.preferred_slots.map(k => {
+                                const s = ALL_SLOTS.find(x => x.key === k)
+                                return <span key={k} style={{ padding: '0.15rem 0.5rem', borderRadius: '100px', fontSize: '0.7rem', background: C.blue + '12', color: C.blue, border: `1px solid ${C.blue}30`, fontFamily: 'DM Mono, monospace' }}>{s?.label || k}</span>
+                              })
                           }
                         </div>
+                        {entry.preferred_roles.length > 0 && (
+                          <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', marginTop: '0.3rem' }}>
+                            {entry.preferred_roles.map(r => <span key={r} style={{ padding: '0.15rem 0.5rem', borderRadius: '100px', fontSize: '0.7rem', background: C.green + '12', color: C.green, border: `1px solid ${C.green}30` }}>{r}</span>)}
+                          </div>
+                        )}
                         {entry.notes && <p style={{ fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic', marginTop: '0.4rem' }}>{entry.notes}</p>}
                       </div>
                     </div>
@@ -1004,34 +1182,28 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                         : <span style={{ fontSize: '0.72rem', padding: '0.2rem 0.55rem', borderRadius: '100px', background: 'var(--bg)', color: 'var(--muted)', border: '1px solid var(--border)', fontStyle: 'italic' }}>no open slots</span>
                       }
                       <div style={{ display: 'flex', gap: '0.4rem' }}>
-                        {hasSlots && (
-                          <button onClick={() => openAssign(entry)} style={{ padding: '0.35rem 0.85rem', borderRadius: '7px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.green + '14', color: C.green, border: `1px solid ${C.green}55` }}>
-                            Assign Slot →
-                          </button>
-                        )}
-                        <button onClick={() => removeFromWaitlist(entry)} style={{ padding: '0.35rem 0.7rem', borderRadius: '7px', fontSize: '0.78rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--bg)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
-                          Remove
+                        <button onClick={() => openAssign(entry)} style={{ padding: '0.35rem 0.85rem', borderRadius: '7px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.green + '14', color: C.green, border: `1px solid ${C.green}55` }}>
+                          Assign Slot →
                         </button>
+                        <button onClick={() => removeFromWaitlist(entry)} style={{ padding: '0.35rem 0.7rem', borderRadius: '7px', fontSize: '0.78rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--bg)', color: 'var(--muted)', border: '1px solid var(--border)' }}>Remove</button>
                       </div>
                     </div>
                   </div>
 
-                  {/* Open slots preview */}
+                  {/* Available slots preview */}
                   {hasSlots && (
                     <div style={{ marginTop: '0.85rem', paddingTop: '0.85rem', borderTop: '1px solid var(--border)' }}>
                       <p style={{ ...secLabel, marginBottom: '0.5rem' }}>Available matching slots</p>
-                      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                        {slots.slice(0, 8).map((s, i) => (
-                          <span key={i} style={{ padding: '0.25rem 0.65rem', borderRadius: '7px', fontSize: '0.73rem', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'DM Mono, monospace', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-                            <span style={{ textTransform: 'capitalize' }}>{s.day.slice(0,3)}</span>
+                      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                        {slots.slice(0, 10).map((s, i) => (
+                          <span key={i} style={{ padding: '0.22rem 0.6rem', borderRadius: '7px', fontSize: '0.7rem', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'DM Mono, monospace', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                            {ALL_SLOTS.find(x => x.key === s.key)?.label || s.key}
                             <span style={{ color: 'var(--muted)' }}>·</span>
-                            <span>{s.shift}</span>
-                            <span style={{ color: 'var(--muted)' }}>·</span>
-                            <span style={{ color: 'var(--accent)', fontSize: '0.68rem' }}>{s.role}</span>
-                            {s.filled > 0 && <span style={{ color: 'var(--muted)', fontSize: '0.65rem' }}>({s.filled})</span>}
+                            <span style={{ color: 'var(--accent)', fontSize: '0.65rem' }}>{s.role}</span>
+                            {s.filled > 0 && <span style={{ color: 'var(--muted)', fontSize: '0.62rem' }}>({s.filled})</span>}
                           </span>
                         ))}
-                        {slots.length > 8 && <span style={{ padding: '0.25rem 0.65rem', borderRadius: '7px', fontSize: '0.73rem', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--muted)', fontStyle: 'italic' }}>+{slots.length - 8} more</span>}
+                        {slots.length > 10 && <span style={{ padding: '0.22rem 0.6rem', borderRadius: '7px', fontSize: '0.7rem', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--muted)', fontStyle: 'italic' }}>+{slots.length - 10} more</span>}
                       </div>
                     </div>
                   )}
@@ -1044,81 +1216,76 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     )
   }
 
-  // ─────────────────────────── ASSIGN MODAL ──────────────────────────────────
+  // ─────────────────────────── ASSIGN MODAL ────────────────────────────────
   function AssignModal() {
     if (!assignModal) return null
     const slots        = getAvailableSlots(assignModal)
-    const uniqueDays   = [...new Set(slots.map(s => s.day))]
-    const shiftsForDay = [...new Set(slots.filter(s => s.day === assignDay).map(s => s.shift))]
-    const rolesForSlot = slots.filter(s => s.day === assignDay && s.shift === assignShift)
+    const uniqueKeys   = [...new Set(slots.map(s => s.key))]
+    const rolesForSlot = slots.filter(s => s.key === assignSlotKey)
 
     return (
       <div onClick={() => setAssignModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '1.5rem' }}>
-        <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', padding: '1.75rem', maxWidth: '480px', width: '100%', boxShadow: '0 24px 60px rgba(0,0,0,0.4)' }}>
+        <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', padding: '1.75rem', maxWidth: '520px', width: '100%', boxShadow: '0 24px 60px rgba(0,0,0,0.4)', maxHeight: '85vh', overflowY: 'auto' }}>
           <div style={{ marginBottom: '1.25rem' }}>
             <h3 style={{ fontWeight: 700, fontSize: '1.05rem', marginBottom: '0.25rem' }}>Assign Slot</h3>
             <p style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>Assigning <strong style={{ color: 'var(--text)' }}>{assignModal.profiles?.full_name}</strong> to a recurring shift. They'll be removed from the waitlist.</p>
           </div>
 
-          {slots.length === 0 ? (
-            <p style={{ color: 'var(--muted)', fontStyle: 'italic', fontSize: '0.88rem', marginBottom: '1rem' }}>No slots are available for their preferences right now.</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1.25rem' }}>
-              <div>
-                <label style={labelStyle}>Day</label>
-                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                  {uniqueDays.map(d => (
-                    <button key={d} type="button"
-                      onClick={() => {
-                        setAssignDay(d)
-                        const firstShift = slots.find(s => s.day === d)
-                        if (firstShift) { setAssignShift(firstShift.shift); setAssignRole(firstShift.role) }
-                      }}
-                      style={{ ...pillBtn(assignDay === d), textTransform: 'capitalize' }}
-                    >{d.slice(0,3)}</button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label style={labelStyle}>Shift</label>
-                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                  {shiftsForDay.map(sh => (
-                    <button key={sh} type="button"
-                      onClick={() => {
-                        setAssignShift(sh)
-                        const first = slots.find(s => s.day === assignDay && s.shift === sh)
-                        if (first) setAssignRole(first.role)
-                      }}
-                      style={pillBtn(assignShift === sh)}
-                    >{sh}</button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label style={labelStyle}>Role</label>
-                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                  {rolesForSlot.map(s => (
-                    <button key={s.role} type="button" onClick={() => setAssignRole(s.role)} style={pillBtn(assignRole === s.role, C.green)}>
-                      {s.role}
-                      {s.filled > 0 && <span style={{ marginLeft: '0.3rem', opacity: 0.55, fontSize: '0.68rem' }}>({s.filled} current)</span>}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {assignDay && assignShift && assignRole && (
-                <div style={{ padding: '0.7rem 0.95rem', borderRadius: '8px', background: C.green + '08', border: `1px solid ${C.green}44` }}>
-                  <p style={{ fontSize: '0.82rem', color: C.green, fontWeight: 600 }}>
-                    ✓ {assignDay.charAt(0).toUpperCase() + assignDay.slice(1)} {assignShift} — {assignRole}
-                  </p>
-                </div>
-              )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1.25rem' }}>
+            <div>
+              <label style={labelStyle}>Shift</label>
+              {uniqueKeys.length === 0
+                ? <p style={{ fontSize: '0.85rem', color: 'var(--muted)', fontStyle: 'italic' }}>No matching slots found in the schedule. You can still assign manually below.</p>
+                : <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                    {uniqueKeys.map(k => {
+                      const s = ALL_SLOTS.find(x => x.key === k)
+                      return (
+                        <button key={k} type="button"
+                          onClick={() => {
+                            setAssignSlotKey(k)
+                            const first = slots.find(s => s.key === k)
+                            if (first) setAssignRole(first.role)
+                          }}
+                          style={{ ...pillBtn(assignSlotKey === k), fontFamily: 'DM Mono, monospace', fontSize: '0.75rem' }}
+                        >{s?.label || k}</button>
+                      )
+                    })}
+                  </div>
+              }
             </div>
-          )}
+
+            {/* Fallback: if no prefs or no matching slots, show full grid */}
+            {(uniqueKeys.length === 0 || assignModal.preferred_slots.length === 0) && (
+              <div style={{ padding: '1rem', borderRadius: '10px', background: 'var(--bg)', border: `1px solid ${C.blue}22`, overflowX: 'auto' }}>
+                <p style={{ ...secLabel, marginBottom: '0.75rem' }}>Or pick any slot</p>
+                <SlotPicker selected={assignSlotKey ? [assignSlotKey] : []} onChange={keys => { if (keys.length > 0) { setAssignSlotKey(keys[keys.length - 1]); setAssignRole(ROLES[0]) } else { setAssignSlotKey('') } }} />
+              </div>
+            )}
+
+            <div>
+              <label style={labelStyle}>Role</label>
+              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                {(rolesForSlot.length > 0 ? rolesForSlot.map(s => s.role) : ROLES).map(r => (
+                  <button key={r} type="button" onClick={() => setAssignRole(r)} style={pillBtn(assignRole === r, C.green)}>
+                    {r}
+                    {(() => { const f = rolesForSlot.find(s => s.role === r); return f?.filled > 0 ? <span style={{ marginLeft: '0.3rem', opacity: 0.55, fontSize: '0.68rem' }}>({f.filled})</span> : null })()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {assignSlotKey && assignRole && (
+              <div style={{ padding: '0.7rem 0.95rem', borderRadius: '8px', background: C.green + '08', border: `1px solid ${C.green}44` }}>
+                <p style={{ fontSize: '0.82rem', color: C.green, fontWeight: 600 }}>
+                  ✓ {ALL_SLOTS.find(s => s.key === assignSlotKey)?.label || assignSlotKey} — {assignRole}
+                </p>
+              </div>
+            )}
+          </div>
 
           <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
             <button onClick={() => setAssignModal(null)} style={ghostBtn()}>Cancel</button>
-            <button onClick={handleAssignSlot} disabled={assigningSlot || !assignDay || !assignShift || !assignRole} style={solidBtn(C.green, assigningSlot || !assignDay || !assignShift || !assignRole)}>
+            <button onClick={handleAssignSlot} disabled={assigningSlot || !assignSlotKey || !assignRole} style={solidBtn(C.green, assigningSlot || !assignSlotKey || !assignRole)}>
               {assigningSlot ? 'Assigning...' : 'Confirm & Assign'}
             </button>
           </div>
@@ -1127,7 +1294,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     )
   }
 
-  // ─────────────────────────── ROOT RENDER ────────────────────────────────────
+  // ─────────────────────────── ROOT RENDER ──────────────────────────────────
 
   if (selected) {
     return (
@@ -1195,6 +1362,14 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                           <p style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{a.email}</p>
                           {a.interview_scheduled_at && <span style={{ fontSize: '0.72rem', color: C.yellow, fontWeight: 600 }}>{new Date(a.interview_scheduled_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>}
+                          {/* Show onboarding progress indicators */}
+                          {a.stage === 'onboarding' && (
+                            <span style={{ display: 'flex', gap: '0.2rem' }}>
+                              {[a.onboard_affiliation, a.onboard_birthday, a.onboard_default_role].map((v, i) => (
+                                <span key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: v ? C.green : 'var(--border)' }} />
+                              ))}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
