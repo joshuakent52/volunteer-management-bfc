@@ -794,13 +794,13 @@ export default function AdminPage() {
                 ))}
               </div>
               <button
-                onClick={() => setShowWaitlist(o => !o)}
+                onClick={() => { setShowWaitlist(o => !o); setShowClinicOpenings(false) }}
                 style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showWaitlist ? 'rgba(59,130,246,0.15)' : 'var(--surface)', color: showWaitlist ? '#3b82f6' : 'var(--muted)', border: showWaitlist ? '1px solid rgba(59,130,246,0.45)' : '1px solid var(--border)', transition: 'all 0.15s' }}
               >
                 Waitlist
               </button>              
               <button
-                onClick={() => setShowClinicOpenings(o => !o)}
+                onClick={() => { setShowClinicOpenings(o => !o); setShowWaitlist(false) }}
                 style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showClinicOpenings ? 'rgba(251,191,36,0.15)' : 'var(--surface)', color: showClinicOpenings ? '#eab308' : 'var(--muted)', border: showClinicOpenings ? '1px solid rgba(251,191,36,0.45)' : '1px solid var(--border)', transition: 'all 0.15s' }}
               >
                 <span style={{ fontSize: '0.85rem' }}></span> Clinic Openings
@@ -823,7 +823,7 @@ export default function AdminPage() {
               </div>
             )}  
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {!showClinicOpenings && !showWaitlist && <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {ROLES.map(role => {
                 const entries = getEntries(scheduleDay, scheduleShift, role)
                 const isOpen = addingRole === role
@@ -872,7 +872,7 @@ export default function AdminPage() {
                   </div>
                 )
               })}
-            </div>
+            </div> }
           </div>
         )}
 
