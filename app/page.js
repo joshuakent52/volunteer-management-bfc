@@ -7,6 +7,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   async function handleLogin(e) {
     e.preventDefault()
@@ -85,29 +86,43 @@ export default function LoginPage() {
             />
           </div>
 
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
-              <label style={{ fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Password
-              </label>
-              <a href="/forgot-password" style={{ fontSize: '0.8rem', color: 'var(--muted)', textDecoration: 'none' }}>
-                Forgot password?
-              </a>
-            </div>
+          <div style={{ position: 'relative' }}>
             <input
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               value={password}
               onChange={e => setPassword(e.target.value)}
               required
               placeholder="••••••••"
               style={{
-                width: '100%', padding: '0.75rem 1rem',
-                background: 'var(--bg)', border: '1px solid var(--border)',
-                borderRadius: '8px', color: 'var(--text)',
-                fontSize: '0.95rem', outline: 'none',
+                width: '100%',
+                padding: '0.75rem 2.5rem 0.75rem 1rem',
+                background: 'var(--bg)',
+                border: '1px solid var(--border)',
+                borderRadius: '8px',
+                color: 'var(--text)',
+                fontSize: '0.95rem',
+                outline: 'none',
                 fontFamily: 'DM Sans, sans-serif',
               }}
             />
+
+            <button
+              type="button"
+              onClick={() => setShowPassword(prev => !prev)}
+              style={{
+                position: 'absolute',
+                right: '10px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--muted)',
+                fontSize: '0.9rem',
+              }}
+            >
+              {showPassword ? 'Hide' : 'Show'}
+            </button>
           </div>
 
           {error && (
