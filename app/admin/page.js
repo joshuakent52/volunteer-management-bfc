@@ -1,17 +1,17 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
-import { SHIFTS, ROLES, ROLE_SUGGESTIONS, SCHOOLS, MAJORS, MAX_FILE_SIZE, ACTION_LABELS, ACTION_COLORS } from '../../lib/constants'
+import { SHIFTS, ROLES, ROLE_SUGGESTIONS, SCHOOLS, MAJORS, ACTION_LABELS, ACTION_COLORS } from '../../lib/constants'
 import { getMountainNow, getMountainLabel, asUTC, formatMountain, formatDateMountain, formatDateTime, toMountainInputValue, fromMountainInputValue } from '../../lib/timeUtils'
 import DataDashboard from '../../components/DataDashboard'
 import ClinicOpenings from '../../components/ClinicOpenings'
-
+import Pipeline from '../../components/Pipeline'
+import Waitlist from '../../components/Waitlist'
 
 export const dynamic = 'force-dynamic'
 
 const DAYS = ['monday','tuesday','wednesday','thursday','friday']
 
-// Provider credential fields definition (shared between view/edit/create)
 const PROVIDER_CRED_FIELDS = [
   { key: 'license_exp', label: 'License' },
   { key: 'bls_exp',     label: 'BLS' },
@@ -20,6 +20,7 @@ const PROVIDER_CRED_FIELDS = [
   { key: 'tb_exp',      label: 'TB' },
 ]
 
+// ─── Credential helpers ────────────────────────────────────────────────────
 function credentialStatus(dateStr) {
   if (!dateStr) return 'missing'
   if (dateStr === 'N/A') return 'na'
@@ -41,8 +42,160 @@ function formatExpDate(dateStr) {
   return `${m}/${d}/${y}`
 }
 
+// ─── Shared sub-components ────────────────────────────────────────────────
+function CredentialInput({ fieldKey, label, value, onChange, allowNA = false, inputStyle, labelStyle }) {
+  const mode = value === 'N/A' ? 'na' : value === 'expired' ? 'expired' : 'date'
+  return (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+        <select
+          value={mode}
+          onChange={e => {
+            const m = e.target.value
+            if (m === 'na') onChange('N/A')
+            else if (m === 'expired') onChange('expired')
+            else onChange('')
+          }}
+          style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+        >
+          <option value="date">Set date</option>
+          {allowNA && <option value="na">N/A</option>}
+          <option value="expired">Mark as expired</option>
+        </select>
+        {mode === 'date' && (
+          <input
+            type="date"
+            value={value && value !== 'N/A' && value !== 'expired' ? value : ''}
+            onChange={e => onChange(e.target.value)}
+            style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ExpandableSection({ label, isOpen, onToggle, loading: isLoading, children, count }) {
+  return (
+    <div style={{ borderRadius: '10px', border: `1px solid ${isOpen ? 'var(--accent)' : 'var(--border)'}`, overflow: 'hidden', transition: 'border-color 0.15s' }}>
+      <button onClick={onToggle} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: isOpen ? 'rgba(2,65,107,0.05)' : 'var(--bg)', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', color: isOpen ? 'var(--accent)' : 'var(--text)', transition: 'background 0.15s' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <span style={{ display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', fontSize: '0.85rem', color: 'var(--muted)' }}>›</span>
+          <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{label}</span>
+          {count !== undefined && count !== null && (
+            <span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: isOpen ? 'rgba(2,65,107,0.15)' : 'var(--surface)', color: isOpen ? 'var(--accent)' : 'var(--muted)', border: '1px solid var(--border)', fontFamily: 'DM Mono, monospace' }}>{count}</span>
+          )}
+        </div>
+        {isLoading && <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>Loading...</span>}
+      </button>
+      {isOpen && (
+        <div style={{ padding: '0 1rem 1rem', background: 'var(--bg)', borderTop: '1px solid var(--border)' }}>
+          <div style={{ paddingTop: '0.75rem' }}>{children}</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ProviderCredentialsView({ vol }) {
+  const fields = PROVIDER_CRED_FIELDS.map(f => ({ ...f, value: vol[f.key] || null, status: credentialStatus(vol[f.key]) }))
+  return (
+    <div style={{ padding: '1rem 1.25rem', borderRadius: '10px', border: '1px solid rgba(125,211,252,0.35)', background: 'rgba(125,211,252,0.04)', gridColumn: '1 / -1' }}>
+      <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>Provider Credentials</p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.6rem' }}>
+        {fields.map(f => {
+          const isNA = f.status === 'na'
+          const isMissing = f.status === 'missing'
+          const isExpired = f.status === 'expired'
+          const isExpiring = f.status === 'expiring'
+          const borderColor = (isMissing || isExpired) ? 'rgba(239,68,68,0.4)' : isExpiring ? 'rgba(251,146,60,0.45)' : isNA ? 'rgba(156,163,175,0.35)' : 'rgba(2,65,107,0.3)'
+          const bgColor = (isMissing || isExpired) ? 'rgba(239,68,68,0.06)' : isExpiring ? 'rgba(251,146,60,0.06)' : isNA ? 'rgba(156,163,175,0.06)' : 'rgba(2,65,107,0.05)'
+          const textColor = (isMissing || isExpired) ? '#ef4444' : isExpiring ? '#f97316' : isNA ? 'var(--muted)' : 'var(--text)'
+          return (
+            <div key={f.key} style={{ padding: '0.6rem 0.75rem', borderRadius: '8px', border: `1px solid ${borderColor}`, background: bgColor }}>
+              <p style={{ fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>{f.label}</p>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.35rem' }}>
+                <p style={{ fontFamily: (isMissing || isNA) ? 'DM Sans, sans-serif' : 'DM Mono, monospace', fontSize: '0.82rem', fontWeight: (isMissing || isNA) ? 400 : 600, color: textColor, fontStyle: (isMissing || isNA) ? 'italic' : 'normal' }}>
+                  {isMissing ? 'Not set' : formatExpDate(f.value)}
+                </p>
+                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: (isMissing || isExpired) ? '#ef4444' : isExpiring ? '#f97316' : isNA ? 'var(--muted)' : '#22c55e', flexShrink: 0 }}>
+                  {(isMissing || isExpired) ? '✗' : isExpiring ? '!' : isNA ? '—' : '✓'}
+                </span>
+              </div>
+              {isExpired && <p style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 700, marginTop: '0.15rem' }}>EXPIRED</p>}
+              {isExpiring && <p style={{ fontSize: '0.65rem', color: '#f97316', fontWeight: 700, marginTop: '0.15rem' }}>EXP. SOON</p>}
+              {isNA && <p style={{ fontSize: '0.65rem', color: 'var(--muted)', fontWeight: 600, marginTop: '0.15rem' }}>NOT APPLICABLE</p>}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function ProviderCredentialsSummaryBanner({ volunteers, onSelect }) {
+  const [collapsed, setCollapsed] = useState(true)
+  const providers = volunteers.filter(v => v.affiliation === 'provider' && (v.status ?? 'active') === 'active')
+  if (providers.length === 0) return null
+  const flagged = providers.flatMap(v =>
+    PROVIDER_CRED_FIELDS.map(f => ({ ...f, vol: v, status: credentialStatus(v[f.key]) }))
+      .filter(f => f.status === 'expired' || f.status === 'missing')
+  )
+  const expiring = providers.flatMap(v =>
+    PROVIDER_CRED_FIELDS.map(f => ({ ...f, vol: v, status: credentialStatus(v[f.key]) }))
+      .filter(f => f.status === 'expiring')
+  )
+  const allOk = flagged.length === 0 && expiring.length === 0
+  const borderColor = flagged.length > 0 ? 'rgba(239,68,68,0.4)' : expiring.length > 0 ? 'rgba(251,146,60,0.4)' : 'rgba(2,65,107,0.35)'
+  const bgColor = flagged.length > 0 ? 'rgba(239,68,68,0.04)' : expiring.length > 0 ? 'rgba(251,146,60,0.04)' : 'rgba(2,65,107,0.03)'
+  const headerColor = flagged.length > 0 ? '#ef4444' : expiring.length > 0 ? '#f97316' : 'var(--accent)'
+  return (
+    <div style={{ borderRadius: '12px', border: `1px solid ${borderColor}`, background: bgColor, overflow: 'hidden' }}>
+      <button onClick={() => setCollapsed(c => !c)} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.85rem 1.25rem', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '0.2rem 0.6rem', borderRadius: '100px', background: `${headerColor}18`, color: headerColor, border: `1px solid ${headerColor}44` }}>Provider Credentials</span>
+          <span style={{ fontSize: '0.82rem', color: headerColor, fontWeight: 500 }}>
+            {allOk ? `All ${providers.length} provider${providers.length !== 1 ? 's' : ''} up to date` : flagged.length > 0 ? `${flagged.length} credential${flagged.length !== 1 ? 's' : ''} expired or missing` : `${expiring.length} credential${expiring.length !== 1 ? 's' : ''} expiring soon`}
+          </span>
+        </div>
+        <span style={{ color: 'var(--muted)', fontSize: '0.85rem', transform: collapsed ? 'rotate(0deg)' : 'rotate(180deg)', transition: 'transform 0.2s', flexShrink: 0 }}>▾</span>
+      </button>
+      {!collapsed && (
+        <div style={{ padding: '0 1.25rem 1.25rem', borderTop: '1px solid var(--border)' }}>
+          {allOk ? (
+            <p style={{ paddingTop: '0.75rem', fontSize: '0.85rem', color: 'var(--muted)' }}>All credentials are current.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', paddingTop: '0.75rem' }}>
+              {[...flagged, ...expiring].map((item, i) => {
+                const isExpiring = item.status === 'expiring'
+                const rowColor = isExpiring ? '#f97316' : '#ef4444'
+                const rowBg = isExpiring ? 'rgba(251,146,60,0.07)' : 'rgba(239,68,68,0.07)'
+                const rowBorder = isExpiring ? 'rgba(251,146,60,0.35)' : 'rgba(239,68,68,0.3)'
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.45rem 0.75rem', borderRadius: '8px', background: rowBg, border: `1px solid ${rowBorder}`, flexWrap: 'wrap', gap: '0.4rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                      <span onClick={() => onSelect(item.vol)} style={{ fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' }}>{item.vol.full_name}</span>
+                      <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '6px', background: `${rowColor}18`, color: rowColor, border: `1px solid ${rowColor}44`, fontWeight: 600 }}>{item.label}</span>
+                    </div>
+                    <span style={{ fontSize: '0.78rem', fontFamily: 'DM Mono, monospace', color: rowColor, fontWeight: 600 }}>
+                      {item.status === 'missing' ? 'Not on file' : item.status === 'expired' ? `Expired ${formatExpDate(item.vol[item.key])}` : `Exp. ${formatExpDate(item.vol[item.key])}`}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────
 export default function AdminPage() {
   const [profile, setProfile] = useState(null)
+  // Core data — always loaded
   const [volunteers, setVolunteers] = useState([])
   const [activeShifts, setActiveShifts] = useState([])
   const [callouts, setCallouts] = useState([])
@@ -51,8 +204,12 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState(null)
   const [currentTime, setCurrentTime] = useState(getMountainNow())
-  const [showReadCallouts, setShowReadCallouts] = useState(false)
 
+  // Tab-level "loaded" flags — prevent re-fetching on revisit
+  const loadedTabs = useRef(new Set(['dashboard']))
+
+  // ── Schedule tab state ─────────────────────────────────────────────────
+  const [showReadCallouts, setShowReadCallouts] = useState(false)
   const [scheduleDay, setScheduleDay] = useState('monday')
   const [scheduleShift, setScheduleShift] = useState('10-2')
   const [addingRole, setAddingRole] = useState(null)
@@ -63,7 +220,11 @@ export default function AdminPage() {
   const [addWeekPattern, setAddWeekPattern] = useState('every')
   const [addNotes, setAddNotes] = useState('')
   const [showClinicOpenings, setShowClinicOpenings] = useState(false)
+  const [showWaitlist, setShowWaitlist] = useState(false)
+  const [scheduleDate, setScheduleDate] = useState('')
+  const [dateCoverShifts, setDateCoverShifts] = useState([])
 
+  // ── Volunteer tab state ────────────────────────────────────────────────
   const [selectedVolunteer, setSelectedVolunteer] = useState(null)
   const [editing, setEditing] = useState(false)
   const [showInactive, setShowInactive] = useState(false)
@@ -71,8 +232,6 @@ export default function AdminPage() {
   const [changingStatus, setChangingStatus] = useState(false)
   const [editForm, setEditForm] = useState({})
   const [saving, setSaving] = useState(false)
-
-  // Volunteer list filters
   const [filterAffiliation, setFilterAffiliation] = useState('all')
   const [filterSchool, setFilterSchool] = useState('all')
   const [filterRole, setFilterRole] = useState('all')
@@ -80,8 +239,6 @@ export default function AdminPage() {
   const [filterSearch, setFilterSearch] = useState('')
   const [filtersOpen, setFiltersOpen] = useState(true)
   const [volunteersOpen, setVolunteersOpen] = useState(true)
-
-  // Volunteer detail expandable sections
   const [showRecentShifts, setShowRecentShifts] = useState(false)
   const [showScheduledShifts, setShowScheduledShifts] = useState(false)
   const [recentShifts, setRecentShifts] = useState([])
@@ -89,31 +246,21 @@ export default function AdminPage() {
   const [loadingRecentShifts, setLoadingRecentShifts] = useState(false)
   const [loadingScheduledShifts, setLoadingScheduledShifts] = useState(false)
 
-  // Create volunteer form state
+  // ── Create volunteer state ─────────────────────────────────────────────
   const [newName, setNewName] = useState(''); const [newEmail, setNewEmail] = useState(''); const [newPassword, setNewPassword] = useState('')
   const [newRole, setNewRole] = useState('volunteer'); const [newAffiliation, setNewAffiliation] = useState(''); const [newCredentials, setNewCredentials] = useState('')
   const [newPhone, setNewPhone] = useState(''); const [newLanguages, setNewLanguages] = useState(''); const [newSmaName, setNewSmaName] = useState('')
   const [newSmaContact, setNewSmaContact] = useState(''); const [newSchool, setNewSchool] = useState(''); const [newMajor, setNewMajor] = useState('')
   const [newBirthday, setNewBirthday] = useState(''); const [newDefaultRole, setNewDefaultRole] = useState(''); const [creating, setCreating] = useState(false)
-  // Intern fields (create)
-  const [newAdvisorName, setNewAdvisorName] = useState('')
-  const [newAdvisorContact, setNewAdvisorContact] = useState('')
-  const [newInternSchool, setNewInternSchool] = useState('')
-  const [newInternDepartment, setNewInternDepartment] = useState('')
-  // Provider credential fields (create)
+  const [newAdvisorName, setNewAdvisorName] = useState(''); const [newAdvisorContact, setNewAdvisorContact] = useState('')
+  const [newInternSchool, setNewInternSchool] = useState(''); const [newInternDepartment, setNewInternDepartment] = useState('')
   const [newProviderCreds, setNewProviderCreds] = useState({ license_exp: '', bls_exp: '', dea_exp: '', ftca_exp: '', tb_exp: '' })
 
-  const [lightboxUrl, setLightboxUrl] = useState(null)
-
+  // ── Cover requests state ───────────────────────────────────────────────
   const [coverRequests, setCoverRequests] = useState([])
   const [approvingCoverId, setApprovingCoverId] = useState(null)
-  const [scheduleDate, setScheduleDate] = useState('')
-  const [dateCoverShifts, setDateCoverShifts] = useState([])
 
-  const [hoursSubmissions, setHoursSubmissions] = useState([])
-  const [hoursLoading, setHoursLoading] = useState(false)
-  const [approvingHoursId, setApprovingHoursId] = useState(null)
-
+  // ── Shifts tab state (lazy) ────────────────────────────────────────────
   const [allShifts, setAllShifts] = useState([])
   const [shiftsLoading, setShiftsLoading] = useState(false)
   const [editingShiftId, setEditingShiftId] = useState(null)
@@ -124,6 +271,12 @@ export default function AdminPage() {
   const [creatingShift, setCreatingShift] = useState(false)
   const [shiftFilterVolId, setShiftFilterVolId] = useState('')
 
+  // ── Hours tab state (lazy) ─────────────────────────────────────────────
+  const [hoursSubmissions, setHoursSubmissions] = useState([])
+  const [hoursLoading, setHoursLoading] = useState(false)
+  const [approvingHoursId, setApprovingHoursId] = useState(null)
+
+  // ── Audit tab state (lazy) ─────────────────────────────────────────────
   const [auditLogs, setAuditLogs] = useState([])
   const [auditLoading, setAuditLoading] = useState(false)
   const [auditFilterAdmin, setAuditFilterAdmin] = useState('')
@@ -131,175 +284,219 @@ export default function AdminPage() {
   const [auditFilterFrom, setAuditFilterFrom] = useState('')
   const [auditFilterTo, setAuditFilterTo] = useState('')
 
-  useEffect(() => {
-    init()
-    const interval = setInterval(() => setCurrentTime(getMountainNow()), 60000)
-    return () => clearInterval(interval)
-  }, [])
+  const [lightboxUrl, setLightboxUrl] = useState(null)
 
-  async function init() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { window.location.href = '/'; return }
-    const { data: p } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-    if (p?.role !== 'admin') { window.location.href = '/volunteer'; return }
-    setProfile(p)
-    await Promise.all([loadVolunteers(), loadActiveShifts(), loadCallouts(), loadSchedule(), loadCoverRequests()])
-    setLoading(false)
+  // ─── Styles (stable objects, not recreated per render) ─────────────────
+  const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }
+  const inputStyle = { width: '100%', padding: '0.75rem 1rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '0.95rem', outline: 'none', fontFamily: 'DM Sans, sans-serif' }
+  const labelStyle = { display: 'block', fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
+  const affiliationColor = { missionary: '#818cf8', intern: '#150d5a', student: '#38bdf8', volunteer: '#02416B', provider: '#7dd3fc' }
+  const badgeStyle = (color) => ({ display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: '100px', fontSize: '0.75rem', fontWeight: 500, background: color + '22', color: color, border: `1px solid ${color}55` })
+  const pillBtn = (active, mono) => ({ padding: '0.45rem 0.85rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: mono ? 'DM Mono, monospace' : 'DM Sans, sans-serif', background: active ? (mono ? '#1e40af' : 'var(--accent)') : 'var(--surface)', color: active ? (mono ? '#bfdbfe' : '#0a0f0a') : 'var(--muted)', border: active ? 'none' : '1px solid var(--border)' })
+  const tzLabel = getMountainLabel()
+  const DAY_ORDER = { monday: 0, tuesday: 1, wednesday: 2, thursday: 3, friday: 4, saturday: 5, sunday: 6 }
+
+  // ─── Data loaders ──────────────────────────────────────────────────────
+
+  // Volunteers: select only the columns needed for the list/detail view.
+  // REMOVED: shifts(*) — the full shift history was the single biggest egress source.
+  // Hours are now calculated on demand when a volunteer detail is opened.
+  async function loadVolunteers() {
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, full_name, email, phone, role, affiliation, status, status_reason, credentials, languages, default_role, school, major, sma_name, sma_contact, advisor_name, advisor_contact, intern_school, intern_department, license_exp, bls_exp, dea_exp, ftca_exp, tb_exp, birthday')
+      .order('full_name')
+    setVolunteers(data || [])
   }
 
-  // ── Credential input helper — used in both edit and create forms ──────────
-  function CredentialInput({ fieldKey, label, value, onChange, allowNA = false, inputStyle, labelStyle }) {
-    const mode = value === 'N/A' ? 'na' : value === 'expired' ? 'expired' : 'date'
-    return (
-      <div>
-        <label style={labelStyle}>{label}</label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-          <select
-            value={mode}
-            onChange={e => {
-              const m = e.target.value
-              if (m === 'na') onChange('N/A')
-              else if (m === 'expired') onChange('expired')
-              else onChange('')
-            }}
-            style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
-          >
-            <option value="date">Set date</option>
-            {allowNA && <option value="na">N/A</option>}
-            <option value="expired">Mark as expired</option>
-          </select>
-          {mode === 'date' && (
-            <input
-              type="date"
-              value={value && value !== 'N/A' && value !== 'expired' ? value : ''}
-              onChange={e => onChange(e.target.value)}
-              style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
-            />
-          )}
-        </div>
-      </div>
-    )
+  // Active shifts: only need id, volunteer_id, clock_in, and the nested profile name.
+  async function loadActiveShifts() {
+    const { data } = await supabase
+      .from('shifts')
+      .select('id, volunteer_id, clock_in, profiles(id, full_name)')
+      .is('clock_out', null)
+    setActiveShifts(data || [])
   }
 
-  function ProviderCredentialsSummaryBanner({ volunteers, onSelect }) {
-    const [collapsed, setCollapsed] = useState(true)
-
-    const providers = volunteers.filter(v => v.affiliation === 'provider' && (v.status ?? 'active') === 'active')
-    if (providers.length === 0) return null
-
-    const flagged = providers.flatMap(v =>
-      PROVIDER_CRED_FIELDS.map(f => ({ ...f, vol: v, status: credentialStatus(v[f.key]) }))
-        .filter(f => f.status === 'expired' || f.status === 'missing')
-    )
-    const expiring = providers.flatMap(v =>
-      PROVIDER_CRED_FIELDS.map(f => ({ ...f, vol: v, status: credentialStatus(v[f.key]) }))
-        .filter(f => f.status === 'expiring')
-    )
-
-    const allOk = flagged.length === 0 && expiring.length === 0
-    const borderColor = flagged.length > 0 ? 'rgba(239,68,68,0.4)' : expiring.length > 0 ? 'rgba(251,146,60,0.4)' : 'rgba(2,65,107,0.35)'
-    const bgColor     = flagged.length > 0 ? 'rgba(239,68,68,0.04)' : expiring.length > 0 ? 'rgba(251,146,60,0.04)' : 'rgba(2,65,107,0.03)'
-    const headerColor = flagged.length > 0 ? '#ef4444' : expiring.length > 0 ? '#f97316' : 'var(--accent)'
-
-    return (
-      <div style={{ borderRadius: '12px', border: `1px solid ${borderColor}`, background: bgColor, overflow: 'hidden' }}>
-        <button
-          onClick={() => setCollapsed(c => !c)}
-          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.85rem 1.25rem', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '0.2rem 0.6rem', borderRadius: '100px', background: `${headerColor}18`, color: headerColor, border: `1px solid ${headerColor}44` }}>
-              Provider Credentials
-            </span>
-            <span style={{ fontSize: '0.82rem', color: headerColor, fontWeight: 500 }}>
-              {allOk
-                ? `All ${providers.length} provider${providers.length !== 1 ? 's' : ''} up to date`
-                : flagged.length > 0
-                  ? `${flagged.length} credential${flagged.length !== 1 ? 's' : ''} expired or missing`
-                  : `${expiring.length} credential${expiring.length !== 1 ? 's' : ''} expiring soon`}
-            </span>
-          </div>
-          <span style={{ color: 'var(--muted)', fontSize: '0.85rem', transform: collapsed ? 'rotate(0deg)' : 'rotate(180deg)', transition: 'transform 0.2s', flexShrink: 0 }}>▾</span>
-        </button>
-
-        {!collapsed && (
-          <div style={{ padding: '0 1.25rem 1.25rem', borderTop: '1px solid var(--border)' }}>
-            {allOk ? (
-              <p style={{ paddingTop: '0.75rem', fontSize: '0.85rem', color: 'var(--muted)' }}>All credentials are current.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', paddingTop: '0.75rem' }}>
-                {[...flagged, ...expiring].map((item, i) => {
-                  const isExpiring = item.status === 'expiring'
-                  const rowColor   = isExpiring ? '#f97316' : '#ef4444'
-                  const rowBg      = isExpiring ? 'rgba(251,146,60,0.07)' : 'rgba(239,68,68,0.07)'
-                  const rowBorder  = isExpiring ? 'rgba(251,146,60,0.35)' : 'rgba(239,68,68,0.3)'
-                  return (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.45rem 0.75rem', borderRadius: '8px', background: rowBg, border: `1px solid ${rowBorder}`, flexWrap: 'wrap', gap: '0.4rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                        <span
-                          onClick={() => onSelect(item.vol)}
-                          style={{ fontWeight: 600, fontSize: '0.88rem', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' }}
-                        >
-                          {item.vol.full_name}
-                        </span>
-                        <span style={{ fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '6px', background: `${rowColor}18`, color: rowColor, border: `1px solid ${rowColor}44`, fontWeight: 600 }}>{item.label}</span>
-                      </div>
-                      <span style={{ fontSize: '0.78rem', fontFamily: 'DM Mono, monospace', color: rowColor, fontWeight: 600 }}>
-                        {item.status === 'missing' ? 'Not on file' : item.status === 'expired' ? `Expired ${formatExpDate(item.vol[item.key])}` : `Exp. ${formatExpDate(item.vol[item.key])}`}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  async function loadVolunteers() { const { data } = await supabase.from('profiles').select('*, shifts(*)').order('full_name'); setVolunteers(data || []) }
-  async function loadActiveShifts() { const { data } = await supabase.from('shifts').select('*, profiles(id, full_name)').is('clock_out', null); setActiveShifts(data || []) }
+  // Callouts: limit columns. The volunteer join only needs full_name.
   async function loadCallouts() {
-    const { data } = await supabase.from('callouts').select('*, volunteer:profiles!callouts_volunteer_id_fkey(full_name)').order('submitted_at', { ascending: false }).limit(100)
+    const { data } = await supabase
+      .from('callouts')
+      .select('id, volunteer_id, callout_date, day_of_week, shift_time, role, reason, status, is_read, covered_by, submitted_at, volunteer:profiles!callouts_volunteer_id_fkey(full_name)')
+      .order('submitted_at', { ascending: false })
+      .limit(100)
     setCallouts((data || []).map(c => ({ ...c, profiles: c.volunteer, status: c.status ?? (c.is_read ? 'approved' : 'pending') })))
   }
-  async function loadSchedule() { const { data } = await supabase.from('schedule').select('*, profiles(id, full_name)').order('role'); setSchedule(data || []) }
 
+  // Schedule: fetch only what rendering needs.
+  async function loadSchedule() {
+    const { data } = await supabase
+      .from('schedule')
+      .select('id, volunteer_id, day_of_week, shift_time, role, start_date, end_date, week_pattern, notes, profiles(id, full_name)')
+      .order('role')
+    setSchedule(data || [])
+  }
+
+  // Cover requests: minimal columns + profile name.
+  async function loadCoverRequests() {
+    const { data } = await supabase
+      .from('shift_cover_requests')
+      .select('id, callout_id, volunteer_id, status, requested_at, reviewed_at, profiles(full_name)')
+      .order('requested_at', { ascending: false })
+    setCoverRequests(data || [])
+  }
+
+  // Lazy loaders — only called when the user navigates to that tab or action.
+
+  async function loadAllShifts() {
+    setShiftsLoading(true)
+    const { data } = await supabase
+      .from('shifts')
+      .select('id, volunteer_id, clock_in, clock_out, role, profiles(id, full_name)')
+      .order('clock_in', { ascending: false })
+      .limit(200)
+    setAllShifts(data || [])
+    setShiftsLoading(false)
+  }
+
+  async function loadHoursSubmissions() {
+    setHoursLoading(true)
+    const { data } = await supabase
+      .from('hours_submissions')
+      .select('id, volunteer_id, work_date, hours, role, notes, status, submitted_at, reviewed_at, profiles(full_name, role)')
+      .order('submitted_at', { ascending: false })
+      .limit(100)
+    setHoursSubmissions(data || [])
+    setHoursLoading(false)
+  }
+
+  async function loadAuditLogs() {
+    setAuditLoading(true)
+    const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
+    let query = supabase
+      .from('audit_logs')
+      .select('id, admin_id, action, target_type, target_id, target_name, details, created_at, admin:profiles!audit_logs_admin_id_fkey(full_name)')
+      .order('created_at', { ascending: false })
+      .limit(500)
+      .gte('created_at', twoWeeksAgo)
+    if (auditFilterAdmin)  query = query.eq('admin_id', auditFilterAdmin)
+    if (auditFilterAction) query = query.eq('action', auditFilterAction)
+    if (auditFilterFrom)   query = query.gte('created_at', auditFilterFrom + 'T00:00:00Z')
+    if (auditFilterTo)     query = query.lte('created_at', auditFilterTo + 'T23:59:59Z')
+    const { data } = await query
+    setAuditLogs((data || []).filter(log => log.action !== 'sent_message'))
+    setAuditLoading(false)
+  }
+
+  // Volunteer detail: on-demand per-volunteer data.
   async function loadRecentShiftsForVolunteer(volunteerId) {
     setLoadingRecentShifts(true)
-    const { data } = await supabase.from('shifts').select('*').eq('volunteer_id', volunteerId).not('clock_out', 'is', null).order('clock_in', { ascending: false }).limit(10)
+    const { data } = await supabase
+      .from('shifts')
+      .select('id, clock_in, clock_out, role')
+      .eq('volunteer_id', volunteerId)
+      .not('clock_out', 'is', null)
+      .order('clock_in', { ascending: false })
+      .limit(10)
     setRecentShifts(data || [])
     setLoadingRecentShifts(false)
   }
 
   async function loadScheduledShiftsForVolunteer(volunteerId) {
     setLoadingScheduledShifts(true)
-    const { data } = await supabase.from('schedule').select('*').eq('volunteer_id', volunteerId).order('day_of_week')
+    const { data } = await supabase
+      .from('schedule')
+      .select('id, day_of_week, shift_time, role, week_pattern, start_date, end_date, notes')
+      .eq('volunteer_id', volunteerId)
+      .order('day_of_week')
     setScheduledShifts(data || [])
     setLoadingScheduledShifts(false)
   }
 
-  async function loadCoverRequests() { const { data } = await supabase.from('shift_cover_requests').select('*, profiles(full_name)').order('requested_at', { ascending: false }); setCoverRequests(data || []) }
-  async function loadDateCoverShifts(date) { const { data } = await supabase.from('shifts').select('*, profiles(id, full_name)').gte('clock_in', date + 'T00:00:00Z').lt('clock_in', date + 'T23:59:59Z'); setDateCoverShifts(data || []) }
-
-  async function loadAuditLogs() {
-    setAuditLoading(true)
-    const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
-    let query = supabase.from('audit_logs').select('*, admin:profiles!audit_logs_admin_id_fkey(full_name)').order('created_at', { ascending: false }).limit(500).gte('created_at', twoWeeksAgo)
-    if (auditFilterAdmin) query = query.eq('admin_id', auditFilterAdmin)
-    if (auditFilterAction) query = query.eq('action', auditFilterAction)
-    if (auditFilterFrom) query = query.gte('created_at', auditFilterFrom + 'T00:00:00Z')
-    if (auditFilterTo) query = query.lte('created_at', auditFilterTo + 'T23:59:59Z')
-    const { data } = await query
-    setAuditLogs((data || []).filter(log => log.action !== 'sent_message'))
-    setAuditLoading(false)
+  // Fetch total hours for a single volunteer on demand (replaces shifts(*) join).
+  async function loadVolunteerHours(volunteerId) {
+    const { data } = await supabase
+      .from('shifts')
+      .select('clock_in, clock_out')
+      .eq('volunteer_id', volunteerId)
+      .not('clock_out', 'is', null)
+    return data || []
   }
 
+  async function loadDateCoverShifts(date) {
+    const { data } = await supabase
+      .from('shifts')
+      .select('id, volunteer_id, clock_in, profiles(id, full_name)')
+      .gte('clock_in', date + 'T00:00:00Z')
+      .lt('clock_in', date + 'T23:59:59Z')
+    setDateCoverShifts(data || [])
+  }
+
+  // ─── Tab switcher — lazy loads data exactly once per session ────────────
+  function switchTab(key) {
+    setTab(key)
+    setSelectedVolunteer(null)
+    setAddingRole(null)
+    if (!loadedTabs.current.has(key)) {
+      loadedTabs.current.add(key)
+      if (key === 'shifts') loadAllShifts()
+      if (key === 'hours')  loadHoursSubmissions()
+      if (key === 'audit')  loadAuditLogs()
+    }
+  }
+
+  // ─── Init: only the four core queries needed for the dashboard ──────────
+  useEffect(() => {
+    async function init() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { window.location.href = '/'; return }
+      const { data: p } = await supabase.from('profiles').select('id, full_name, email, role').eq('id', user.id).single()
+      if (p?.role !== 'admin') { window.location.href = '/volunteer'; return }
+      setProfile(p)
+      await Promise.all([loadVolunteers(), loadActiveShifts(), loadCallouts(), loadSchedule(), loadCoverRequests()])
+      setLoading(false)
+    }
+    init()
+    const interval = setInterval(() => setCurrentTime(getMountainNow()), 60000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // ─── Audit helper ───────────────────────────────────────────────────────
   async function audit(action, target_type, target_id, target_name, details) {
-    try { await supabase.from('audit_logs').insert({ admin_id: profile.id, action, target_type, target_id: target_id ? String(target_id) : null, target_name: target_name || null, details: details || null }) } catch (e) { console.error('audit log failed:', e) }
+    try {
+      await supabase.from('audit_logs').insert({ admin_id: profile.id, action, target_type, target_id: target_id ? String(target_id) : null, target_name: target_name || null, details: details || null })
+    } catch (e) { console.error('audit log failed:', e) }
   }
 
+  // ─── Helpers ────────────────────────────────────────────────────────────
+  function totalHours(shifts) {
+    return (shifts || []).reduce((acc, s) => {
+      if (!s.clock_out) return acc
+      return acc + (asUTC(s.clock_out) - asUTC(s.clock_in)) / 3600000
+    }, 0).toFixed(1)
+  }
+  function calcShiftHours(clock_in, clock_out) {
+    if (!clock_out) return null
+    return ((asUTC(clock_out) - asUTC(clock_in)) / 3600000).toFixed(1)
+  }
+  function showMessage(text, type) { setToast({ text, type }); setTimeout(() => setToast(null), 3500) }
+
+  function getEntries(day, shift, role) {
+    if (!scheduleDate) return schedule.filter(s => s.day_of_week === day && s.shift_time === shift && s.role === role)
+    const d = new Date(scheduleDate + 'T12:00:00'); let count = 0; const target = d.getDay()
+    const check = new Date(d.getFullYear(), d.getMonth(), 1)
+    while (check <= d) { if (check.getDay() === target) count++; check.setDate(check.getDate() + 1) }
+    return schedule.filter(s => {
+      if (s.day_of_week !== day || s.shift_time !== shift || s.role !== role) return false
+      if (s.start_date && s.start_date > scheduleDate) return false
+      if (s.end_date   && s.end_date   < scheduleDate) return false
+      if (s.week_pattern === 'odd'  && count % 2 !== 1) return false
+      if (s.week_pattern === 'even' && count % 2 !== 0) return false
+      return true
+    })
+  }
+
+  // expectedVolunteers: derived from already-loaded state — no extra query.
   const expectedVolunteers = (() => {
     const todayMtnStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
     const mtnNow = getMountainNow()
@@ -314,9 +511,48 @@ export default function AdminPage() {
     const scheduled = schedule.filter(s => s.day_of_week === currentDay && s.shift_time === currentShift && (!s.start_date || s.start_date <= todayMtnStr) && (!s.end_date || s.end_date >= todayMtnStr))
     const expectedIds = new Set([...scheduled.filter(s => !calledOutIds.has(s.volunteer_id)).map(s => s.volunteer_id), ...coverIds])
     const clockedInIds = new Set(activeShifts.map(s => s.profiles?.id).filter(Boolean))
-    return [...expectedIds].filter(id => !clockedInIds.has(id)).map(id => { const vol = volunteers.find(v => v.id === id); const entry = scheduled.find(s => s.volunteer_id === id); if (!vol) return null; return { ...vol, role: entry?.role || '—', notes: entry?.notes || null } }).filter(Boolean)
+    return [...expectedIds].filter(id => !clockedInIds.has(id)).map(id => {
+      const vol = volunteers.find(v => v.id === id)
+      const entry = scheduled.find(s => s.volunteer_id === id)
+      if (!vol) return null
+      return { ...vol, role: entry?.role || '—', notes: entry?.notes || null }
+    }).filter(Boolean)
   })()
 
+  // ─── Volunteer detail open — no longer fetches shift history eagerly ────
+  function openVolunteer(v) {
+    setTab('volunteers')
+    setSelectedVolunteer(v)
+    setEditForm({
+      full_name: v.full_name||'', email: v.email||'', phone: v.phone||'',
+      affiliation: v.affiliation||'', credentials: v.credentials||'',
+      languages: v.languages||'', role: v.role||'volunteer',
+      sma_name: v.sma_name||'', sma_contact: v.sma_contact||'',
+      school: v.school||'', default_role: v.default_role||'', birthday: v.birthday||'',
+      advisor_name: v.advisor_name||'', advisor_contact: v.advisor_contact||'',
+      intern_school: v.intern_school||'', intern_department: v.intern_department||'',
+      license_exp: v.license_exp||'', bls_exp: v.bls_exp||'',
+      dea_exp: v.dea_exp||'', ftca_exp: v.ftca_exp||'', tb_exp: v.tb_exp||'',
+    })
+    setStatusForm({ status: v.status || 'active', status_reason: v.status_reason || '' })
+    setEditing(false)
+    setShowRecentShifts(false); setShowScheduledShifts(false)
+    setRecentShifts([]); setScheduledShifts([])
+  }
+
+  // totalHours for volunteer list — fetched on demand per volunteer detail only.
+  // For the list view we show "—" instead of loading all shifts eagerly.
+
+  function handleToggleRecentShifts(volunteerId) {
+    if (!showRecentShifts) { setShowRecentShifts(true); loadRecentShiftsForVolunteer(volunteerId) }
+    else { setShowRecentShifts(false) }
+  }
+  function handleToggleScheduledShifts(volunteerId) {
+    if (!showScheduledShifts) { setShowScheduledShifts(true); loadScheduledShiftsForVolunteer(volunteerId) }
+    else { setShowScheduledShifts(false) }
+  }
+
+  // ─── Mutations ──────────────────────────────────────────────────────────
   async function approveCallout(callout) {
     const { error } = await supabase.from('callouts').update({ status: 'approved', is_read: true }).eq('id', callout.id)
     if (error) showMessage(error.message, 'error')
@@ -347,11 +583,6 @@ export default function AdminPage() {
     else { showMessage('Cover request denied.', 'success'); await audit('denied_cover', 'callout', req?.callout_id, req?.profiles?.full_name); await loadCoverRequests() }
     setApprovingCoverId(null)
   }
-  async function loadAllShifts() {
-    setShiftsLoading(true)
-    const { data } = await supabase.from('shifts').select('*, profiles(id, full_name)').order('clock_in', { ascending: false }).limit(200)
-    setAllShifts(data || []); setShiftsLoading(false)
-  }
   async function handleShiftEditSave(shiftId) {
     setSavingShift(true)
     const origClockIn = toMountainInputValue(shiftEditForm.clock_in_utc)
@@ -370,11 +601,6 @@ export default function AdminPage() {
     const { error } = await supabase.from('shifts').delete().eq('id', shiftId)
     if (error) showMessage(error.message, 'error')
     else { showMessage('Shift deleted.', 'success'); await audit('deleted_shift', 'shift', shiftId, shift?.profiles?.full_name, `${formatDateTime(shift?.clock_in)}`); await loadAllShifts(); await loadActiveShifts() }
-  }
-  async function loadHoursSubmissions() {
-    setHoursLoading(true)
-    const { data } = await supabase.from('hours_submissions').select('*, profiles(full_name, role)').order('submitted_at', { ascending: false }).limit(100)
-    setHoursSubmissions(data || []); setHoursLoading(false)
   }
   async function approveHours(sub) {
     setApprovingHoursId(sub.id)
@@ -404,7 +630,7 @@ export default function AdminPage() {
     const vol = volunteers.find(v => v.id === newShiftForm.volunteer_id)
     const { error } = await supabase.from('shifts').insert({ volunteer_id: newShiftForm.volunteer_id, clock_in: clockIn, clock_out: clockOut, role: newShiftForm.role || null })
     if (error) showMessage(error.message, 'error')
-    else { showMessage('Shift entry created!', 'success'); await audit('created_shift', 'shift', null, vol?.full_name, `${formatDateTime(clockIn)}`); setNewShiftForm({ volunteer_id: '', clock_in: '', clock_out: '', role: '' }); setShowNewShiftForm(false); await loadAllShifts(); await loadActiveShifts(); await loadVolunteers() }
+    else { showMessage('Shift entry created!', 'success'); await audit('created_shift', 'shift', null, vol?.full_name, `${formatDateTime(clockIn)}`); setNewShiftForm({ volunteer_id: '', clock_in: '', clock_out: '', role: '' }); setShowNewShiftForm(false); await loadAllShifts(); await loadActiveShifts() }
     setCreatingShift(false)
   }
   async function handleAddEntry() {
@@ -418,20 +644,9 @@ export default function AdminPage() {
     const limit = ROLE_SUGGESTIONS[addingRole]
     if (limit && effectiveCount >= limit) { showMessage(`Limit reached for ${addingRole} (${limit})`, 'error'); setAddingEntry(false); return }
     const exists = schedule.find(s => {
-      if (
-        s.volunteer_id !== addVolId ||
-        s.day_of_week !== scheduleDay ||
-        s.shift_time !== scheduleShift ||
-        s.role !== addingRole
-      ) return false
-
-      // Two ranges overlap unless one ends before the other starts
-      // Treat null start = beginning of time, null end = forever
-      const aStart = s.start_date || '0000-01-01'
-      const aEnd   = s.end_date   || '9999-12-31'
-      const bStart = addStartDate || '0000-01-01'
-      const bEnd   = addEndDate   || '9999-12-31'
-
+      if (s.volunteer_id !== addVolId || s.day_of_week !== scheduleDay || s.shift_time !== scheduleShift || s.role !== addingRole) return false
+      const aStart = s.start_date || '0000-01-01'; const aEnd = s.end_date || '9999-12-31'
+      const bStart = addStartDate || '0000-01-01'; const bEnd = addEndDate || '9999-12-31'
       return aStart <= bEnd && bStart <= aEnd
     })
     if (exists) { showMessage('Volunteer already assigned to this slot', 'error'); setAddingEntry(false); return }
@@ -447,30 +662,6 @@ export default function AdminPage() {
     if (error) showMessage(error.message, 'error')
     else { showMessage('Removed from schedule', 'success'); await audit('removed_schedule', 'schedule', id, entry?.profiles?.full_name, `${entry?.day_of_week} ${entry?.shift_time} — ${entry?.role}`); await loadSchedule() }
   }
-  function openVolunteer(v) {
-    setTab('volunteers'); setSelectedVolunteer(v)
-    setEditForm({
-      full_name: v.full_name||'', email: v.email||'', phone: v.phone||'',
-      affiliation: v.affiliation||'', credentials: v.credentials||'',
-      languages: v.languages||'', role: v.role||'volunteer',
-      sma_name: v.sma_name||'', sma_contact: v.sma_contact||'',
-      school: v.school||'', default_role: v.default_role||'', birthday: v.birthday||'',
-      advisor_name: v.advisor_name||'', advisor_contact: v.advisor_contact||'',
-      intern_school: v.intern_school||'', intern_department: v.intern_department||'',
-      license_exp: v.license_exp||'', bls_exp: v.bls_exp||'',
-      dea_exp: v.dea_exp||'', ftca_exp: v.ftca_exp||'', tb_exp: v.tb_exp||'',
-    })
-    setStatusForm({ status: v.status || 'active', status_reason: v.status_reason || '' }); setEditing(false)
-    setShowRecentShifts(false); setShowScheduledShifts(false); setRecentShifts([]); setScheduledShifts([])
-  }
-
-  function handleToggleRecentShifts(volunteerId) {
-    if (!showRecentShifts) { setShowRecentShifts(true); loadRecentShiftsForVolunteer(volunteerId) } else { setShowRecentShifts(false) }
-  }
-  function handleToggleScheduledShifts(volunteerId) {
-    if (!showScheduledShifts) { setShowScheduledShifts(true); loadScheduledShiftsForVolunteer(volunteerId) } else { setShowScheduledShifts(false) }
-  }
-
   async function handleStatusChange(newStatus, reason) {
     setChangingStatus(true)
     const volunteerId = selectedVolunteer.id
@@ -478,80 +669,55 @@ export default function AdminPage() {
     const { error } = await supabase.from('profiles').update({ status: newStatus, status_reason: isDeactivating ? (reason || null) : null, status_changed_at: new Date().toISOString() }).eq('id', volunteerId)
     if (error) { showMessage(error.message, 'error'); setChangingStatus(false); return }
     if (isDeactivating) {
-      try { await removeVolunteerFromSchedule(volunteerId) } catch (err) { showMessage(err.message, 'error'); setChangingStatus(false); return }
+      const { error: se } = await supabase.from('schedule').delete().eq('volunteer_id', volunteerId)
+      if (se) { showMessage(se.message, 'error'); setChangingStatus(false); return }
     }
-    const { data: fresh } = await supabase.from('profiles').select('*, shifts(*)').eq('id', volunteerId).single()
+    const { data: fresh } = await supabase.from('profiles').select('id, full_name, email, phone, role, affiliation, status, status_reason, credentials, languages, default_role, school, major, sma_name, sma_contact, advisor_name, advisor_contact, intern_school, intern_department, license_exp, bls_exp, dea_exp, ftca_exp, tb_exp, birthday').eq('id', volunteerId).single()
     await audit(isDeactivating ? 'deactivated_volunteer' : 'reactivated_volunteer', 'volunteer', volunteerId, selectedVolunteer.full_name, reason || null)
     showMessage(isDeactivating ? 'Volunteer deactivated and removed from schedule.' : 'Volunteer reactivated!', 'success')
     setSelectedVolunteer(fresh); await loadVolunteers(); setChangingStatus(false)
   }
-
-  async function removeVolunteerFromSchedule(volunteerId) {
-    const { error } = await supabase.from('schedule').delete().eq('volunteer_id', volunteerId)
-    if (error) throw error
-  }
-
   async function handleSaveEdit() {
     setSaving(true)
     const isProvider = editForm.affiliation === 'provider'
     const isIntern   = editForm.affiliation === 'intern'
     const isMission  = editForm.affiliation === 'missionary'
     const isStudent  = editForm.affiliation === 'student'
-
     const { error } = await supabase.from('profiles').update({
-      full_name:    editForm.full_name,
-      phone:        editForm.phone,
-      affiliation:  editForm.affiliation || null,
-      credentials:  editForm.credentials || null,
-      languages:    editForm.languages,
-      role:         editForm.role,
-      sma_name:     isMission ? (editForm.sma_name||null) : null,
-      sma_contact:  isMission ? (editForm.sma_contact||null) : null,
-      school:       isStudent  ? (editForm.school||null) : null,
-      major:        isStudent  ? (editForm.major||null) : null,
-      advisor_name:    isIntern ? (editForm.advisor_name||null) : null,
-      advisor_contact: isIntern ? (editForm.advisor_contact||null) : null,
-      intern_school:      isIntern ? (editForm.intern_school||null) : null,
-      intern_department:  isIntern ? (editForm.intern_department||null) : null,
-      license_exp:  isProvider ? (editForm.license_exp||null) : null,
-      bls_exp:      isProvider ? (editForm.bls_exp||null) : null,
-      dea_exp:      isProvider ? (editForm.dea_exp||null) : null,
-      ftca_exp:     isProvider ? (editForm.ftca_exp||null) : null,
-      tb_exp:       isProvider ? (editForm.tb_exp||null) : null,
-      default_role: editForm.default_role || null,
-      birthday:     editForm.birthday || null,
+      full_name: editForm.full_name, phone: editForm.phone, affiliation: editForm.affiliation || null,
+      credentials: editForm.credentials || null, languages: editForm.languages, role: editForm.role,
+      sma_name: isMission ? (editForm.sma_name||null) : null, sma_contact: isMission ? (editForm.sma_contact||null) : null,
+      school: isStudent ? (editForm.school||null) : null, major: isStudent ? (editForm.major||null) : null,
+      advisor_name: isIntern ? (editForm.advisor_name||null) : null, advisor_contact: isIntern ? (editForm.advisor_contact||null) : null,
+      intern_school: isIntern ? (editForm.intern_school||null) : null, intern_department: isIntern ? (editForm.intern_department||null) : null,
+      license_exp: isProvider ? (editForm.license_exp||null) : null, bls_exp: isProvider ? (editForm.bls_exp||null) : null,
+      dea_exp: isProvider ? (editForm.dea_exp||null) : null, ftca_exp: isProvider ? (editForm.ftca_exp||null) : null,
+      tb_exp: isProvider ? (editForm.tb_exp||null) : null,
+      default_role: editForm.default_role || null, birthday: editForm.birthday || null,
     }).eq('id', selectedVolunteer.id)
     if (error) { showMessage(error.message, 'error'); setSaving(false); return }
-    const { data: fresh } = await supabase.from('profiles').select('*, shifts(*)').eq('id', selectedVolunteer.id).single()
-    showMessage('Profile updated!', 'success'); await audit('edited_volunteer', 'volunteer', selectedVolunteer.id, selectedVolunteer.full_name)
+    const { data: fresh } = await supabase.from('profiles').select('id, full_name, email, phone, role, affiliation, status, status_reason, credentials, languages, default_role, school, major, sma_name, sma_contact, advisor_name, advisor_contact, intern_school, intern_department, license_exp, bls_exp, dea_exp, ftca_exp, tb_exp, birthday').eq('id', selectedVolunteer.id).single()
+    showMessage('Profile updated!', 'success')
+    await audit('edited_volunteer', 'volunteer', selectedVolunteer.id, selectedVolunteer.full_name)
     setEditing(false); setSelectedVolunteer(fresh); await loadVolunteers(); setSaving(false)
   }
-
   async function handleCreateVolunteer(e) {
     e.preventDefault(); setCreating(true)
-    const isProvider = newAffiliation === 'provider'
-    const isIntern   = newAffiliation === 'intern'
-    const isMission  = newAffiliation === 'missionary'
-    const isStudent  = newAffiliation === 'student'
+    const isProvider = newAffiliation === 'provider'; const isIntern = newAffiliation === 'intern'
+    const isMission  = newAffiliation === 'missionary'; const isStudent = newAffiliation === 'student'
     const { data, error } = await supabase.auth.signUp({ email: newEmail, password: newPassword })
     if (error) { showMessage(error.message, 'error'); setCreating(false); return }
     const { error: pe } = await supabase.from('profiles').insert({
       id: data.user.id, full_name: newName, email: newEmail, role: newRole,
       affiliation: newAffiliation||null, credentials: newCredentials || null,
       phone: newPhone||null, languages: newLanguages||null,
-      sma_name:    isMission ? (newSmaName||null) : null,
-      sma_contact: isMission ? (newSmaContact||null) : null,
-      school:      isStudent  ? (newSchool||null) : null,
-      major:       isStudent  ? (newMajor||null) : null,
-      advisor_name:    isIntern ? (newAdvisorName||null) : null,
-      advisor_contact: isIntern ? (newAdvisorContact||null) : null,
-      intern_school:      isIntern ? (newInternSchool||null) : null,
-      intern_department:  isIntern ? (newInternDepartment||null) : null,
-      license_exp:  isProvider ? (newProviderCreds.license_exp||null) : null,
-      bls_exp:      isProvider ? (newProviderCreds.bls_exp||null) : null,
-      dea_exp:      isProvider ? (newProviderCreds.dea_exp||null) : null,
-      ftca_exp:     isProvider ? (newProviderCreds.ftca_exp||null) : null,
-      tb_exp:       isProvider ? (newProviderCreds.tb_exp||null) : null,
+      sma_name: isMission ? (newSmaName||null) : null, sma_contact: isMission ? (newSmaContact||null) : null,
+      school: isStudent ? (newSchool||null) : null, major: isStudent ? (newMajor||null) : null,
+      advisor_name: isIntern ? (newAdvisorName||null) : null, advisor_contact: isIntern ? (newAdvisorContact||null) : null,
+      intern_school: isIntern ? (newInternSchool||null) : null, intern_department: isIntern ? (newInternDepartment||null) : null,
+      license_exp: isProvider ? (newProviderCreds.license_exp||null) : null, bls_exp: isProvider ? (newProviderCreds.bls_exp||null) : null,
+      dea_exp: isProvider ? (newProviderCreds.dea_exp||null) : null, ftca_exp: isProvider ? (newProviderCreds.ftca_exp||null) : null,
+      tb_exp: isProvider ? (newProviderCreds.tb_exp||null) : null,
       birthday: newBirthday || null, default_role: newDefaultRole || null,
     })
     if (pe) showMessage(pe.message, 'error')
@@ -570,39 +736,8 @@ export default function AdminPage() {
     setCreating(false)
   }
 
-  function totalHours(shifts) { return shifts?.reduce((acc, s) => { if (!s.clock_out) return acc; return acc + (asUTC(s.clock_out) - asUTC(s.clock_in)) / 3600000 }, 0).toFixed(1) || '0.0' }
-  function calcShiftHours(clock_in, clock_out) { if (!clock_out) return null; return ((asUTC(clock_out) - asUTC(clock_in)) / 3600000).toFixed(1) }
-  function showMessage(text, type) { setToast({ text, type }); setTimeout(() => setToast(null), 3500) }
-
-  function getEntries(day, shift, role) {
-    if (!scheduleDate) return schedule.filter(s => s.day_of_week === day && s.shift_time === shift && s.role === role)
-    const d = new Date(scheduleDate + 'T12:00:00'); let count = 0; const target = d.getDay()
-    const check = new Date(d.getFullYear(), d.getMonth(), 1)
-    while (check <= d) { if (check.getDay() === target) count++; check.setDate(check.getDate() + 1) }
-    return schedule.filter(s => {
-      if (s.day_of_week !== day || s.shift_time !== shift || s.role !== role) return false
-      if (s.start_date && s.start_date > scheduleDate) return false
-      if (s.end_date   && s.end_date   < scheduleDate) return false
-      if (s.week_pattern === 'odd'  && count % 2 !== 1) return false
-      if (s.week_pattern === 'even' && count % 2 !== 0) return false
-      return true
-    })
-  }
-
-  const DAY_ORDER = { monday: 0, tuesday: 1, wednesday: 2, thursday: 3, friday: 4, saturday: 5, sunday: 6 }
-
-  if (loading) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}><p style={{ color: 'var(--muted)' }}>Loading...</p></div>
-
-  const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }
-  const inputStyle = { width: '100%', padding: '0.75rem 1rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '0.95rem', outline: 'none', fontFamily: 'DM Sans, sans-serif' }
-  const labelStyle = { display: 'block', fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
-  const affiliationColor = { missionary: '#818cf8', intern: '#150d5a', student: '#38bdf8', volunteer: '#02416B', provider: '#7dd3fc' }
-  const badgeStyle = (color) => ({ display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: '100px', fontSize: '0.75rem', fontWeight: 500, background: color + '22', color: color, border: `1px solid ${color}55` })
-  const pillBtn = (active, mono) => ({ padding: '0.45rem 0.85rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: mono ? 'DM Mono, monospace' : 'DM Sans, sans-serif', background: active ? (mono ? '#1e40af' : 'var(--accent)') : 'var(--surface)', color: active ? (mono ? '#bfdbfe' : '#0a0f0a') : 'var(--muted)', border: active ? 'none' : '1px solid var(--border)' })
-
-  const tzLabel = getMountainLabel()
+  // ─── Derived / filtered lists ───────────────────────────────────────────
   const adminList = volunteers.filter(v => v.role === 'admin')
-  const dayShiftCombos = DAYS.flatMap(d => SHIFTS.map(s => ({ day: d, shift: s, label: `${d.charAt(0).toUpperCase() + d.slice(1,3)} ${s}` })))
   const filteredShifts = shiftFilterVolId ? allShifts.filter(s => s.volunteer_id === shiftFilterVolId) : allShifts
 
   const userList = volunteers
@@ -611,11 +746,7 @@ export default function AdminPage() {
       if (filterSearch) { const q = filterSearch.toLowerCase(); if (!(v.full_name || '').toLowerCase().includes(q) && !(v.email || '').toLowerCase().includes(q)) return false }
       if (filterRole !== 'all' && v.role !== filterRole) return false
       if (filterAffiliation !== 'all') {
-        if (filterAffiliation === 'missionary' && v.affiliation !== 'missionary') return false
-        if (filterAffiliation === 'student' && v.affiliation !== 'student') return false
-        if (filterAffiliation === 'volunteer' && v.affiliation !== 'volunteer') return false
-        if (filterAffiliation === 'intern' && v.affiliation !== 'intern') return false
-        if (filterAffiliation === 'provider' && v.affiliation !== 'provider') return false
+        if (['missionary','student','volunteer','intern','provider'].includes(filterAffiliation) && v.affiliation !== filterAffiliation) return false
         if (filterAffiliation === 'BYU' && v.school !== 'BYU') return false
         if (filterAffiliation === 'UVU' && v.school !== 'UVU') return false
       }
@@ -624,59 +755,13 @@ export default function AdminPage() {
     })
     .sort((a, b) => { const ln = n => (n?.full_name?.split(' ').slice(-1)[0] || '').toLowerCase(); return ln(a).localeCompare(ln(b)) })
 
-  function ExpandableSection({ label, isOpen, onToggle, loading: isLoading, children, count }) {
-    return (
-      <div style={{ borderRadius: '10px', border: `1px solid ${isOpen ? 'var(--accent)' : 'var(--border)'}`, overflow: 'hidden', transition: 'border-color 0.15s' }}>
-        <button onClick={onToggle} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: isOpen ? 'rgba(2,65,107,0.05)' : 'var(--bg)', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', color: isOpen ? 'var(--accent)' : 'var(--text)', transition: 'background 0.15s' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <span style={{ display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', fontSize: '0.85rem', color: 'var(--muted)' }}>›</span>
-            <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{label}</span>
-            {count !== undefined && count !== null && (<span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: isOpen ? 'rgba(2,65,107,0.15)' : 'var(--surface)', color: isOpen ? 'var(--accent)' : 'var(--muted)', border: '1px solid var(--border)', fontFamily: 'DM Mono, monospace' }}>{count}</span>)}
-          </div>
-          {isLoading && <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>Loading...</span>}
-        </button>
-        {isOpen && (<div style={{ padding: '0 1rem 1rem', background: 'var(--bg)', borderTop: '1px solid var(--border)' }}><div style={{ paddingTop: '0.75rem' }}>{children}</div></div>)}
-      </div>
-    )
-  }
+  if (loading) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
+      <p style={{ color: 'var(--muted)' }}>Loading...</p>
+    </div>
+  )
 
-  // ── Inline provider credential grid for the detail view ──────────────────
-  function ProviderCredentialsView({ vol }) {
-    const fields = PROVIDER_CRED_FIELDS.map(f => ({ ...f, value: vol[f.key] || null, status: credentialStatus(vol[f.key]) }))
-    return (
-      <div style={{ padding: '1rem 1.25rem', borderRadius: '10px', border: '1px solid rgba(125,211,252,0.35)', background: 'rgba(125,211,252,0.04)', gridColumn: '1 / -1' }}>
-        <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>Provider Credentials</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.6rem' }}>
-          {fields.map(f => {
-            const isNA       = f.status === 'na'
-            const isMissing  = f.status === 'missing'
-            const isExpired  = f.status === 'expired'
-            const isExpiring = f.status === 'expiring'
-            const borderColor = (isMissing || isExpired) ? 'rgba(239,68,68,0.4)' : isExpiring ? 'rgba(251,146,60,0.45)' : isNA ? 'rgba(156,163,175,0.35)' : 'rgba(2,65,107,0.3)'
-            const bgColor     = (isMissing || isExpired) ? 'rgba(239,68,68,0.06)' : isExpiring ? 'rgba(251,146,60,0.06)' : isNA ? 'rgba(156,163,175,0.06)' : 'rgba(2,65,107,0.05)'
-            const textColor   = (isMissing || isExpired) ? '#ef4444' : isExpiring ? '#f97316' : isNA ? 'var(--muted)' : 'var(--text)'
-            return (
-              <div key={f.key} style={{ padding: '0.6rem 0.75rem', borderRadius: '8px', border: `1px solid ${borderColor}`, background: bgColor }}>
-                <p style={{ fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>{f.label}</p>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.35rem' }}>
-                  <p style={{ fontFamily: (isMissing || isNA) ? 'DM Sans, sans-serif' : 'DM Mono, monospace', fontSize: '0.82rem', fontWeight: (isMissing || isNA) ? 400 : 600, color: textColor, fontStyle: (isMissing || isNA) ? 'italic' : 'normal' }}>
-                    {isMissing ? 'Not set' : formatExpDate(f.value)}
-                  </p>
-                  <span style={{ fontSize: '0.8rem', fontWeight: 700, color: (isMissing || isExpired) ? '#ef4444' : isExpiring ? '#f97316' : isNA ? 'var(--muted)' : '#22c55e', flexShrink: 0 }}>
-                    {(isMissing || isExpired) ? '✗' : isExpiring ? '!' : isNA ? '—' : '✓'}
-                  </span>
-                </div>
-                {isExpired  && <p style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 700, marginTop: '0.15rem' }}>EXPIRED</p>}
-                {isExpiring && <p style={{ fontSize: '0.65rem', color: '#f97316', fontWeight: 700, marginTop: '0.15rem' }}>EXP. SOON</p>}
-                {isNA       && <p style={{ fontSize: '0.65rem', color: 'var(--muted)', fontWeight: 600, marginTop: '0.15rem' }}>NOT APPLICABLE</p>}
-              </div>
-            )
-          })}
-        </div>
-      </div>
-    )
-  }
-
+  // ─── Render ─────────────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
       <div style={{ maxWidth: '960px', margin: '0 auto' }}>
@@ -687,12 +772,10 @@ export default function AdminPage() {
             <h1 style={{ fontSize: '1.4rem', fontWeight: 600, letterSpacing: '-0.02em' }}>Admin Dashboard</h1>
             <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Bingham Family Clinic &nbsp;·&nbsp;<span style={{ fontFamily: 'DM Mono, monospace' }}>{currentTime.toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit' })} {tzLabel}</span></p>
           </div>
-          {profile?.role === 'admin' && (
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <button onClick={() => { window.location.href = '/volunteer' }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>Volunteer View</button>
-              <button onClick={async () => { await supabase.auth.signOut(); window.location.href = '/' }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>Sign out</button>
-            </div>
-          )}
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <button onClick={() => { window.location.href = '/volunteer' }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>Volunteer View</button>
+            <button onClick={async () => { await supabase.auth.signOut(); window.location.href = '/' }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>Sign out</button>
+          </div>
         </div>
 
         {/* Stats */}
@@ -711,19 +794,25 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-          {[['dashboard','Live'],['schedule','Schedule'],['volunteers','Volunteers'],['shifts','Shifts'],['callouts','Call-Outs'],['hours','Hours'],['audit','Recent Activity'],['create','Add Volunteer'],['data','Data']].map(([key, label]) => (
-            <button key={key} onClick={() => {
-              setTab(key); setSelectedVolunteer(null); setAddingRole(null)
-              if (key === 'shifts' && allShifts.length === 0) loadAllShifts()
-              if (key === 'hours') loadHoursSubmissions()
-              if (key === 'audit') loadAuditLogs()
-            }} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: tab === key ? 'var(--accent)' : 'var(--surface)', color: tab === key ? '#fff' : 'var(--muted)', border: tab === key ? 'none' : '1px solid var(--border)' }}>
+          {[
+            ['dashboard', 'Live'],
+            ['schedule', 'Scheduling'],
+            ['volunteers', 'Volunteers'],
+            ['pipeline', 'Pipeline'],
+            ['shifts', 'Shifts'],
+            ['callouts', 'Call-Outs'],
+            ['hours', 'Hours'],
+            ['audit', 'Recent Activity'],
+            ['create', 'Add Volunteer'],
+            ['data', 'Data'],
+          ].map(([key, label]) => (
+            <button key={key} onClick={() => switchTab(key)} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: tab === key ? 'var(--accent)' : 'var(--surface)', color: tab === key ? '#fff' : 'var(--muted)', border: tab === key ? 'none' : '1px solid var(--border)' }}>
               {label}
             </button>
           ))}
         </div>
 
-        {/* ─────────────────────────── LIVE TAB ─────────────────────────── */}
+        {/* ── LIVE TAB ── */}
         {tab === 'dashboard' && (() => {
           const todayMtnStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
           const mtnNow = getMountainNow(); const dayIndex = mtnNow.getDay(); const isWeekday = dayIndex >= 1 && dayIndex <= 5
@@ -743,14 +832,32 @@ export default function AdminPage() {
               {isWeekday && currentShift && (
                 <div style={{ ...card, borderColor: expectedVols.length > 0 ? 'var(--danger)' : 'rgba(2,65,107,0.4)', background: expectedVols.length > 0 ? 'rgba(239,68,68,0.03)' : 'rgba(2,65,107,0.03)' }}>
                   <h2 style={{ fontWeight: 600, marginBottom: expectedVols.length > 0 ? '1rem' : 0, fontSize: '1rem' }}>{expectedVols.length > 0 ? `${expectedVols.length} volunteer${expectedVols.length !== 1 ? 's' : ''} not yet clocked in — ${currentDay} ${currentShift}` : `All expected volunteers clocked in — ${currentDay} ${currentShift}`}</h2>
-                  {expectedVols.length > 0 && <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>{expectedVols.map(v => (<div key={v.id} onClick={() => openVolunteer(v)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'rgba(239,68,68,0.06)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer' }} onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'} onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(239,68,68,0.2)'}><span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{v.full_name}</span>{v.notes && <span style={{ fontSize: '0.78rem', color: '#60a5fa', fontStyle: 'italic' }}>({v.notes})</span>}<span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{v.role}</span></div>))}</div>}
+                  {expectedVols.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {expectedVols.map(v => (
+                        <div key={v.id} onClick={() => openVolunteer(v)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'rgba(239,68,68,0.06)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer' }} onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'} onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(239,68,68,0.2)'}>
+                          <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{v.full_name}</span>
+                          {v.notes && <span style={{ fontSize: '0.78rem', color: '#60a5fa', fontStyle: 'italic' }}>({v.notes})</span>}
+                          <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{v.role}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
               <div style={card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Currently Clocked In</h2>
                 {activeShifts.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No one is currently clocked in.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {activeShifts.map(s => (<div key={s.id} onClick={() => { const full = volunteers.find(v => v.id === s.profiles?.id); if (full) openVolunteer(full) }} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(2,65,107,0.05)', borderRadius: '8px', border: '1px solid var(--accent)', cursor: 'pointer' }} onMouseEnter={e => e.currentTarget.style.opacity = '0.85'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}><div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}><div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 6px var(--accent)' }} /><span style={{ fontWeight: 500 }}>{s.profiles?.full_name}</span></div><span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Since {formatMountain(s.clock_in)}</span></div>))}
+                    {activeShifts.map(s => (
+                      <div key={s.id} onClick={() => { const full = volunteers.find(v => v.id === s.profiles?.id); if (full) openVolunteer(full) }} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(2,65,107,0.05)', borderRadius: '8px', border: '1px solid var(--accent)', cursor: 'pointer' }} onMouseEnter={e => e.currentTarget.style.opacity = '0.85'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 6px var(--accent)' }} />
+                          <span style={{ fontWeight: 500 }}>{s.profiles?.full_name}</span>
+                        </div>
+                        <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Since {formatMountain(s.clock_in)}</span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -759,9 +866,25 @@ export default function AdminPage() {
                 const todaysCallouts = callouts.filter(c => c.callout_date === todayMtn && c.status !== 'denied')
                 return todaysCallouts.length > 0 && (
                   <div style={card}>
-                    <h2 style={{ fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><span>Today's Call-Outs</span><span style={{ padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>{todaysCallouts.length}</span></h2>
+                    <h2 style={{ fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span>Today's Call-Outs</span>
+                      <span style={{ padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>{todaysCallouts.length}</span>
+                    </h2>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {todaysCallouts.map(c => { const isCovered = c.status === 'approved' && c.covered_by; const isOpen = c.status === 'approved' && !c.covered_by; return (<div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: isCovered ? 'rgba(2,65,107,0.04)' : isOpen ? 'rgba(239,68,68,0.04)' : 'rgba(96,165,250,0.05)', borderRadius: '8px', border: `1px solid ${isCovered ? 'rgba(2,65,107,0.25)' : isOpen ? 'rgba(239,68,68,0.25)' : 'rgba(96,165,250,0.3)'}`, flexWrap: 'wrap', gap: '0.5rem' }}><div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}><span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{c.profiles?.full_name}</span>{c.shift_time && <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(96,165,250,0.3)' }}>{c.day_of_week ? c.day_of_week.charAt(0).toUpperCase() + c.day_of_week.slice(1,3) + ' ' : ''}{c.shift_time}</span>}<span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', fontWeight: 600, background: isCovered ? 'rgba(2,65,107,0.1)' : isOpen ? 'rgba(239,68,68,0.08)' : 'rgba(96,165,250,0.1)', color: isCovered ? 'var(--accent)' : isOpen ? '#ef4444' : '#60a5fa', border: `1px solid ${isCovered ? 'rgba(2,65,107,0.3)' : isOpen ? 'rgba(239,68,68,0.25)' : 'rgba(96,165,250,0.3)'}` }}>{isCovered ? 'covered' : isOpen ? 'open' : 'pending'}</span>{c.reason && <span style={{ fontSize: '0.82rem', color: 'var(--muted)', fontStyle: 'italic' }}>{c.reason}</span>}</div></div>) })}
+                      {todaysCallouts.map(c => {
+                        const isCovered = c.status === 'approved' && c.covered_by
+                        const isOpen = c.status === 'approved' && !c.covered_by
+                        return (
+                          <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: isCovered ? 'rgba(2,65,107,0.04)' : isOpen ? 'rgba(239,68,68,0.04)' : 'rgba(96,165,250,0.05)', borderRadius: '8px', border: `1px solid ${isCovered ? 'rgba(2,65,107,0.25)' : isOpen ? 'rgba(239,68,68,0.25)' : 'rgba(96,165,250,0.3)'}`, flexWrap: 'wrap', gap: '0.5rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{c.profiles?.full_name}</span>
+                              {c.shift_time && <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(96,165,250,0.3)' }}>{c.day_of_week ? c.day_of_week.charAt(0).toUpperCase() + c.day_of_week.slice(1,3) + ' ' : ''}{c.shift_time}</span>}
+                              <span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', fontWeight: 600, background: isCovered ? 'rgba(2,65,107,0.1)' : isOpen ? 'rgba(239,68,68,0.08)' : 'rgba(96,165,250,0.1)', color: isCovered ? 'var(--accent)' : isOpen ? '#ef4444' : '#60a5fa', border: `1px solid ${isCovered ? 'rgba(2,65,107,0.3)' : isOpen ? 'rgba(239,68,68,0.25)' : 'rgba(96,165,250,0.3)'}` }}>{isCovered ? 'covered' : isOpen ? 'open' : 'pending'}</span>
+                              {c.reason && <span style={{ fontSize: '0.82rem', color: 'var(--muted)', fontStyle: 'italic' }}>{c.reason}</span>}
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 )
@@ -770,7 +893,7 @@ export default function AdminPage() {
           )
         })()}
 
-        {/* ─────────────────────────── SCHEDULE TAB ─────────────────────────── */}
+        {/* ── SCHEDULE TAB ── */}
         {tab === 'schedule' && (
           <div>
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -784,78 +907,71 @@ export default function AdminPage() {
                   <button key={sh} onClick={() => { setScheduleShift(sh); setAddingRole(null); setScheduleDate(''); setDateCoverShifts([]) }} style={pillBtn(scheduleShift === sh, true)}>{sh}</button>
                 ))}
               </div>
-              <button
-                onClick={() => setShowClinicOpenings(o => !o)}
-                style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showClinicOpenings ? 'rgba(251,191,36,0.15)' : 'var(--surface)', color: showClinicOpenings ? '#eab308' : 'var(--muted)', border: showClinicOpenings ? '1px solid rgba(251,191,36,0.45)' : '1px solid var(--border)', transition: 'all 0.15s' }}
-              >
-                <span style={{ fontSize: '0.85rem' }}></span> Clinic Openings
-              </button>
+              <button onClick={() => { setShowWaitlist(o => !o); setShowClinicOpenings(false) }} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showWaitlist ? 'rgba(59,130,246,0.15)' : 'var(--surface)', color: showWaitlist ? '#3b82f6' : 'var(--muted)', border: showWaitlist ? '1px solid rgba(59,130,246,0.45)' : '1px solid var(--border)', transition: 'all 0.15s' }}>Waitlist</button>
+              <button onClick={() => { setShowClinicOpenings(o => !o); setShowWaitlist(false) }} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showClinicOpenings ? 'rgba(251,191,36,0.15)' : 'var(--surface)', color: showClinicOpenings ? '#eab308' : 'var(--muted)', border: showClinicOpenings ? '1px solid rgba(251,191,36,0.45)' : '1px solid var(--border)', transition: 'all 0.15s' }}><span style={{ fontSize: '0.85rem' }}></span> Clinic Openings</button>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: 'auto' }}>
                 <label style={{ ...labelStyle, margin: 0, whiteSpace: 'nowrap' }}>View date:</label>
                 <input type="date" value={scheduleDate} onChange={e => { const val = e.target.value; setScheduleDate(val); if (val) { loadDateCoverShifts(val); const d = new Date(val + 'T12:00:00'); const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][d.getDay()]; if (dayName !== 'sunday' && dayName !== 'saturday') setScheduleDay(dayName) } else { setDateCoverShifts([]) } }} style={{ ...inputStyle, width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.85rem' }} />
               </div>
             </div>
-
-            {showClinicOpenings && (
-              <div style={{ marginBottom: '1.25rem' }}>
-                <ClinicOpenings onClose={() => setShowClinicOpenings(false)} />
+            {showWaitlist && <div style={{ marginBottom: '1.25rem' }}><Waitlist supabase={supabase} profile={profile} /></div>}
+            {showClinicOpenings && <div style={{ marginBottom: '1.25rem' }}><ClinicOpenings onClose={() => setShowClinicOpenings(false)} /></div>}
+            {!showClinicOpenings && !showWaitlist && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {ROLES.map(role => {
+                  const entries = getEntries(scheduleDay, scheduleShift, role)
+                  const isOpen = addingRole === role
+                  return (
+                    <div key={role} style={{ ...card, padding: '1rem 1.25rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: entries.length > 0 || isOpen ? '0.75rem' : 0 }}>
+                        <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{role}{ROLE_SUGGESTIONS[role] ? ` — ${ROLE_SUGGESTIONS[role]}` : ''}</span>
+                        <button onClick={() => { setAddingRole(isOpen ? null : role); setAddVolId('') }} style={{ padding: '0.3rem 0.75rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: isOpen ? 'var(--surface)' : 'rgba(2,65,107,0.12)', color: isOpen ? 'var(--muted)' : 'var(--accent)', border: `1px solid ${isOpen ? 'var(--border)' : 'var(--accent)'}` }}>{isOpen ? 'Cancel' : '+ Assign'}</button>
+                      </div>
+                      {entries.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: isOpen ? '0.75rem' : 0 }}>
+                          {entries.map(entry => {
+                            const approvedCallout = callouts.find(c => c.volunteer_id === entry.volunteer_id && c.callout_date === scheduleDate && c.shift_time === scheduleShift && c.status === 'approved')
+                            const coverShift = approvedCallout && dateCoverShifts.find(s => s.volunteer_id === approvedCallout.covered_by)
+                            const coverName = coverShift ? coverShift.profiles?.full_name : null
+                            return (
+                              <div key={entry.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0.6rem 0.3rem 0.75rem', borderRadius: '100px', fontSize: '0.85rem', background: approvedCallout ? 'rgba(96,165,250,0.08)' : 'rgba(2,65,107,0.08)', border: `1px solid ${approvedCallout ? 'rgba(96,165,250,0.4)' : 'rgba(2,65,107,0.35)'}`, color: approvedCallout ? 'var(--warn)' : 'var(--text)' }}>
+                                  {approvedCallout && <span style={{ fontSize: '0.7rem' }}>out</span>}
+                                  <span style={{ textDecoration: approvedCallout ? 'line-through' : 'none', opacity: approvedCallout ? 0.6 : 1 }}>{entry.profiles?.full_name}</span>
+                                  {entry.notes && <span style={{ fontSize: '0.65rem', color: 'var(--muted)', fontStyle: 'italic' }}>({entry.notes})</span>}
+                                  {(entry.start_date || entry.end_date) && <span style={{ fontSize: '0.65rem', color: 'var(--muted)', fontStyle: 'italic' }}>({entry.start_date ?? '...'} → {entry.end_date ?? '...'})</span>}
+                                  {entry.week_pattern && entry.week_pattern !== 'every' && <span style={{ fontSize: '0.65rem', background: 'rgba(96,165,250,0.15)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>{entry.week_pattern === 'odd' ? '1st&3rd' : '2nd&4th'}</span>}
+                                  <button onClick={() => handleRemoveEntry(entry.id)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 2px' }}>✕</button>
+                                </div>
+                                {coverName && <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.25rem 0.6rem 0.25rem 0.75rem', borderRadius: '100px', fontSize: '0.82rem', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.35)', color: '#60a5fa', marginLeft: '0.5rem' }}><span style={{ fontSize: '0.7rem' }}>cover</span><span>{coverName}</span></div>}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                      {isOpen && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                          <select value={addVolId} onChange={e => setAddVolId(e.target.value)} style={inputStyle}><option value="">— Select volunteer —</option>{userList.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}</select>
+                          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            {[{ value: 'every', label: 'Every week' }, { value: 'odd', label: '1st & 3rd' }, { value: 'even', label: '2nd & 4th' }].map(opt => (<button key={opt.value} type="button" onClick={() => setAddWeekPattern(opt.value)} style={{ ...pillBtn(addWeekPattern === opt.value, false), fontSize: '0.78rem', padding: '0.3rem 0.75rem' }}>{opt.label}</button>))}
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                            <div><label style={labelStyle}>Start date <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional)</span></label><input type="date" value={addStartDate} onChange={e => setAddStartDate(e.target.value)} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} /></div>
+                            <div><label style={labelStyle}>End date <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional)</span></label><input type="date" value={addEndDate} onChange={e => setAddEndDate(e.target.value)} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} /></div>
+                          </div>
+                          <div><label style={labelStyle}>Schedule note <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional)</span></label><input type="text" value={addNotes} onChange={e => setAddNotes(e.target.value)} placeholder="e.g. arriving late" style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} /></div>
+                          <button onClick={handleAddEntry} disabled={!addVolId || addingEntry} style={{ padding: '0.75rem 1.25rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{addingEntry ? '...' : 'Assign'}</button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {ROLES.map(role => {
-                const entries = getEntries(scheduleDay, scheduleShift, role)
-                const isOpen = addingRole === role
-                return (
-                  <div key={role} style={{ ...card, padding: '1rem 1.25rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: entries.length > 0 || isOpen ? '0.75rem' : 0 }}>
-                      <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{role}{ROLE_SUGGESTIONS[role] ? ` — ${ROLE_SUGGESTIONS[role]}` : ''}</span>
-                      <button onClick={() => { setAddingRole(isOpen ? null : role); setAddVolId('') }} style={{ padding: '0.3rem 0.75rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: isOpen ? 'var(--surface)' : 'rgba(2,65,107,0.12)', color: isOpen ? 'var(--muted)' : 'var(--accent)', border: `1px solid ${isOpen ? 'var(--border)' : 'var(--accent)'}` }}>{isOpen ? 'Cancel' : '+ Assign'}</button>
-                    </div>
-                    {entries.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: isOpen ? '0.75rem' : 0 }}>
-                        {entries.map(entry => {
-                          const approvedCallout = callouts.find(c => c.volunteer_id === entry.volunteer_id && c.callout_date === scheduleDate && c.shift_time === scheduleShift && c.status === 'approved')
-                          const coverShift = approvedCallout && dateCoverShifts.find(s => s.volunteer_id === approvedCallout.covered_by)
-                          const coverName = coverShift ? coverShift.profiles?.full_name : null
-                          return (
-                            <div key={entry.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0.6rem 0.3rem 0.75rem', borderRadius: '100px', fontSize: '0.85rem', background: approvedCallout ? 'rgba(96,165,250,0.08)' : 'rgba(2,65,107,0.08)', border: `1px solid ${approvedCallout ? 'rgba(96,165,250,0.4)' : 'rgba(2,65,107,0.35)'}`, color: approvedCallout ? 'var(--warn)' : 'var(--text)' }}>
-                                {approvedCallout && <span style={{ fontSize: '0.7rem' }}>out</span>}
-                                <span style={{ textDecoration: approvedCallout ? 'line-through' : 'none', opacity: approvedCallout ? 0.6 : 1 }}>{entry.profiles?.full_name}</span>
-                                {entry.notes && <span style={{ fontSize: '0.65rem', color: 'var(--muted)', fontStyle: 'italic' }}>({entry.notes})</span>}
-                                {(entry.start_date || entry.end_date) && (<span style={{ fontSize: '0.65rem', color: 'var(--muted)', fontStyle: 'italic' }}>({entry.start_date ?? '...'} → {entry.end_date ?? '...'})</span>)}
-                                {entry.week_pattern && entry.week_pattern !== 'every' && (<span style={{ fontSize: '0.65rem', background: 'rgba(96,165,250,0.15)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>{entry.week_pattern === 'odd' ? '1st&3rd' : '2nd&4th'}</span>)}
-                                <button onClick={() => handleRemoveEntry(entry.id)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 2px' }}>✕</button>
-                              </div>
-                              {coverName && (<div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.25rem 0.6rem 0.25rem 0.75rem', borderRadius: '100px', fontSize: '0.82rem', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.35)', color: '#60a5fa', marginLeft: '0.5rem' }}><span style={{ fontSize: '0.7rem' }}>cover</span><span>{coverName}</span></div>)}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
-                    {isOpen && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        <select value={addVolId} onChange={e => setAddVolId(e.target.value)} style={inputStyle}><option value="">— Select volunteer —</option>{userList.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}</select>
-                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                          {[{ value: 'every', label: 'Every week' }, { value: 'odd', label: '1st & 3rd' }, { value: 'even', label: '2nd & 4th' }].map(opt => (<button key={opt.value} type="button" onClick={() => setAddWeekPattern(opt.value)} style={{ ...pillBtn(addWeekPattern === opt.value, false), fontSize: '0.78rem', padding: '0.3rem 0.75rem' }}>{opt.label}</button>))}
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                          <div><label style={labelStyle}>Start date <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional)</span></label><input type="date" value={addStartDate} onChange={e => setAddStartDate(e.target.value)} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} /></div>
-                          <div><label style={labelStyle}>End date <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional)</span></label><input type="date" value={addEndDate} onChange={e => setAddEndDate(e.target.value)} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} /></div>
-                        </div>
-                        <div><label style={labelStyle}>Schedule note <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional)</span></label><input type="text" value={addNotes} onChange={e => setAddNotes(e.target.value)} placeholder="e.g. arriving late" style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} /></div>
-                        <button onClick={handleAddEntry} disabled={!addVolId || addingEntry} style={{ padding: '0.75rem 1.25rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{addingEntry ? '...' : 'Assign'}</button>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
           </div>
         )}
 
-        {/* ─────────────────────────── VOLUNTEERS TAB ─────────────────────────── */}
+        {/* ── VOLUNTEERS TAB (list) ── */}
         {tab === 'volunteers' && !selectedVolunteer && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <ProviderCredentialsSummaryBanner volunteers={volunteers} onSelect={openVolunteer} />
@@ -876,7 +992,6 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
-
             <ExpandableSection label="Volunteers" isOpen={volunteersOpen} onToggle={() => setVolunteersOpen(o => !o)} count={userList.length}>
               {userList.length === 0 ? (
                 <p style={{ color: 'var(--muted)', fontStyle: 'italic' }}>No volunteers match these filters.</p>
@@ -894,8 +1009,8 @@ export default function AdminPage() {
                           {isInactive && <span style={badgeStyle('#9ca3af')}>inactive</span>}
                           {v.role === 'admin' && <span style={badgeStyle('#f59e0b')}>admin</span>}
                           {v.affiliation && <span style={badgeStyle(affiliationColor[v.affiliation] ?? '#9ca3af')}>{v.affiliation}</span>}
-                          <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--accent)' }}>{totalHours(v.shifts)}h</span>
-                          <span style={{ color: 'var(--muted)' }}>›</span>
+                          {/* Hours shown as '—' in list; load on demand in detail view */}
+                          <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--muted)', fontSize: '0.8rem' }}>›</span>
                         </div>
                       </div>
                     )
@@ -906,7 +1021,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ─────────────────────────── VOLUNTEER DETAIL ─────────────────────────── */}
+        {/* ── VOLUNTEER DETAIL ── */}
         {tab === 'volunteers' && selectedVolunteer && (
           <div style={card}>
             <button onClick={() => setSelectedVolunteer(null)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.875rem', marginBottom: '1.25rem', padding: 0, fontFamily: 'DM Sans, sans-serif' }}>← Back</button>
@@ -926,17 +1041,11 @@ export default function AdminPage() {
                     { label: 'Affiliation', value: selectedVolunteer.affiliation },
                     { label: 'Credentials / Skills', value: selectedVolunteer.credentials },
                     { label: 'Languages', value: selectedVolunteer.languages },
-                    { label: 'Total Hours', value: totalHours(selectedVolunteer.shifts) + 'h' },
                     { label: 'Role', value: selectedVolunteer.role },
                     { label: 'Default Position', value: selectedVolunteer.default_role },
                     { label: 'Birthday', value: selectedVolunteer.birthday },
                     ...(selectedVolunteer.affiliation === 'missionary' ? [{ label: 'SMA Name', value: selectedVolunteer.sma_name }, { label: 'SMA Contact', value: selectedVolunteer.sma_contact }] : []),
-                    ...(selectedVolunteer.affiliation === 'intern' ? [
-                      { label: 'Advisor Name', value: selectedVolunteer.advisor_name },
-                      { label: 'Advisor Contact', value: selectedVolunteer.advisor_contact },
-                      { label: 'School', value: selectedVolunteer.intern_school },
-                      { label: 'Dept / Company', value: selectedVolunteer.intern_department },
-                    ] : []),
+                    ...(selectedVolunteer.affiliation === 'intern' ? [{ label: 'Advisor Name', value: selectedVolunteer.advisor_name }, { label: 'Advisor Contact', value: selectedVolunteer.advisor_contact }, { label: 'School', value: selectedVolunteer.intern_school }, { label: 'Dept / Company', value: selectedVolunteer.intern_department }] : []),
                     ...(selectedVolunteer.affiliation === 'student' ? [{ label: 'School', value: selectedVolunteer.school }, { label: 'Major', value: selectedVolunteer.major }] : [])
                   ].map(({ label, value }) => (
                     <div key={label} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
@@ -944,12 +1053,10 @@ export default function AdminPage() {
                       <p style={{ fontWeight: 500, color: value ? 'var(--text)' : 'var(--muted)', fontStyle: value ? 'normal' : 'italic' }}>{value || 'Not set'}</p>
                     </div>
                   ))}
-
-                  {selectedVolunteer.affiliation === 'provider' && (
-                    <ProviderCredentialsView vol={selectedVolunteer} />
-                  )}
+                  {selectedVolunteer.affiliation === 'provider' && <ProviderCredentialsView vol={selectedVolunteer} />}
                 </div>
 
+                {/* Expandable sections — lazy loaded */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
                     <button onClick={() => handleToggleRecentShifts(selectedVolunteer.id)} style={{ flex: 1, minWidth: '180px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', padding: '0.75rem 1rem', borderRadius: '10px', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: showRecentShifts ? 'rgba(2,65,107,0.08)' : 'var(--bg)', border: `1px solid ${showRecentShifts ? 'var(--accent)' : 'var(--border)'}`, color: showRecentShifts ? 'var(--accent)' : 'var(--text)', transition: 'all 0.15s' }}>
@@ -972,7 +1079,12 @@ export default function AdminPage() {
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                           {recentShifts.map((s, i) => {
                             const hours = calcShiftHours(s.clock_in, s.clock_out)
-                            return (<div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.65rem 1rem', borderBottom: i < recentShifts.length - 1 ? '1px solid var(--border)' : 'none', gap: '0.75rem', flexWrap: 'wrap' }}><div><p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.82rem', color: 'var(--text)' }}>{formatDateTime(s.clock_in)}</p>{s.role && <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.15rem' }}>{s.role}</p>}</div><div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>{hours && <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.88rem', fontWeight: 600, color: 'var(--accent)' }}>{hours}h</span>}</div></div>)
+                            return (
+                              <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.65rem 1rem', borderBottom: i < recentShifts.length - 1 ? '1px solid var(--border)' : 'none', gap: '0.75rem', flexWrap: 'wrap' }}>
+                                <div><p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.82rem', color: 'var(--text)' }}>{formatDateTime(s.clock_in)}</p>{s.role && <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.15rem' }}>{s.role}</p>}</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>{hours && <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.88rem', fontWeight: 600, color: 'var(--accent)' }}>{hours}h</span>}</div>
+                              </div>
+                            )
                           })}
                         </div>
                       )}
@@ -988,7 +1100,14 @@ export default function AdminPage() {
                       {loadingScheduledShifts ? <div style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.85rem' }}>Loading…</div> : scheduledShifts.length === 0 ? <div style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>Not assigned to any recurring shifts.</div> : (
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                           {[...scheduledShifts].sort((a, b) => (DAY_ORDER[a.day_of_week] ?? 9) - (DAY_ORDER[b.day_of_week] ?? 9) || a.shift_time.localeCompare(b.shift_time)).map((s, i) => (
-                            <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.65rem 1rem', borderBottom: i < scheduledShifts.length - 1 ? '1px solid var(--border)' : 'none', gap: '0.75rem', flexWrap: 'wrap' }}><div><p style={{ fontWeight: 500, fontSize: '0.88rem', textTransform: 'capitalize' }}>{s.day_of_week}</p><p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.1rem' }}>{s.role || 'No role'}</p></div><div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}><span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.82rem', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', padding: '0.2rem 0.55rem', borderRadius: '6px', border: '1px solid rgba(2,65,107,0.3)' }}>{s.shift_time}</span>{s.week_pattern && s.week_pattern !== 'every' && (<span style={{ fontSize: '0.72rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', padding: '0.15rem 0.45rem', borderRadius: '5px', border: '1px solid rgba(96,165,250,0.3)' }}>{s.week_pattern === 'odd' ? '1st & 3rd' : '2nd & 4th'}</span>)}{s.notes && <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontStyle: 'italic' }}>({s.notes})</span>}</div></div>
+                            <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.65rem 1rem', borderBottom: i < scheduledShifts.length - 1 ? '1px solid var(--border)' : 'none', gap: '0.75rem', flexWrap: 'wrap' }}>
+                              <div><p style={{ fontWeight: 500, fontSize: '0.88rem', textTransform: 'capitalize' }}>{s.day_of_week}</p><p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.1rem' }}>{s.role || 'No role'}</p></div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.82rem', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', padding: '0.2rem 0.55rem', borderRadius: '6px', border: '1px solid rgba(2,65,107,0.3)' }}>{s.shift_time}</span>
+                                {s.week_pattern && s.week_pattern !== 'every' && <span style={{ fontSize: '0.72rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', padding: '0.15rem 0.45rem', borderRadius: '5px', border: '1px solid rgba(96,165,250,0.3)' }}>{s.week_pattern === 'odd' ? '1st & 3rd' : '2nd & 4th'}</span>}
+                                {s.notes && <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontStyle: 'italic' }}>({s.notes})</span>}
+                              </div>
+                            </div>
                           ))}
                         </div>
                       )}
@@ -996,6 +1115,7 @@ export default function AdminPage() {
                   )}
                 </div>
 
+                {/* Status control */}
                 {(() => {
                   const isInactive = (selectedVolunteer.status || 'active') === 'inactive'
                   return (
@@ -1004,10 +1124,10 @@ export default function AdminPage() {
                         <div>
                           <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>Status</p>
                           <p style={{ fontWeight: 600, color: isInactive ? 'var(--muted)' : 'var(--accent)' }}>{isInactive ? 'Inactive' : 'Active'}</p>
-                          {isInactive && selectedVolunteer.status_reason && (<p style={{ fontSize: '0.82rem', color: 'var(--muted)', marginTop: '0.25rem', fontStyle: 'italic' }}>Reason: {selectedVolunteer.status_reason}</p>)}
+                          {isInactive && selectedVolunteer.status_reason && <p style={{ fontSize: '0.82rem', color: 'var(--muted)', marginTop: '0.25rem', fontStyle: 'italic' }}>Reason: {selectedVolunteer.status_reason}</p>}
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minWidth: '200px' }}>
-                          {!isInactive && (<select value={statusForm.status_reason} onChange={e => setStatusForm({ ...statusForm, status_reason: e.target.value })} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}><option value="">— Reason for deactivating —</option><option value="Graduated">Graduated</option><option value="Mission / Service Term Ended">Mission / Service Term Ended</option><option value="Schedule Conflict">Schedule Conflict</option><option value="Moved Away">Moved Away</option><option value="Personal / Unknown">Personal / Unknown</option></select>)}
+                          {!isInactive && <select value={statusForm.status_reason} onChange={e => setStatusForm({ ...statusForm, status_reason: e.target.value })} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}><option value="">— Reason for deactivating —</option><option value="Graduated">Graduated</option><option value="Mission / Service Term Ended">Mission / Service Term Ended</option><option value="Schedule Conflict">Schedule Conflict</option><option value="Moved Away">Moved Away</option><option value="Personal / Unknown">Personal / Unknown</option></select>}
                           <button onClick={() => handleStatusChange(isInactive ? 'active' : 'inactive', statusForm.status_reason)} disabled={changingStatus || (!isInactive && !statusForm.status_reason)} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600, cursor: (changingStatus || (!isInactive && !statusForm.status_reason)) ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', border: 'none', background: isInactive ? 'var(--accent)' : '#dc2626', color: isInactive ? '#0a0f0a' : '#fff', opacity: (!isInactive && !statusForm.status_reason) ? 0.5 : 1 }}>{changingStatus ? 'Saving...' : isInactive ? 'Reactivate' : 'Deactivate'}</button>
                         </div>
                       </div>
@@ -1016,7 +1136,7 @@ export default function AdminPage() {
                 })()}
               </div>
             ) : (
-              /* ── Edit form ── */
+              // Edit form
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                   <div><label style={labelStyle}>Full Name</label><input value={editForm.full_name} onChange={e => setEditForm({...editForm, full_name: e.target.value})} style={inputStyle} /></div>
@@ -1027,33 +1147,15 @@ export default function AdminPage() {
                   <div><label style={labelStyle}>Role</label><select value={editForm.role} onChange={e => setEditForm({...editForm, role: e.target.value})} style={inputStyle}><option value="volunteer">Volunteer</option><option value="admin">Admin</option></select></div>
                   <div><label style={labelStyle}>Default Position</label><select value={editForm.default_role} onChange={e => setEditForm({...editForm, default_role: e.target.value})} style={inputStyle}><option value="">— None —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                   <div><label style={labelStyle}>Birthday</label><input type="date" value={editForm.birthday || ''} onChange={e => setEditForm({ ...editForm, birthday: e.target.value })} style={inputStyle} /></div>
-
                   {editForm.affiliation === 'missionary' && (<><div><label style={labelStyle}>SMA Name</label><input value={editForm.sma_name} onChange={e => setEditForm({...editForm, sma_name: e.target.value})} placeholder="SMA full name" style={inputStyle} /></div><div><label style={labelStyle}>SMA Contact</label><input value={editForm.sma_contact} onChange={e => setEditForm({...editForm, sma_contact: e.target.value})} placeholder="Phone or email" style={inputStyle} /></div></>)}
-
-                  {editForm.affiliation === 'intern' && (<>
-                    <div><label style={labelStyle}>Advisor Name</label><input value={editForm.advisor_name} onChange={e => setEditForm({...editForm, advisor_name: e.target.value})} placeholder="Advisor full name" style={inputStyle} /></div>
-                    <div><label style={labelStyle}>Advisor Contact</label><input value={editForm.advisor_contact} onChange={e => setEditForm({...editForm, advisor_contact: e.target.value})} placeholder="Phone or email" style={inputStyle} /></div>
-                    <div><label style={labelStyle}>School</label><input value={editForm.intern_school} onChange={e => setEditForm({...editForm, intern_school: e.target.value})} placeholder="University or institution" style={inputStyle} /></div>
-                    <div><label style={labelStyle}>Dept / Company</label><input value={editForm.intern_department} onChange={e => setEditForm({...editForm, intern_department: e.target.value})} placeholder="Department or company name" style={inputStyle} /></div>
-                  </>)}
-
+                  {editForm.affiliation === 'intern' && (<><div><label style={labelStyle}>Advisor Name</label><input value={editForm.advisor_name} onChange={e => setEditForm({...editForm, advisor_name: e.target.value})} placeholder="Advisor full name" style={inputStyle} /></div><div><label style={labelStyle}>Advisor Contact</label><input value={editForm.advisor_contact} onChange={e => setEditForm({...editForm, advisor_contact: e.target.value})} placeholder="Phone or email" style={inputStyle} /></div><div><label style={labelStyle}>School</label><input value={editForm.intern_school} onChange={e => setEditForm({...editForm, intern_school: e.target.value})} placeholder="University or institution" style={inputStyle} /></div><div><label style={labelStyle}>Dept / Company</label><input value={editForm.intern_department} onChange={e => setEditForm({...editForm, intern_department: e.target.value})} placeholder="Department or company name" style={inputStyle} /></div></>)}
                   {editForm.affiliation === 'student' && (<><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>School</label><select value={editForm.school} onChange={e => setEditForm({...editForm, school: e.target.value})} style={inputStyle}><option value="">— Select school —</option>{SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}</select></div><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Major</label><select value={editForm.major || ''} onChange={e => setEditForm({...editForm, major: e.target.value})} style={inputStyle}><option value="">— Select major —</option>{MAJORS.map(m => <option key={m} value={m}>{m}</option>)}</select></div></>)}
-
                   {editForm.affiliation === 'provider' && (
                     <div style={{ gridColumn: '1 / -1', padding: '1rem 1.25rem', borderRadius: '10px', border: '1px solid rgba(125,211,252,0.4)', background: 'rgba(125,211,252,0.04)' }}>
                       <p style={{ fontSize: '0.78rem', fontWeight: 600, color: '#7dd3fc', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.85rem' }}>Credential Expiration Dates</p>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.75rem' }}>
                         {PROVIDER_CRED_FIELDS.map(f => (
-                          <CredentialInput
-                            key={f.key}
-                            fieldKey={f.key}
-                            label={f.label}
-                            value={editForm[f.key] || ''}
-                            onChange={val => setEditForm({ ...editForm, [f.key]: val })}
-                            allowNA={f.key === 'dea_exp'}
-                            inputStyle={inputStyle}
-                            labelStyle={labelStyle}
-                          />
+                          <CredentialInput key={f.key} fieldKey={f.key} label={f.label} value={editForm[f.key] || ''} onChange={val => setEditForm({ ...editForm, [f.key]: val })} allowNA={f.key === 'dea_exp'} inputStyle={inputStyle} labelStyle={labelStyle} />
                         ))}
                       </div>
                     </div>
@@ -1065,7 +1167,10 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ─────────────────────────── SHIFTS TAB ─────────────────────────── */}
+        {/* ── PIPELINE TAB ── */}
+        {tab === 'pipeline' && <Pipeline supabase={supabase} profile={profile} onVolunteerCreated={() => loadVolunteers()} />}
+
+        {/* ── SHIFTS TAB ── */}
         {tab === 'shifts' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {showNewShiftForm && (
@@ -1140,7 +1245,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ─────────────────────────── CALLOUTS TAB ─────────────────────────── */}
+        {/* ── CALLOUTS TAB ── */}
         {tab === 'callouts' && (() => {
           const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
           const pendingCallouts = callouts.filter(c => (!c.status || c.status === 'pending') && c.callout_date >= todayStr)
@@ -1185,7 +1290,19 @@ export default function AdminPage() {
                             <div><span style={{ fontWeight: 500, color: 'var(--muted)', fontSize: '0.85rem' }}>Called out: </span><span style={{ fontWeight: 600 }}>{c.profiles?.full_name}</span><span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)' }}>{c.callout_date} · {c.day_of_week} {c.shift_time}</span>{c.role && <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)' }}>{c.role}</span>}</div>
                             {pending.length === 0 && <span style={{ fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic' }}>No volunteers yet</span>}
                           </div>
-                          {pending.length > 0 && (<div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>{pending.map(r => (<div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'var(--surface)', borderRadius: '6px', border: '1px solid var(--border)' }}><span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{r.profiles?.full_name}</span><div style={{ display: 'flex', gap: '0.4rem' }}><button onClick={() => approveCover(r)} disabled={approvingCoverId === r.id} style={{ padding: '0.25rem 0.7rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{approvingCoverId === r.id ? '...' : '✓ Assign'}</button><button onClick={() => denyCover(r.id)} disabled={approvingCoverId === r.id} style={{ padding: '0.25rem 0.7rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>✕</button></div></div>))}</div>)}
+                          {pending.length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                              {pending.map(r => (
+                                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'var(--surface)', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                                  <span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{r.profiles?.full_name}</span>
+                                  <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                    <button onClick={() => approveCover(r)} disabled={approvingCoverId === r.id} style={{ padding: '0.25rem 0.7rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{approvingCoverId === r.id ? '...' : '✓ Assign'}</button>
+                                    <button onClick={() => denyCover(r.id)} disabled={approvingCoverId === r.id} style={{ padding: '0.25rem 0.7rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>✕</button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )
                     })}
@@ -1195,14 +1312,23 @@ export default function AdminPage() {
               {closedCallouts.length > 0 && (
                 <div style={card}>
                   <button onClick={() => setShowReadCallouts(!showReadCallouts)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.9rem', fontWeight: 500, padding: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}><span style={{ display: 'inline-block', transform: showReadCallouts ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>›</span>Covered / Closed ({closedCallouts.length})</button>
-                  {showReadCallouts && (<div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>{closedCallouts.map(c => (<div key={c.id} style={{ padding: '0.6rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', opacity: 0.65, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}><div><span style={{ fontWeight: 500 }}>{c.profiles?.full_name}</span><span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', color: 'var(--muted)' }}>{c.callout_date} · {c.shift_time}</span></div><span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: c.covered_by ? 'rgba(2,65,107,0.1)' : 'rgba(239,68,68,0.08)', color: c.covered_by ? 'var(--accent)' : '#ef4444', border: `1px solid ${c.covered_by ? 'rgba(2,65,107,0.35)' : 'rgba(239,68,68,0.25)'}` }}>{c.covered_by ? 'covered' : 'denied'}</span></div>))}</div>)}
+                  {showReadCallouts && (
+                    <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {closedCallouts.map(c => (
+                        <div key={c.id} style={{ padding: '0.6rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', opacity: 0.65, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          <div><span style={{ fontWeight: 500 }}>{c.profiles?.full_name}</span><span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', color: 'var(--muted)' }}>{c.callout_date} · {c.shift_time}</span></div>
+                          <span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: c.covered_by ? 'rgba(2,65,107,0.1)' : 'rgba(239,68,68,0.08)', color: c.covered_by ? 'var(--accent)' : '#ef4444', border: `1px solid ${c.covered_by ? 'rgba(2,65,107,0.35)' : 'rgba(239,68,68,0.25)'}` }}>{c.covered_by ? 'covered' : 'denied'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           )
         })()}
 
-        {/* ─────────────────────────── HOURS TAB ─────────────────────────── */}
+        {/* ── HOURS TAB ── */}
         {tab === 'hours' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {hoursLoading ? <p style={{ color: 'var(--muted)', padding: '1rem' }}>Loading...</p> : hoursSubmissions.length === 0 ? <div style={card}><p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No hours submissions yet.</p></div> : (
@@ -1211,14 +1337,33 @@ export default function AdminPage() {
                   <div style={card}>
                     <h2 style={{ fontWeight: 600, marginBottom: '1rem' }}>Pending Approval<span style={{ marginLeft: '0.5rem', padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>{hoursSubmissions.filter(h => h.status === 'pending' && h.profiles?.role !== 'admin').length}</span></h2>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                      {hoursSubmissions.filter(h => h.status === 'pending' && h.profiles?.role !== 'admin').map(h => (<div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', flexWrap: 'wrap', gap: '0.75rem' }}><div><p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{h.profiles?.full_name}</p><p style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>{h.work_date} &nbsp;·&nbsp; {h.role} &nbsp;·&nbsp; <span style={{ fontFamily: 'DM Mono, monospace' }}>{h.hours}h</span></p>{h.notes && <p style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic', marginTop: '0.2rem' }}>{h.notes}</p>}</div><div style={{ display: 'flex', gap: '0.5rem' }}><button onClick={() => approveHours(h)} disabled={approvingHoursId === h.id} style={{ padding: '0.4rem 0.9rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{approvingHoursId === h.id ? '...' : '✓ Approve'}</button><button onClick={() => rejectHours(h.id)} disabled={approvingHoursId === h.id} style={{ padding: '0.4rem 0.9rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>✕ Reject</button></div></div>))}
+                      {hoursSubmissions.filter(h => h.status === 'pending' && h.profiles?.role !== 'admin').map(h => (
+                        <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', flexWrap: 'wrap', gap: '0.75rem' }}>
+                          <div>
+                            <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{h.profiles?.full_name}</p>
+                            <p style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>{h.work_date} &nbsp;·&nbsp; {h.role} &nbsp;·&nbsp; <span style={{ fontFamily: 'DM Mono, monospace' }}>{h.hours}h</span></p>
+                            {h.notes && <p style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic', marginTop: '0.2rem' }}>{h.notes}</p>}
+                          </div>
+                          <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <button onClick={() => approveHours(h)} disabled={approvingHoursId === h.id} style={{ padding: '0.4rem 0.9rem', background: 'rgba(2,65,107,0.12)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{approvingHoursId === h.id ? '...' : '✓ Approve'}</button>
+                            <button onClick={() => rejectHours(h.id)} disabled={approvingHoursId === h.id} style={{ padding: '0.4rem 0.9rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>✕ Reject</button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
                 {hoursSubmissions.filter(h => h.status !== 'pending' && h.profiles?.role !== 'admin').length > 0 && (
                   <div style={card}>
                     <h2 style={{ fontWeight: 600, marginBottom: '1rem', color: 'var(--muted)' }}>Previously Reviewed</h2>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>{hoursSubmissions.filter(h => h.status !== 'pending' && h.profiles?.role !== 'admin').map(h => (<div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', opacity: 0.75 }}><div><span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{h.profiles?.full_name}</span><span style={{ color: 'var(--muted)', fontSize: '0.8rem', marginLeft: '0.5rem' }}>{h.work_date} · {h.role} · {h.hours}h</span></div><span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', fontWeight: 500, background: h.status === 'approved' ? 'rgba(2,65,107,0.12)' : 'rgba(239,68,68,0.1)', color: h.status === 'approved' ? 'var(--accent)' : '#ef4444', border: `1px solid ${h.status === 'approved' ? 'rgba(2,65,107,0.35)' : 'rgba(239,68,68,0.25)'}` }}>{h.status}</span></div>))}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {hoursSubmissions.filter(h => h.status !== 'pending' && h.profiles?.role !== 'admin').map(h => (
+                        <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', opacity: 0.75 }}>
+                          <div><span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{h.profiles?.full_name}</span><span style={{ color: 'var(--muted)', fontSize: '0.8rem', marginLeft: '0.5rem' }}>{h.work_date} · {h.role} · {h.hours}h</span></div>
+                          <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '100px', fontWeight: 500, background: h.status === 'approved' ? 'rgba(2,65,107,0.12)' : 'rgba(239,68,68,0.1)', color: h.status === 'approved' ? 'var(--accent)' : '#ef4444', border: `1px solid ${h.status === 'approved' ? 'rgba(2,65,107,0.35)' : 'rgba(239,68,68,0.25)'}` }}>{h.status}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </>
@@ -1226,7 +1371,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ─────────────────────────── AUDIT LOG TAB ─────────────────────────── */}
+        {/* ── AUDIT TAB ── */}
         {tab === 'audit' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={card}><p style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.5, maxWidth: '600px' }}>This tool helps maintain consistency across shifts by tracking administrative actions and providing clear visibility into changes.</p></div>
@@ -1248,7 +1393,7 @@ export default function AdminPage() {
                 <h2 style={{ fontWeight: 600 }}>Activity Log{auditLogs.length > 0 && <span style={{ marginLeft: '0.5rem', color: 'var(--muted)', fontWeight: 400, fontSize: '0.85rem' }}>— {auditLogs.length} entries</span>}</h2>
                 <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>Last 2 weeks by default</span>
               </div>
-              {auditLoading ? (<p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading...</p>) : auditLogs.length === 0 ? (<p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No activity found for the selected filters.</p>) : (
+              {auditLoading ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading...</p> : auditLogs.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No activity found for the selected filters.</p> : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                   {auditLogs.map(log => {
                     const color = ACTION_COLORS[log.action] || '#94a3b8'
@@ -1278,7 +1423,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ─────────────────────────── CREATE TAB ─────────────────────────── */}
+        {/* ── CREATE TAB ── */}
         {tab === 'create' && (
           <div style={card}>
             <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Create Volunteer Account</h2>
@@ -1294,33 +1439,15 @@ export default function AdminPage() {
                 <div><label style={labelStyle}>Role</label><select value={newRole} onChange={e => setNewRole(e.target.value)} style={inputStyle}><option value="volunteer">Volunteer</option><option value="admin">Admin</option></select></div>
                 <div><label style={labelStyle}>Default Position</label><select value={newDefaultRole} onChange={e => setNewDefaultRole(e.target.value)} style={inputStyle}><option value="">— None —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                 <div><label style={labelStyle}>Birthday</label><input type="date" value={newBirthday} onChange={e => setNewBirthday(e.target.value)} style={inputStyle} /></div>
-
                 {newAffiliation === 'missionary' && (<><div><label style={labelStyle}>SMA Name</label><input value={newSmaName} onChange={e => setNewSmaName(e.target.value)} placeholder="SMA full name" style={inputStyle} /></div><div><label style={labelStyle}>SMA Contact</label><input value={newSmaContact} onChange={e => setNewSmaContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div></>)}
-
                 {newAffiliation === 'student' && (<><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>School</label><select value={newSchool} onChange={e => setNewSchool(e.target.value)} style={inputStyle}><option value="">— Select school —</option>{SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}</select></div><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Major</label><select value={newMajor} onChange={e => setNewMajor(e.target.value)} style={inputStyle}><option value="">— Select major —</option>{MAJORS.map(m => <option key={m} value={m}>{m}</option>)}</select></div></>)}
-
-                {newAffiliation === 'intern' && (<>
-                  <div><label style={labelStyle}>Advisor Name</label><input value={newAdvisorName} onChange={e => setNewAdvisorName(e.target.value)} placeholder="Advisor full name" style={inputStyle} /></div>
-                  <div><label style={labelStyle}>Advisor Contact</label><input value={newAdvisorContact} onChange={e => setNewAdvisorContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div>
-                  <div><label style={labelStyle}>School</label><input value={newInternSchool} onChange={e => setNewInternSchool(e.target.value)} placeholder="University or institution" style={inputStyle} /></div>
-                  <div><label style={labelStyle}>Dept / Company</label><input value={newInternDepartment} onChange={e => setNewInternDepartment(e.target.value)} placeholder="Department or company" style={inputStyle} /></div>
-                </>)}
-
+                {newAffiliation === 'intern' && (<><div><label style={labelStyle}>Advisor Name</label><input value={newAdvisorName} onChange={e => setNewAdvisorName(e.target.value)} placeholder="Advisor full name" style={inputStyle} /></div><div><label style={labelStyle}>Advisor Contact</label><input value={newAdvisorContact} onChange={e => setNewAdvisorContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div><div><label style={labelStyle}>School</label><input value={newInternSchool} onChange={e => setNewInternSchool(e.target.value)} placeholder="University or institution" style={inputStyle} /></div><div><label style={labelStyle}>Dept / Company</label><input value={newInternDepartment} onChange={e => setNewInternDepartment(e.target.value)} placeholder="Department or company" style={inputStyle} /></div></>)}
                 {newAffiliation === 'provider' && (
                   <div style={{ gridColumn: '1 / -1', padding: '1rem 1.25rem', borderRadius: '10px', border: '1px solid rgba(125,211,252,0.4)', background: 'rgba(125,211,252,0.04)' }}>
                     <p style={{ fontSize: '0.78rem', fontWeight: 600, color: '#7dd3fc', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.85rem' }}>Credential Expiration Dates</p>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.75rem' }}>
                       {PROVIDER_CRED_FIELDS.map(f => (
-                        <CredentialInput
-                          key={f.key}
-                          fieldKey={f.key}
-                          label={f.label}
-                          value={newProviderCreds[f.key]}
-                          onChange={val => setNewProviderCreds(prev => ({ ...prev, [f.key]: val }))}
-                          allowNA={f.key === 'dea_exp'}
-                          inputStyle={inputStyle}
-                          labelStyle={labelStyle}
-                        />
+                        <CredentialInput key={f.key} fieldKey={f.key} label={f.label} value={newProviderCreds[f.key]} onChange={val => setNewProviderCreds(prev => ({ ...prev, [f.key]: val }))} allowNA={f.key === 'dea_exp'} inputStyle={inputStyle} labelStyle={labelStyle} />
                       ))}
                     </div>
                   </div>
@@ -1331,14 +1458,12 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ─────────────────────────── DATA TAB ─────────────────────────── */}
-        {tab === 'data' && (
-          <DataDashboard supabase={supabase} />
-        )}
+        {/* ── DATA TAB ── */}
+        {tab === 'data' && <DataDashboard supabase={supabase} />}
 
         {/* Toast */}
         {toast && (
-          <div style={{ position: 'fixed', bottom: '1.5rem', left: '50%', transform: 'translateX(-50%)', background: toast.type === 'success' ? 'var(--accent)' : 'var(--danger)', color: toast.type === 'success' ? '#0a0f0a' : '#fff', padding: '0.75rem 1.5rem', borderRadius: '100px', fontWeight: 500, fontSize: '0.9rem', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
+          <div style={{ position: 'fixed', bottom: '1.5rem', left: '50%', transform: 'translateX(-50%)', background: toast.type === 'success' ? 'var(--accent)' : 'var(--danger)', color: toast.type === 'success' ? '#0a0f0a' : '#fff', padding: '0.75rem 1.5rem', borderRadius: '100px', fontWeight: 500, fontSize: '0.9rem', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', zIndex: 100 }}>
             {toast.text}
           </div>
         )}
