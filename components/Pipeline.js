@@ -1,7 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { ROLES, SHIFTS, ROLE_SUGGESTIONS } from '../lib/constants'
-import Waitlist from './Waitlist'  //
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -133,9 +132,6 @@ function RolePicker({ selected, onChange }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
-
-  // Top tab
-  const [topTab, setTopTab] = useState('pipeline')
 
   // Pipeline state
   const [applicants,      setApplicants]      = useState([])
@@ -878,82 +874,60 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-      {/* Top tabs */}
-      <div style={{ display: 'flex', gap: '0.5rem' }}>
-        {[
-          { key: 'pipeline', label: 'Pipeline' },
-          { key: 'waitlist', label: 'Waitlist' },
-        ].map(t => (
-          <button key={t.key} onClick={() => setTopTab(t.key)} style={{ padding: '0.5rem 1.15rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: topTab === t.key ? 'var(--accent)' : 'var(--surface)', color: topTab === t.key ? '#fff' : 'var(--muted)', border: topTab === t.key ? 'none' : '1px solid var(--border)' }}>
-            {t.label}
-          </button>
-        ))}
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        {STAGES.map(stage => {
+          const color  = STAGE_COLORS[stage]
+          const active = stageFilter === stage
+          return (
+            <button key={stage} onClick={() => setStageFilter(stage)} style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: active ? color + '18' : 'var(--surface)', color: active ? color : 'var(--muted)', border: active ? `1px solid ${color}55` : '1px solid var(--border)' }}>
+              {STAGE_LABELS[stage]} <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', opacity: 0.8 }}>({stageCounts[stage]})</span>
+            </button>
+          )
+        })}
       </div>
 
-      {/* Pipeline */}
-      {topTab === 'pipeline' && (
-        <>
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            {STAGES.map(stage => {
-              const color  = STAGE_COLORS[stage]
-              const active = stageFilter === stage
-              return (
-                <button key={stage} onClick={() => setStageFilter(stage)} style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: active ? color + '18' : 'var(--surface)', color: active ? color : 'var(--muted)', border: active ? `1px solid ${color}55` : '1px solid var(--border)' }}>
-                  {STAGE_LABELS[stage]} <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', opacity: 0.8 }}>({stageCounts[stage]})</span>
-                </button>
-              )
-            })}
-          </div>
+      {loadError && (
+        <div style={{ padding: '0.85rem 1rem', borderRadius: '10px', background: C.red + '08', border: `1px solid ${C.red}33` }}>
+          <p style={{ fontSize: '0.85rem', color: C.red, fontWeight: 500 }}>Failed to load: {loadError}</p>
+        </div>
+      )}
 
-          {loadError && (
-            <div style={{ padding: '0.85rem 1rem', borderRadius: '10px', background: C.red + '08', border: `1px solid ${C.red}33` }}>
-              <p style={{ fontSize: '0.85rem', color: C.red, fontWeight: 500 }}>Failed to load: {loadError}</p>
-            </div>
-          )}
-
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }}>
-            {loading ? (
-              <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading applicants...</p>
-            ) : filteredApplicants.length === 0 ? (
-              <p style={{ color: 'var(--muted)', fontSize: '0.9rem', fontStyle: 'italic' }}>No applicants in this stage.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                {filteredApplicants.map(a => (
-                  <div key={a.id} onClick={() => selectApplicant(a)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg)', cursor: 'pointer', transition: 'border-color 0.15s' }} onMouseEnter={e => e.currentTarget.style.borderColor = C.blue} onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: C.blue, fontSize: '0.95rem', flexShrink: 0 }}>{a.full_name?.charAt(0)}</div>
-                      <div>
-                        <p style={{ fontWeight: 500, fontSize: '0.9rem' }}>{a.full_name}</p>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <p style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{a.email}</p>
-                          {a.interview_scheduled_at && <span style={{ fontSize: '0.72rem', color: C.yellow, fontWeight: 600 }}>{new Date(a.interview_scheduled_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>}
-                          {a.stage === 'onboarding' && (
-                            <span style={{ display: 'flex', gap: '0.2rem' }}>
-                              {[a.onboard_affiliation, a.onboard_birthday, a.onboard_default_role].map((v, i) => (
-                                <span key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: v ? C.green : 'var(--border)' }} />
-                              ))}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <StagePill stage={a.stage} />
-                      {a.created_at && <span style={{ fontSize: '0.75rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>{new Date(a.created_at).toLocaleDateString()}</span>}
-                      <span style={{ color: 'var(--muted)' }}>›</span>
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }}>
+        {loading ? (
+          <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading applicants...</p>
+        ) : filteredApplicants.length === 0 ? (
+          <p style={{ color: 'var(--muted)', fontSize: '0.9rem', fontStyle: 'italic' }}>No applicants in this stage.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            {filteredApplicants.map(a => (
+              <div key={a.id} onClick={() => selectApplicant(a)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg)', cursor: 'pointer', transition: 'border-color 0.15s' }} onMouseEnter={e => e.currentTarget.style.borderColor = C.blue} onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: C.blue, fontSize: '0.95rem', flexShrink: 0 }}>{a.full_name?.charAt(0)}</div>
+                  <div>
+                    <p style={{ fontWeight: 500, fontSize: '0.9rem' }}>{a.full_name}</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <p style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{a.email}</p>
+                      {a.interview_scheduled_at && <span style={{ fontSize: '0.72rem', color: C.yellow, fontWeight: 600 }}>{new Date(a.interview_scheduled_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>}
+                      {a.stage === 'onboarding' && (
+                        <span style={{ display: 'flex', gap: '0.2rem' }}>
+                          {[a.onboard_affiliation, a.onboard_birthday, a.onboard_default_role].map((v, i) => (
+                            <span key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: v ? C.green : 'var(--border)' }} />
+                          ))}
+                        </span>
+                      )}
                     </div>
                   </div>
-                ))}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <StagePill stage={a.stage} />
+                  {a.created_at && <span style={{ fontSize: '0.75rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>{new Date(a.created_at).toLocaleDateString()}</span>}
+                  <span style={{ color: 'var(--muted)' }}>›</span>
+                </div>
               </div>
-            )}
+            ))}
           </div>
-        </>
-      )}
-
-      {/* Waitlist — delegated entirely to the Waitlist component */}
-      {topTab === 'waitlist' && (
-        <Waitlist supabase={supabase} profile={profile} />
-      )}
+        )}
+      </div>
 
       {toast && <Toast toast={toast} />}
     </div>

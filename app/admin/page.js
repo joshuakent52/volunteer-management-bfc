@@ -711,7 +711,7 @@ export default function AdminPage() {
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
           {[
             ['dashboard', 'Live'],
-            ['schedule', 'Schedule'],
+            ['schedule', 'Scheduling'],
             ['volunteers', 'Volunteers'],
             ['pipeline', 'Pipeline'],
             ['shifts', 'Shifts'],
