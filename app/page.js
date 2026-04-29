@@ -1,14 +1,24 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [showPassword, setShowPassword] = useState(false)
 
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        window.location.href = '/volunteer'
+      } else {
+        setLoading(false)
+      }
+    })
+  }, [])
+  
   async function handleLogin(e) {
     e.preventDefault()
     setLoading(true)
@@ -25,6 +35,15 @@ export default function LoginPage() {
     window.location.href = '/volunteer'
 
   }
+  if (loading) return (
+    <div style={{
+      minHeight: '100vh', display: 'flex',
+      alignItems: 'center', justifyContent: 'center',
+      background: 'var(--bg)'
+    }}>
+      <p style={{ color: 'var(--muted)' }}>Loading...</p>
+    </div>
+  )
 
   return (
     <div style={{
