@@ -1,18 +1,18 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { supabase } from '../../lib/supabase'
 import { DAYS, SHIFTS, ROLES, MAX_FILE_SIZE } from '../../lib/constants'
-import { formatDate, formatTime, asUTC, formatDateTime } from '../../lib/timeUtils'
+import { formatDate, formatTime, asUTC } from '../../lib/timeUtils'
 import { getInboxMessages } from '../../lib/messageUtils'
 import { MessageCard } from '../../components/MessageCard'
 import { subscribeToPush, unsubscribeFromPush } from '../../lib/pushNotifications.js'
 
 export const dynamic = 'force-dynamic'
 
-// ── Broadcast types that show view counts ────────────────────────────────────
 const BROADCAST_TYPES = ['everyone', 'role', 'shift']
+const MSG_PAGE_SIZE = 10
 
-// ── Provider credential fields ───────────────────────────────────────────────
 const PROVIDER_CRED_FIELDS = [
   { key: 'license_exp', label: 'License Expiration' },
   { key: 'bls_exp',     label: 'BLS Expiration' },
@@ -20,6 +20,36 @@ const PROVIDER_CRED_FIELDS = [
   { key: 'tb_exp',      label: 'TB Expiration' },
 ]
 
+// ── Shared style objects (defined once, not recreated per render) ────────────
+const S = {
+  card: {
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: '12px',
+    padding: '1.5rem',
+  },
+  input: {
+    width: '100%',
+    padding: '0.75rem 1rem',
+    background: 'var(--bg)',
+    border: '1px solid var(--border)',
+    borderRadius: '8px',
+    color: 'var(--text)',
+    fontSize: '0.95rem',
+    outline: 'none',
+    fontFamily: 'DM Sans, sans-serif',
+  },
+  label: {
+    display: 'block',
+    fontSize: '0.8rem',
+    color: 'var(--muted)',
+    marginBottom: '0.4rem',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+}
+
+// ── Credential helpers (pure, no state) ─────────────────────────────────────
 function credentialStatus(dateStr) {
   if (!dateStr) return 'missing'
   if (dateStr === 'N/A') return 'na'
@@ -41,116 +71,244 @@ function formatExpDate(dateStr) {
   return `${m}/${d}/${y}`
 }
 
-export default function VolunteerPage() {
-  const [user, setUser] = useState(null)
-  const [profile, setProfile] = useState(null)
-  const [activeShift, setActiveShift] = useState(null)
-  const [shifts, setShifts] = useState([])
-  const [schedule, setSchedule] = useState([])
-  const [calloutDate, setCalloutDate] = useState('')
-  const [calloutShift, setCalloutShift] = useState('')
-  const [calloutReason, setCalloutReason] = useState('')
-  const [calloutRole, setCalloutRole] = useState('')
-  const [calloutMode, setCalloutMode] = useState('single')
-  const [calloutStartDate, setCalloutStartDate] = useState('')
-  const [calloutEndDate, setCalloutEndDate] = useState('')
-  const [toast, setToast] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [clockLoading, setClockLoading] = useState(false)
-  const [tab, setTab] = useState('clock')
+// ── Sub-components ───────────────────────────────────────────────────────────
 
-  // Messaging state
-  const [messages, setMessages] = useState([])
-  const [msgBody, setMsgBody] = useState('')
+function TabButton({ id, label, active, onClick, badge }) {
+  return (
+    <button
+      onClick={() => onClick(id)}
+      style={{
+        position: 'relative',
+        padding: '0.5rem 1rem',
+        borderRadius: '8px',
+        fontSize: '0.875rem',
+        fontWeight: 500,
+        cursor: 'pointer',
+        fontFamily: 'DM Sans, sans-serif',
+        background: active ? 'var(--accent)' : 'var(--surface)',
+        color: active ? '#fff' : 'var(--muted)',
+        border: active ? 'none' : '1px solid var(--border)',
+      }}
+    >
+      {label}
+      {badge > 0 && (
+        <span style={{
+          position: 'absolute', top: '-5px', right: '-5px',
+          background: '#ef4444', color: '#fff', borderRadius: '50%',
+          width: '17px', height: '17px', fontSize: '0.65rem', fontWeight: 700,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          border: '2px solid var(--bg)', lineHeight: 1,
+        }}>
+          {badge > 9 ? '9+' : badge}
+        </span>
+      )}
+    </button>
+  )
+}
+
+function CredentialInput({ fieldKey, label, value, onChange, allowNA = false }) {
+  const mode = value === 'N/A' ? 'na' : value === 'expired' ? 'expired' : 'date'
+  return (
+    <div>
+      <label style={S.label}>{label}</label>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+        <select
+          value={mode}
+          onChange={e => {
+            const m = e.target.value
+            if (m === 'na') onChange('N/A')
+            else if (m === 'expired') onChange('expired')
+            else onChange('')
+          }}
+          style={{ ...S.input, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+        >
+          <option value="date">Set date</option>
+          {allowNA && <option value="na">N/A</option>}
+          <option value="expired">Mark as expired</option>
+        </select>
+        {mode === 'date' && (
+          <input
+            type="date"
+            value={value && value !== 'N/A' && value !== 'expired' ? value : ''}
+            onChange={e => onChange(e.target.value)}
+            style={{ ...S.input, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ProviderCredCard({ vol }) {
+  const fields = PROVIDER_CRED_FIELDS.map(f => ({
+    ...f,
+    value: vol[f.key] || null,
+    status: credentialStatus(vol[f.key]),
+  }))
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.6rem' }}>
+      {fields.map(f => {
+        const { status } = f
+        const isMissing  = status === 'missing'
+        const isExpired  = status === 'expired'
+        const isExpiring = status === 'expiring'
+        const isNA       = status === 'na'
+        const borderColor = (isMissing || isExpired) ? 'rgba(2,65,107,0.45)' : isExpiring ? 'rgba(146,166,185,0.6)' : isNA ? 'rgba(146,166,185,0.35)' : 'rgba(2,65,107,0.3)'
+        const bgColor     = (isMissing || isExpired) ? 'rgba(2,65,107,0.08)' : isExpiring ? 'rgba(146,166,185,0.12)' : isNA ? 'rgba(146,166,185,0.06)' : 'rgba(2,65,107,0.05)'
+        const textColor   = (isMissing || isExpired) ? '#02416B' : isExpiring ? '#5f7f99' : isNA ? 'var(--muted)' : 'var(--text)'
+        return (
+          <div key={f.key} style={{ padding: '0.6rem 0.75rem', borderRadius: '8px', border: `1px solid ${borderColor}`, background: bgColor }}>
+            <p style={{ fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>{f.label}</p>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.35rem' }}>
+              <p style={{ fontFamily: (isMissing || isNA) ? 'DM Sans, sans-serif' : 'DM Mono, monospace', fontSize: '0.82rem', fontWeight: (isMissing || isNA) ? 400 : 600, color: textColor, fontStyle: (isMissing || isNA) ? 'italic' : 'normal' }}>
+                {isMissing ? 'Not set' : formatExpDate(f.value)}
+              </p>
+              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#02416b', flexShrink: 0 }}>
+                {(isMissing || isExpired) ? '✗' : isExpiring ? '!' : isNA ? '—' : '✓'}
+              </span>
+            </div>
+            {isExpired  && <p style={{ fontSize: '0.65rem', color: '#02416B', fontWeight: 700, marginTop: '0.15rem' }}>EXPIRED</p>}
+            {isExpiring && <p style={{ fontSize: '0.65rem', color: '#5f7f99', fontWeight: 700, marginTop: '0.15rem' }}>EXP. SOON</p>}
+            {isNA       && <p style={{ fontSize: '0.65rem', color: 'var(--muted)', fontWeight: 600, marginTop: '0.15rem' }}>NOT APPLICABLE</p>}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function ViewCountBadge({ message, broadcastReadCounts }) {
+  if (!BROADCAST_TYPES.includes(message?.recipient_type)) return null
+  const count = broadcastReadCounts[message.id] ?? null
+  return (
+    <span
+      title={count === null ? 'Loading views…' : `${count} ${count === 1 ? 'person has' : 'people have'} read this`}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', fontWeight: 500, color: 'var(--muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '100px', padding: '0.15rem 0.55rem', marginTop: '0.35rem', fontFamily: 'DM Mono, monospace', letterSpacing: '0.01em', userSelect: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}
+    >
+      <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }}>
+        <path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z" />
+        <circle cx="10" cy="10" r="2.5" />
+      </svg>
+      {count === null ? '…' : count}
+    </span>
+  )
+}
+
+function MessageCardWithViews({ m, readMessageIds, user, setLightboxUrl, broadcastReadCounts }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+      <MessageCard m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />
+      {BROADCAST_TYPES.includes(m?.recipient_type) && (
+        <div style={{ paddingLeft: '0.25rem' }}>
+          <ViewCountBadge message={m} broadcastReadCounts={broadcastReadCounts} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+export default function VolunteerPage() {
+  // ── Core auth/profile state (loaded immediately) ─────────────────────────
+  const [user, setUser]       = useState(null)
+  const [profile, setProfile] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [tab, setTab]         = useState('clock')
+
+  // ── Clock tab state ───────────────────────────────────────────────────────
+  const [activeShift, setActiveShift]   = useState(null)
+  const [clockLoading, setClockLoading] = useState(false)
+
+  // ── Schedule tab state (lazy) ─────────────────────────────────────────────
+  const [schedule, setSchedule] = useState([])
+
+  // ── Callout tab state (lazy) ──────────────────────────────────────────────
+  const [calloutDate, setCalloutDate]           = useState('')
+  const [calloutShift, setCalloutShift]         = useState('')
+  const [calloutReason, setCalloutReason]       = useState('')
+  const [calloutRole, setCalloutRole]           = useState('')
+  const [calloutMode, setCalloutMode]           = useState('single')
+  const [calloutStartDate, setCalloutStartDate] = useState('')
+  const [calloutEndDate, setCalloutEndDate]     = useState('')
+  const [openShifts, setOpenShifts]             = useState([])
+  const [myCoverRequests, setMyCoverRequests]   = useState([])
+  const [requestingCoverId, setRequestingCoverId] = useState(null)
+
+  // ── Messages tab state (lazy, paginated) ─────────────────────────────────
+  const [messages, setMessages]             = useState([])
+  const [msgCursor, setMsgCursor]           = useState(null)   // oldest created_at fetched
+  const [hasMoreMsgs, setHasMoreMsgs]       = useState(false)
+  const [loadingMoreMsgs, setLoadingMoreMsgs] = useState(false)
+  const [msgBody, setMsgBody]               = useState('')
   const [msgRecipientType, setMsgRecipientType] = useState('admin')
   const [msgSelectedShift, setMsgSelectedShift] = useState(null)
-  const [msgSelectedRole, setMsgSelectedRole] = useState(null)
+  const [msgSelectedRole, setMsgSelectedRole]   = useState(null)
   const [msgRecipientVolId, setMsgRecipientVolId] = useState('')
-  const [allUsers, setAllUsers] = useState([])
-  const [sendingMsg, setSendingMsg] = useState(false)
-  const [msgView, setMsgView] = useState('inbox')
-
-  // Unread tracking
+  const [allUsers, setAllUsers]             = useState([])
+  const [sendingMsg, setSendingMsg]         = useState(false)
+  const [msgView, setMsgView]               = useState('inbox')
   const [readMessageIds, setReadMessageIds] = useState(new Set())
-
-  // Image attachment state
-  const [msgImageFile, setMsgImageFile] = useState(null)
+  const [broadcastReadCounts, setBroadcastReadCounts] = useState({})
+  const [msgImageFile, setMsgImageFile]     = useState(null)
   const [msgImagePreview, setMsgImagePreview] = useState(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const fileInputRef = useRef(null)
 
-  // Lightbox state
-  const [lightboxUrl, setLightboxUrl] = useState(null)
-
-  // Account / password change
-  const [newPassword, setNewPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [changingPassword, setChangingPassword] = useState(false)
+  // ── Account tab state (lazy) ──────────────────────────────────────────────
+  const [allShifts, setAllShifts]               = useState([])
+  const [shifts, setShifts]                     = useState([])
   const [showShiftHistory, setShowShiftHistory] = useState(false)
-
-  // Open shifts / cover requests
-  const [openShifts, setOpenShifts] = useState([])
-  const [myCoverRequests, setMyCoverRequests] = useState([])
-  const [requestingCoverId, setRequestingCoverId] = useState(null)
-
-  // Hours submission state
-  const [hoursDate, setHoursDate] = useState('')
-  const [hoursRole, setHoursRole] = useState('')
-  const [hoursWorked, setHoursWorked] = useState('')
-  const [hoursNotes, setHoursNotes] = useState('')
-  const [submittingHours, setSubmittingHours] = useState(false)
+  const [newPassword, setNewPassword]           = useState('')
+  const [confirmPassword, setConfirmPassword]   = useState('')
+  const [changingPassword, setChangingPassword] = useState(false)
+  const [hoursDate, setHoursDate]               = useState('')
+  const [hoursRole, setHoursRole]               = useState('')
+  const [hoursWorked, setHoursWorked]           = useState('')
+  const [hoursNotes, setHoursNotes]             = useState('')
+  const [submittingHours, setSubmittingHours]   = useState(false)
   const [myHoursSubmissions, setMyHoursSubmissions] = useState([])
+  const [pushEnabled, setPushEnabled]           = useState(false)
+  const [pushLoading, setPushLoading]           = useState(false)
+  const [editingCreds, setEditingCreds]         = useState(false)
+  const [credForm, setCredForm]                 = useState({})
+  const [savingCreds, setSavingCreds]           = useState(false)
 
-  // Intern weekly report state
-  const [internHours, setInternHours] = useState('')
-  const [internRole, setInternRole] = useState('')
-  const [internProgress, setInternProgress] = useState('')
+  // ── Intern report tab state (lazy) ────────────────────────────────────────
+  const [internHours, setInternHours]         = useState('')
+  const [internRole, setInternRole]           = useState('')
+  const [internProgress, setInternProgress]   = useState('')
   const [submittingInternReport, setSubmittingInternReport] = useState(false)
 
-  // All shifts for total hours (no limit)
-  const [allShifts, setAllShifts] = useState([])
+  // ── UI state ──────────────────────────────────────────────────────────────
+  const [toast, setToast]         = useState(null)
+  const [lightboxUrl, setLightboxUrl] = useState(null)
 
-  // Push notification state
-  const [pushEnabled, setPushEnabled] = useState(false)
-  const [pushLoading, setPushLoading] = useState(false)
+  // ── Tab fetch dedup guard ─────────────────────────────────────────────────
+  // Tracks which tabs have already had their data fetched so we never
+  // re-fetch on every re-render or tab revisit.
+  const fetchedTabs = useRef(new Set())
 
-  // ── Provider credential editing state ────────────────────────────────────
-  const [editingCreds, setEditingCreds] = useState(false)
-  const [credForm, setCredForm] = useState({})
-  const [savingCreds, setSavingCreds] = useState(false)
-
-  // ── Broadcast read counts ────────────────────────────────────────────────
-  const [broadcastReadCounts, setBroadcastReadCounts] = useState({})
-
-  const isAdmin = profile?.role === 'admin'
-  const isClinicalSupervisor = profile?.default_role === 'Clinical Supervisor'
-  const isIntern = profile?.affiliation === 'intern'
+  const isIntern   = profile?.affiliation === 'intern'
   const isProvider = profile?.affiliation === 'provider'
 
-  useEffect(() => { init() }, [])
-
+  // ── CRITICAL PATH INIT — only profile + active shift ─────────────────────
   useEffect(() => {
-    if (tab === 'messages' && msgView === 'inbox' && user) {
-      markInboxAsRead()
-    }
-  }, [tab, msgView, user])
+    initCriticalPath()
+  }, [])
 
-  useEffect(() => {
-    if (messages.length > 0 && user) {
-      loadBroadcastReadCounts(messages)
-    }
-  }, [messages, user])
-
-  async function init() {
+  async function initCriticalPath() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { window.location.href = '/'; return }
     setUser(user)
 
+    // Fetch only the columns we actually render
     const { data: profileData } = await supabase
-      .from('profiles').select('*').eq('id', user.id).single()
+      .from('profiles')
+      .select('id, full_name, role, default_role, affiliation, license_exp, bls_exp, dea_exp, tb_exp')
+      .eq('id', user.id)
+      .single()
     setProfile(profileData)
 
-    // Seed credential form with current values
     if (profileData?.affiliation === 'provider') {
       setCredForm({
         license_exp: profileData.license_exp || '',
@@ -160,111 +318,177 @@ export default function VolunteerPage() {
       })
     }
 
-    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-      try {
-        const reg = await Promise.race([
-          navigator.serviceWorker.ready,
-          new Promise((_, reject) => setTimeout(() => reject(new Error('SW timeout')), 3000))
-        ])
-        const sub = await reg?.pushManager?.getSubscription().catch(() => null)
-        setPushEnabled(!!sub)
-      } catch {
-        setPushEnabled(false)
-      }
-    }
-
+    // Active shift — needed for the status banner on every tab
     const { data: open } = await supabase
-      .from('shifts').select('*')
+      .from('shifts')
+      .select('id, clock_in, role')
       .eq('volunteer_id', user.id)
       .is('clock_out', null)
-      .single()
+      .maybeSingle()
     setActiveShift(open || null)
 
-    const { data: history } = await supabase
-      .from('shifts').select('*')
-      .eq('volunteer_id', user.id)
-      .order('clock_in', { ascending: false })
-      .limit(10)
-    setShifts(history || [])
-
-    const { data: all } = await supabase
-      .from('shifts').select('clock_in, clock_out')
-      .eq('volunteer_id', user.id)
-      .not('clock_out', 'is', null)
-    setAllShifts(all || [])
-
-    const { data: sched } = await supabase
-      .from('schedule').select('*, profiles(full_name)')
-      .eq('volunteer_id', user.id)
-      .order('day_of_week')
-    setSchedule(sched || [])
-
-    await loadMessages(user.id)
-
-    const { data: allProfiles } = await supabase
-      .from('profiles')
-      .select('id, full_name')
-      .order('full_name')
-    setAllUsers(allProfiles || [])
-
-    const { data: openSubs } = await supabase
-      .from('callouts')
-      .select('*, volunteer:profiles!callouts_volunteer_id_fkey(full_name)')
-      .eq('status', 'approved')
-      .is('covered_by', null)
-      .gte('callout_date', new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }))
-      .order('callout_date', { ascending: true })
-    setOpenShifts((openSubs || []).map(c => ({ ...c, profiles: c.volunteer })))
-
-    const { data: myCoverReqs } = await supabase
-      .from('shift_cover_requests')
-      .select('callout_id, status')
-      .eq('volunteer_id', user.id)
-    setMyCoverRequests(myCoverReqs || [])
-
-    const { data: hoursSubs } = await supabase
-      .from('hours_submissions')
-      .select('*')
-      .eq('volunteer_id', user.id)
-      .order('submitted_at', { ascending: false })
-      .limit(20)
-    setMyHoursSubmissions(hoursSubs || [])
+    // Clock tab is the default — also fetch schedule (needed for clock-in role resolution)
+    await fetchScheduleTab(user.id)
 
     setLoading(false)
   }
 
-  async function loadMessages(uid) {
-    const userId = uid || user?.id
-    const { data: msgs } = await supabase
-      .from('messages')
-      .select('*, sender:profiles!messages_sender_id_fkey(full_name)')
-      .order('created_at', { ascending: false })
-      .limit(50)
-    setMessages(msgs || [])
+  // ── Per-tab lazy fetchers ─────────────────────────────────────────────────
 
-    if (userId) {
-      const { data: reads } = await supabase
+  const fetchScheduleTab = useCallback(async (uid) => {
+    const userId = uid || user?.id
+    if (!userId || fetchedTabs.current.has('schedule')) return
+    fetchedTabs.current.add('schedule')
+
+    const { data: sched } = await supabase
+      .from('schedule')
+      .select('id, day_of_week, shift_time, role, start_date, end_date, week_pattern, notes, volunteer_id')
+      .eq('volunteer_id', userId)
+      .order('day_of_week')
+    setSchedule(sched || [])
+  }, [user?.id])
+
+  const fetchCalloutTab = useCallback(async () => {
+    if (!user || fetchedTabs.current.has('callout')) return
+    fetchedTabs.current.add('callout')
+
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
+    const [{ data: openSubs }, { data: myCoverReqs }] = await Promise.all([
+      supabase
+        .from('callouts')
+        .select('id, callout_date, day_of_week, shift_time, role, volunteer:profiles!callouts_volunteer_id_fkey(full_name)')
+        .eq('status', 'approved')
+        .is('covered_by', null)
+        .gte('callout_date', today)
+        .order('callout_date', { ascending: true }),
+      supabase
+        .from('shift_cover_requests')
+        .select('callout_id, status')
+        .eq('volunteer_id', user.id),
+    ])
+
+    setOpenShifts((openSubs || []).map(c => ({ ...c, profiles: c.volunteer })))
+    setMyCoverRequests(myCoverReqs || [])
+  }, [user])
+
+  const fetchMessagesTab = useCallback(async () => {
+    if (!user || fetchedTabs.current.has('messages')) return
+    fetchedTabs.current.add('messages')
+
+    const [{ data: msgs }, { data: reads }, { data: usersData }] = await Promise.all([
+      supabase
+        .from('messages')
+        .select('id, created_at, body, image_url, recipient_type, recipient_shift, recipient_day, recipient_role, recipient_volunteer_id, sender_id, sender:profiles!messages_sender_id_fkey(full_name)')
+        .order('created_at', { ascending: false })
+        .limit(MSG_PAGE_SIZE),
+      supabase
         .from('message_reads')
         .select('message_id')
-        .eq('user_id', userId)
-      setReadMessageIds(new Set((reads || []).map(r => r.message_id)))
+        .eq('user_id', user.id),
+      supabase
+        .from('profiles')
+        .select('id, full_name')
+        .order('full_name'),
+    ])
+
+    const fetched = msgs || []
+    setMessages(fetched)
+    setHasMoreMsgs(fetched.length === MSG_PAGE_SIZE)
+    if (fetched.length > 0) {
+      setMsgCursor(fetched[fetched.length - 1].created_at)
+    }
+    setReadMessageIds(new Set((reads || []).map(r => r.message_id)))
+    setAllUsers(usersData || [])
+
+    await loadBroadcastReadCounts(fetched)
+  }, [user])
+
+  async function loadMoreMessages() {
+    if (!user || !msgCursor || loadingMoreMsgs) return
+    setLoadingMoreMsgs(true)
+
+    const { data: older } = await supabase
+      .from('messages')
+      .select('id, created_at, body, image_url, recipient_type, recipient_shift, recipient_day, recipient_role, recipient_volunteer_id, sender_id, sender:profiles!messages_sender_id_fkey(full_name)')
+      .order('created_at', { ascending: false })
+      .lt('created_at', msgCursor)
+      .limit(MSG_PAGE_SIZE)
+
+    const fetched = older || []
+    setMessages(prev => [...prev, ...fetched])
+    setHasMoreMsgs(fetched.length === MSG_PAGE_SIZE)
+    if (fetched.length > 0) {
+      setMsgCursor(fetched[fetched.length - 1].created_at)
+      await loadBroadcastReadCounts(fetched)
+    }
+    setLoadingMoreMsgs(false)
+  }
+
+  const fetchAccountTab = useCallback(async () => {
+    if (!user || fetchedTabs.current.has('account')) return
+    fetchedTabs.current.add('account')
+
+    const [{ data: all }, { data: history }, pushState, { data: hoursSubs }] = await Promise.all([
+      supabase
+        .from('shifts')
+        .select('id, clock_in, clock_out')
+        .eq('volunteer_id', user.id)
+        .not('clock_out', 'is', null),
+      supabase
+        .from('shifts')
+        .select('id, clock_in, clock_out, role')
+        .eq('volunteer_id', user.id)
+        .order('clock_in', { ascending: false })
+        .limit(10),
+      (async () => {
+        if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return false
+        try {
+          const reg = await Promise.race([
+            navigator.serviceWorker.ready,
+            new Promise((_, reject) => setTimeout(() => reject(new Error('SW timeout')), 3000)),
+          ])
+          const sub = await reg?.pushManager?.getSubscription().catch(() => null)
+          return !!sub
+        } catch { return false }
+      })(),
+      supabase
+        .from('hours_submissions')
+        .select('id, work_date, role, hours, notes, status, submitted_at')
+        .eq('volunteer_id', user.id)
+        .order('submitted_at', { ascending: false })
+        .limit(20),
+    ])
+
+    setAllShifts(all || [])
+    setShifts(history || [])
+    setPushEnabled(pushState)
+    setMyHoursSubmissions(hoursSubs || [])
+  }, [user])
+
+  // ── Tab switch handler ────────────────────────────────────────────────────
+  async function handleTabChange(newTab) {
+    setTab(newTab)
+    if (newTab === 'schedule')    await fetchScheduleTab()
+    if (newTab === 'callout')     await fetchCalloutTab()
+    if (newTab === 'messages')    {
+      await fetchMessagesTab()
+      // Mark inbox read after messages are loaded
+      setTimeout(() => markInboxAsRead(), 100)
+    }
+    if (newTab === 'account')     await fetchAccountTab()
+    if (newTab === 'internreport') {
+      // Intern report only needs schedule (already fetched in critical path)
     }
   }
 
+  // ── Messages helpers ──────────────────────────────────────────────────────
   async function loadBroadcastReadCounts(msgs) {
     const broadcastIds = (msgs || [])
       .filter(m => BROADCAST_TYPES.includes(m.recipient_type))
       .map(m => m.id)
+    if (broadcastIds.length === 0) return
 
-    if (broadcastIds.length === 0) {
-      setBroadcastReadCounts({})
-      return
-    }
-
-    const { data, error } = await supabase.rpc('get_broadcast_read_counts', {
-      message_ids: broadcastIds,
-    })
-
+    const { data, error } = await supabase.rpc('get_broadcast_read_counts', { message_ids: broadcastIds })
     if (error) {
       const { data: fallback } = await supabase
         .from('message_read_counts')
@@ -272,61 +496,32 @@ export default function VolunteerPage() {
         .in('message_id', broadcastIds)
       const map = {}
       ;(fallback || []).forEach(r => { map[r.message_id] = Number(r.read_count) })
-      setBroadcastReadCounts(map)
+      setBroadcastReadCounts(prev => ({ ...prev, ...map }))
       return
     }
-
     const map = {}
     ;(data || []).forEach(r => { map[r.message_id] = Number(r.read_count) })
-    setBroadcastReadCounts(map)
+    setBroadcastReadCounts(prev => ({ ...prev, ...map }))
   }
 
   async function markInboxAsRead() {
-    if (!user) return
+    if (!user || messages.length === 0) return
     const inbox = messages.filter(m => {
       if (m.sender_id === user.id) return false
       if (m.recipient_type === 'affiliation_missionary' && profile?.affiliation !== 'missionary') return false
       return true
     })
-    const unreadInbox = inbox.filter(m => !readMessageIds.has(m.id))
-    if (unreadInbox.length === 0) return
-
-    const rows = unreadInbox.map(m => ({ user_id: user.id, message_id: m.id }))
+    const unread = inbox.filter(m => !readMessageIds.has(m.id))
+    if (unread.length === 0) return
+    const rows = unread.map(m => ({ user_id: user.id, message_id: m.id }))
     await supabase.from('message_reads').upsert(rows, { onConflict: 'user_id,message_id' })
     setReadMessageIds(prev => {
       const next = new Set(prev)
-      unreadInbox.forEach(m => next.add(m.id))
+      unread.forEach(m => next.add(m.id))
       return next
     })
   }
 
-  // ── Provider credential save ─────────────────────────────────────────────
-  async function handleSaveCreds(e) {
-    e.preventDefault()
-    setSavingCreds(true)
-    const { error } = await supabase
-      .from('profiles')
-      .update({
-        license_exp: credForm.license_exp || null,
-        bls_exp:     credForm.bls_exp     || null,
-        dea_exp:     credForm.dea_exp     || null,
-        tb_exp:      credForm.tb_exp      || null,
-      })
-      .eq('id', user.id)
-
-    if (error) {
-      showToast(error.message, 'error')
-    } else {
-      showToast('Credentials updated!', 'success')
-      // Refresh profile so the view reflects saved values
-      const { data: fresh } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-      setProfile(fresh)
-      setEditingCreds(false)
-    }
-    setSavingCreds(false)
-  }
-
-  // ── Image helpers ────────────────────────────────────────────────────────
   function handleImageSelect(e) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -355,7 +550,6 @@ export default function VolunteerPage() {
     return publicUrl
   }
 
-  // ── Messaging ────────────────────────────────────────────────────────────
   async function handleSendMessage(e) {
     e.preventDefault()
     if (!msgBody.trim() && !msgImageFile) return
@@ -365,15 +559,11 @@ export default function VolunteerPage() {
     if (msgImageFile && !imageUrl) { setSendingMsg(false); return }
 
     const recipientType = msgRecipientType === 'user' ? 'volunteer' : msgRecipientType
-
     const { data: { session } } = await supabase.auth.getSession()
 
     const res = await fetch('/api/send-message', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
       body: JSON.stringify({
         recipient_type: recipientType,
         body: msgBody.trim(),
@@ -389,21 +579,19 @@ export default function VolunteerPage() {
     if (!res.ok) {
       showToast(result.error || 'Failed to send', 'error')
     } else {
-      console.log(`Push sent to ${result.pushed} device(s)`)
       showToast('Message sent!', 'success')
-      setMsgBody('')
-      clearImage()
-      setMsgRecipientType('admin')
-      setMsgSelectedShift(null)
-      setMsgSelectedRole(null)
-      setMsgRecipientVolId('')
+      setMsgBody(''); clearImage()
+      setMsgRecipientType('admin'); setMsgSelectedShift(null); setMsgSelectedRole(null); setMsgRecipientVolId('')
+      // Reset messages tab so next open re-fetches fresh
+      fetchedTabs.current.delete('messages')
+      setMessages([]); setMsgCursor(null); setHasMoreMsgs(false)
+      await fetchMessagesTab()
       setMsgView('inbox')
-      await loadMessages()
     }
     setSendingMsg(false)
   }
 
-  // ── Other handlers ───────────────────────────────────────────────────────
+  // ── Clock helpers ─────────────────────────────────────────────────────────
   function getCurrentShiftWindow() {
     const now = new Date()
     const mtnStr = now.toLocaleString('en-US', { timeZone: 'America/Denver' })
@@ -432,7 +620,8 @@ export default function VolunteerPage() {
     const { data, error } = await supabase
       .from('shifts')
       .insert({ volunteer_id: user.id, clock_in: new Date().toISOString(), role: resolvedRole })
-      .select().single()
+      .select('id, clock_in, role')
+      .single()
     if (error) showToast(error.message, 'error')
     else { setActiveShift(data); showToast('Clocked in successfully!', 'success') }
     setClockLoading(false)
@@ -445,7 +634,12 @@ export default function VolunteerPage() {
       .update({ clock_out: new Date().toISOString() })
       .eq('id', activeShift.id)
     if (error) showToast(error.message, 'error')
-    else { setActiveShift(null); showToast('Clocked out. Great work!', 'success'); init() }
+    else {
+      setActiveShift(null)
+      showToast('Clocked out. Great work!', 'success')
+      // Invalidate account tab so total hours refresh on next visit
+      fetchedTabs.current.delete('account')
+    }
     setClockLoading(false)
   }
 
@@ -464,8 +658,8 @@ export default function VolunteerPage() {
     }
     if (!calloutStartDate || !calloutEndDate) return
     const start = new Date(calloutStartDate + 'T12:00:00')
-    const end = new Date(calloutEndDate + 'T12:00:00')
-    const rows = []
+    const end   = new Date(calloutEndDate   + 'T12:00:00')
+    const rows  = []
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dayName = dayNames[d.getDay()]
       if (dayName === 'sunday' || dayName === 'saturday') continue
@@ -484,17 +678,6 @@ export default function VolunteerPage() {
     const { error } = await supabase.from('callouts').insert(rows)
     if (error) showToast(error.message, 'error')
     else { showToast(`${rows.length} call-out${rows.length !== 1 ? 's' : ''} submitted!`, 'success'); setCalloutStartDate(''); setCalloutEndDate(''); setCalloutReason('') }
-  }
-
-  async function handleChangePassword(e) {
-    e.preventDefault()
-    if (newPassword !== confirmPassword) { showToast('Passwords do not match', 'error'); return }
-    if (newPassword.length < 6) { showToast('Password must be at least 6 characters', 'error'); return }
-    setChangingPassword(true)
-    const { error } = await supabase.auth.updateUser({ password: newPassword })
-    if (error) showToast(error.message, 'error')
-    else { showToast('Password updated!', 'success'); setNewPassword(''); setConfirmPassword('') }
-    setChangingPassword(false)
   }
 
   async function handleRequestCover(calloutId) {
@@ -517,7 +700,12 @@ export default function VolunteerPage() {
     else {
       showToast('Hours submitted for approval!', 'success')
       setHoursDate(''); setHoursRole(''); setHoursWorked(''); setHoursNotes('')
-      const { data: hoursSubs } = await supabase.from('hours_submissions').select('*').eq('volunteer_id', user.id).order('submitted_at', { ascending: false }).limit(20)
+      const { data: hoursSubs } = await supabase
+        .from('hours_submissions')
+        .select('id, work_date, role, hours, notes, status, submitted_at')
+        .eq('volunteer_id', user.id)
+        .order('submitted_at', { ascending: false })
+        .limit(20)
       setMyHoursSubmissions(hoursSubs || [])
     }
     setSubmittingHours(false)
@@ -527,56 +715,34 @@ export default function VolunteerPage() {
     e.preventDefault()
     if (!internHours || !internRole || !internProgress.trim()) return
     setSubmittingInternReport(true)
-
     try {
-      const hours = parseFloat(internHours)
+      const hours   = parseFloat(internHours)
       const clockOut = new Date()
-      const clockIn = new Date(clockOut.getTime() - hours * 3600000)
-
+      const clockIn  = new Date(clockOut.getTime() - hours * 3600000)
       const { error: shiftError } = await supabase.from('shifts').insert({
-        volunteer_id: user.id,
-        clock_in: clockIn.toISOString(),
-        clock_out: clockOut.toISOString(),
-        role: internRole,
+        volunteer_id: user.id, clock_in: clockIn.toISOString(), clock_out: clockOut.toISOString(), role: internRole,
       })
       if (shiftError) throw shiftError
 
-      const { data: directors } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('default_role', 'Director')
-
+      const { data: directors } = await supabase.from('profiles').select('id').eq('default_role', 'Director')
       const { data: { session } } = await supabase.auth.getSession()
-
       const sendPromises = (directors || []).map(director =>
         fetch('/api/send-message', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-          },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
           body: JSON.stringify({
             recipient_type: 'volunteer',
             recipient_volunteer_id: director.id,
-            body: `📋 Weekly Intern Report from ${profile?.full_name}\n\n` +
-                  `Hours logged: ${hours}h as ${internRole}\n\n` +
-                  `Weekly Progress:\n${internProgress.trim()}`,
+            body: `📋 Weekly Intern Report from ${profile?.full_name}\n\nHours logged: ${hours}h as ${internRole}\n\nWeekly Progress:\n${internProgress.trim()}`,
             image_url: null,
           }),
         })
       )
       await Promise.all(sendPromises)
-
       showToast('Weekly report submitted!', 'success')
-      setInternHours('')
-      setInternRole('')
-      setInternProgress('')
-
-      const { data: all } = await supabase
-        .from('shifts').select('clock_in, clock_out')
-        .eq('volunteer_id', user.id)
-        .not('clock_out', 'is', null)
-      setAllShifts(all || [])
+      setInternHours(''); setInternRole(''); setInternProgress('')
+      // Invalidate account tab
+      fetchedTabs.current.delete('account')
     } catch (err) {
       showToast(err.message || 'Failed to submit report', 'error')
     } finally {
@@ -584,160 +750,64 @@ export default function VolunteerPage() {
     }
   }
 
+  async function handleSaveCreds(e) {
+    e.preventDefault()
+    setSavingCreds(true)
+    const { error } = await supabase.from('profiles').update({
+      license_exp: credForm.license_exp || null,
+      bls_exp:     credForm.bls_exp     || null,
+      dea_exp:     credForm.dea_exp     || null,
+      tb_exp:      credForm.tb_exp      || null,
+    }).eq('id', user.id)
+    if (error) {
+      showToast(error.message, 'error')
+    } else {
+      showToast('Credentials updated!', 'success')
+      const { data: fresh } = await supabase
+        .from('profiles')
+        .select('id, full_name, role, default_role, affiliation, license_exp, bls_exp, dea_exp, tb_exp')
+        .eq('id', user.id)
+        .single()
+      setProfile(fresh)
+      setEditingCreds(false)
+    }
+    setSavingCreds(false)
+  }
+
+  async function handleChangePassword(e) {
+    e.preventDefault()
+    if (newPassword !== confirmPassword) { showToast('Passwords do not match', 'error'); return }
+    if (newPassword.length < 6) { showToast('Password must be at least 6 characters', 'error'); return }
+    setChangingPassword(true)
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    if (error) showToast(error.message, 'error')
+    else { showToast('Password updated!', 'success'); setNewPassword(''); setConfirmPassword('') }
+    setChangingPassword(false)
+  }
+
   function showToast(text, type) {
     setToast({ text, type })
     setTimeout(() => setToast(null), 3500)
   }
 
-  function calcHours(clock_in, clock_out) { if (!clock_out) return 'Active'; return ((asUTC(clock_out) - asUTC(clock_in)) / 3600000).toFixed(1) + 'h' }
-  function totalHours() { return allShifts.reduce((acc, s) => acc + (asUTC(s.clock_out) - asUTC(s.clock_in)) / 3600000, 0).toFixed(1) }
+  function calcHours(clock_in, clock_out) {
+    if (!clock_out) return 'Active'
+    return ((asUTC(clock_out) - asUTC(clock_in)) / 3600000).toFixed(1) + 'h'
+  }
+  function totalHours() {
+    return allShifts.reduce((acc, s) => acc + (asUTC(s.clock_out) - asUTC(s.clock_in)) / 3600000, 0).toFixed(1)
+  }
 
   async function handleSignOut() { await supabase.auth.signOut(); window.location.href = '/' }
 
-  // ── Broadcast read-count badge ───────────────────────────────────────────
-  function ViewCountBadge({ message }) {
-    const isBroadcast = BROADCAST_TYPES.includes(message?.recipient_type)
-    if (!isBroadcast) return null
-    const count = broadcastReadCounts[message.id] ?? null
-    return (
-      <span
-        title={count === null ? 'Loading views…' : `${count} ${count === 1 ? 'person has' : 'people have'} read this`}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', fontWeight: 500, color: 'var(--muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '100px', padding: '0.15rem 0.55rem', marginTop: '0.35rem', fontFamily: 'DM Mono, monospace', letterSpacing: '0.01em', userSelect: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}
-      >
-        <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }}>
-          <path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z" />
-          <circle cx="10" cy="10" r="2.5" />
-        </svg>
-        {count === null ? '…' : count}
-      </span>
-    )
-  }
-
-  function MessageCardWithViews({ m, readMessageIds, user, setLightboxUrl }) {
-    const isBroadcast = BROADCAST_TYPES.includes(m?.recipient_type)
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-        <MessageCard m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />
-        {isBroadcast && (<div style={{ paddingLeft: '0.25rem' }}><ViewCountBadge message={m} /></div>)}
-      </div>
-    )
-  }
-
-  // ── Provider credential input component ──────────────────────────────────
-  function CredentialInput({ fieldKey, label, value, onChange, allowNA = false, inputStyle, labelStyle }) {
-    const mode = value === 'N/A' ? 'na' : value === 'expired' ? 'expired' : 'date'
-    return (
-      <div>
-        <label style={labelStyle}>{label}</label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-          <select
-            value={mode}
-            onChange={e => {
-              const m = e.target.value
-              if (m === 'na') onChange('N/A')
-              else if (m === 'expired') onChange('expired')
-              else onChange('')
-            }}
-            style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
-          >
-            <option value="date">Set date</option>
-            {allowNA && <option value="na">N/A</option>}
-            <option value="expired">Mark as expired</option>
-          </select>
-          {mode === 'date' && (
-            <input
-              type="date"
-              value={value && value !== 'N/A' && value !== 'expired' ? value : ''}
-              onChange={e => onChange(e.target.value)}
-              style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
-            />
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  // ── Provider credential view card ────────────────────────────────────────
-  function ProviderCredCard({ vol, inputStyle, labelStyle }) {
-    const fields = PROVIDER_CRED_FIELDS.map(f => ({
-      ...f,
-      value: vol[f.key] || null,
-      status: credentialStatus(vol[f.key]),
-    }))
-
-    return (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.6rem' }}>
-        {fields.map(f => {
-          const isNA       = f.status === 'na'
-          const isMissing  = f.status === 'missing'
-          const isExpired  = f.status === 'expired'
-          const isExpiring = f.status === 'expiring'
-          const isOk       = f.status === 'ok'
-
-          const borderColor =
-            (isMissing || isExpired)
-              ? 'rgba(2,65,107,0.45)'        // strong blue
-              : isExpiring
-              ? 'rgba(146,166,185,0.6)'      // softer blue-gray
-              : isNA
-              ? 'rgba(146,166,185,0.35)'     // muted
-              : 'rgba(2,65,107,0.3)'         // default
-
-          const bgColor =
-            (isMissing || isExpired)
-              ? 'rgba(2,65,107,0.08)'
-              : isExpiring
-              ? 'rgba(146,166,185,0.12)'
-              : isNA
-              ? 'rgba(146,166,185,0.06)'
-              : 'rgba(2,65,107,0.05)'
-
-          const textColor =
-            (isMissing || isExpired)
-              ? '#02416B'
-              : isExpiring
-              ? '#5f7f99'                    // your accent-dim
-              : isNA
-              ? 'var(--muted)'
-              : 'var(--text)'
-
-          return (
-            <div key={f.key} style={{ padding: '0.6rem 0.75rem', borderRadius: '8px', border: `1px solid ${borderColor}`, background: bgColor }}>
-              <p style={{ fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>{f.label}</p>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.35rem' }}>
-                <p style={{ fontFamily: (isMissing || isNA) ? 'DM Sans, sans-serif' : 'DM Mono, monospace', fontSize: '0.82rem', fontWeight: (isMissing || isNA) ? 400 : 600, color: textColor, fontStyle: (isMissing || isNA) ? 'italic' : 'normal' }}>
-                  {isMissing ? 'Not set' : formatExpDate(f.value)}
-                </p>
-                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: (isMissing || isExpired) ? '#02416b' : isExpiring ? '#02416b' : isNA ? 'var(--muted)' : '#02416b', flexShrink: 0 }}>
-                  {(isMissing || isExpired) ? '✗' : isExpiring ? '!' : isNA ? '—' : '✓'}
-                </span>
-              </div>
-              {isExpired  && <p style={{ fontSize: '0.65rem', color: '#02416B', fontWeight: 700, marginTop: '0.15rem' }}>EXPIRED</p>}
-              {isExpiring && <p style={{ fontSize: '0.65rem', color: '#5f7f99', fontWeight: 700, marginTop: '0.15rem' }}>EXP. SOON</p>}              
-              {isNA       && <p style={{ fontSize: '0.65rem', color: 'var(--muted)', fontWeight: 600, marginTop: '0.15rem' }}>NOT APPLICABLE</p>}
-            </div>
-          )
-        })}
-      </div>
-    )
-  }
-
-  if (loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
-      <p style={{ color: 'var(--muted)' }}>Loading...</p>
-    </div>
-  )
-
-  const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }
-  const inputStyle = { width: '100%', padding: '0.75rem 1rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '0.95rem', outline: 'none', fontFamily: 'DM Sans, sans-serif' }
-  const labelStyle = { display: 'block', fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
-  const inboxMessages = getInboxMessages(messages, user, profile)
-  const sentMessages = messages.filter(m => m.sender_id === user?.id)
-  const unreadCount = inboxMessages.filter(m => !readMessageIds.has(m.id)).length
+  // ── Derived values (computed, not stored in state) ────────────────────────
+  const inboxMessages = user && profile ? getInboxMessages(messages, user, profile) : []
+  const sentMessages  = messages.filter(m => m.sender_id === user?.id)
+  const unreadCount   = inboxMessages.filter(m => !readMessageIds.has(m.id)).length
 
   const myShiftCombos = schedule.reduce((acc, s) => {
     const key = `${s.day_of_week}|${s.shift_time}`
-    if (!acc.find(x => x.key === key)) acc.push({ key, day: s.day_of_week, shift_time: s.shift_time, label: `${s.day_of_week.charAt(0).toUpperCase() + s.day_of_week.slice(1,3)} ${s.shift_time}` })
+    if (!acc.find(x => x.key === key)) acc.push({ key, day: s.day_of_week, shift_time: s.shift_time, label: `${s.day_of_week.charAt(0).toUpperCase() + s.day_of_week.slice(1, 3)} ${s.shift_time}` })
     return acc
   }, [])
 
@@ -747,7 +817,25 @@ export default function VolunteerPage() {
     ...(profile?.default_role === 'Lab' ? ['Lab'] : []),
   ])]
 
-  const calloutSubmitDisabled = calloutMode === 'single' ? (!calloutDate || !calloutShift || !calloutRole) : (!calloutStartDate || !calloutEndDate)
+  const calloutSubmitDisabled = calloutMode === 'single'
+    ? (!calloutDate || !calloutShift || !calloutRole)
+    : (!calloutStartDate || !calloutEndDate)
+
+  const TABS = [
+    ['clock', 'Clock'],
+    ['schedule', 'Schedule'],
+    ['callout', 'Call-Out'],
+    ['messages', 'Messages'],
+    ...(isIntern ? [['internreport', 'Report Hours']] : []),
+    ['account', 'Account'],
+  ]
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  if (loading) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
+      <p style={{ color: 'var(--muted)' }}>Loading...</p>
+    </div>
+  )
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
@@ -782,7 +870,7 @@ export default function VolunteerPage() {
         </div>
 
         {/* Status banner */}
-        <div style={{ ...card, marginBottom: '1.5rem', borderColor: activeShift ? 'var(--accent)' : 'var(--border)', background: activeShift ? 'rgba(74,222,128,0.05)' : 'var(--surface)' }}>
+        <div style={{ ...S.card, marginBottom: '1.5rem', borderColor: activeShift ? 'var(--accent)' : 'var(--border)', background: activeShift ? 'rgba(74,222,128,0.05)' : 'var(--surface)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: activeShift ? 'var(--accent)' : 'var(--muted)', boxShadow: activeShift ? '0 0 8px var(--accent)' : 'none' }} />
             <span style={{ fontWeight: 500 }}>{activeShift ? `Clocked in since ${formatTime(activeShift.clock_in)}` : 'Not clocked in'}</span>
@@ -791,27 +879,21 @@ export default function VolunteerPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-          {[['clock','Clock'],['schedule','Schedule'],['callout','Call-Out'],['messages','Messages'],...(isIntern ? [['internreport','Report Hours']] : []),['account','Account']].map(([key, label]) => (
-            <button key={key} onClick={() => setTab(key)} style={{
-              position: 'relative', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500,
-              cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-              background: tab === key ? 'var(--accent)' : 'var(--surface)',
-              color: tab === key ? '#fff' : 'var(--muted)',
-              border: tab === key ? 'none' : '1px solid var(--border)',
-            }}>
-              {label}
-              {key === 'messages' && unreadCount > 0 && (
-                <span style={{ position: 'absolute', top: '-5px', right: '-5px', background: '#ef4444', color: '#fff', borderRadius: '50%', width: '17px', height: '17px', fontSize: '0.65rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--bg)', lineHeight: 1 }}>
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </button>
+          {TABS.map(([key, label]) => (
+            <TabButton
+              key={key}
+              id={key}
+              label={label}
+              active={tab === key}
+              onClick={handleTabChange}
+              badge={key === 'messages' ? unreadCount : 0}
+            />
           ))}
         </div>
 
-        {/* CLOCK TAB */}
+        {/* ── CLOCK TAB ───────────────────────────────────────────────────── */}
         {tab === 'clock' && (
-          <div style={card}>
+          <div style={S.card}>
             <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Clock In / Out</h2>
             {activeShift ? (
               <button onClick={handleClockOut} disabled={clockLoading} style={{ width: '100%', padding: '1rem', background: 'var(--danger)', color: '#fff', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
@@ -825,9 +907,9 @@ export default function VolunteerPage() {
           </div>
         )}
 
-        {/* SCHEDULE TAB */}
+        {/* ── SCHEDULE TAB ────────────────────────────────────────────────── */}
         {tab === 'schedule' && (
-          <div style={card}>
+          <div style={S.card}>
             <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>My Schedule</h2>
             {schedule.length === 0 ? (
               <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>You have no scheduled shifts yet.</p>
@@ -881,17 +963,18 @@ export default function VolunteerPage() {
           </div>
         )}
 
-        {/* CALLOUT TAB */}
+        {/* ── CALLOUT TAB ─────────────────────────────────────────────────── */}
         {tab === 'callout' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={card}>
+            <div style={S.card}>
               <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Submit a Call-Out</h2>
               <form onSubmit={handleCallout} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <div>
-                  <label style={labelStyle}>Type</label>
+                  <label style={S.label}>Type</label>
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
                     {[['single','Single Shift'],['range','Date Range']].map(([val, label]) => (
-                      <button key={val} type="button" onClick={() => { setCalloutMode(val); setCalloutDate(''); setCalloutShift(''); setCalloutRole(''); setCalloutStartDate(''); setCalloutEndDate('') }}
+                      <button key={val} type="button"
+                        onClick={() => { setCalloutMode(val); setCalloutDate(''); setCalloutShift(''); setCalloutRole(''); setCalloutStartDate(''); setCalloutEndDate('') }}
                         style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: calloutMode === val ? 'var(--accent)' : 'var(--surface)', color: calloutMode === val ? '#0a0f0a' : 'var(--muted)', border: calloutMode === val ? 'none' : '1px solid var(--border)' }}>
                         {label}
                       </button>
@@ -899,17 +982,25 @@ export default function VolunteerPage() {
                   </div>
                 </div>
                 {calloutMode === 'single' && <>
-                  <div><label style={labelStyle}>Date you can't make it</label><input type="date" value={calloutDate} onChange={e => setCalloutDate(e.target.value)} required style={inputStyle} /></div>
+                  <div><label style={S.label}>Date you can't make it</label><input type="date" value={calloutDate} onChange={e => setCalloutDate(e.target.value)} required style={S.input} /></div>
                   <div>
-                    <label style={labelStyle}>Shift</label>
-                    <select value={calloutShift} onChange={e => { const shift = e.target.value; setCalloutShift(shift); if (calloutDate && shift) { const dn = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']; const d = dn[new Date(calloutDate + 'T12:00:00').getDay()]; const m = schedule.find(s => s.day_of_week === d && s.shift_time === shift); if (m?.role) setCalloutRole(m.role) } }} style={inputStyle}>
+                    <label style={S.label}>Shift</label>
+                    <select value={calloutShift} onChange={e => {
+                      const shift = e.target.value; setCalloutShift(shift)
+                      if (calloutDate && shift) {
+                        const dn = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
+                        const d = dn[new Date(calloutDate + 'T12:00:00').getDay()]
+                        const m = schedule.find(s => s.day_of_week === d && s.shift_time === shift)
+                        if (m?.role) setCalloutRole(m.role)
+                      }
+                    }} style={S.input}>
                       <option value="">— Select —</option>
                       {SHIFTS.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label style={labelStyle}>Role</label>
-                    <select value={calloutRole} onChange={e => setCalloutRole(e.target.value)} required style={inputStyle}>
+                    <label style={S.label}>Role</label>
+                    <select value={calloutRole} onChange={e => setCalloutRole(e.target.value)} required style={S.input}>
                       <option value="">— Select role —</option>
                       {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                     </select>
@@ -917,17 +1008,17 @@ export default function VolunteerPage() {
                 </>}
                 {calloutMode === 'range' && <>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                    <div><label style={labelStyle}>From</label><input type="date" value={calloutStartDate} onChange={e => setCalloutStartDate(e.target.value)} required style={inputStyle} /></div>
-                    <div><label style={labelStyle}>To</label><input type="date" value={calloutEndDate} onChange={e => setCalloutEndDate(e.target.value)} required style={inputStyle} /></div>
+                    <div><label style={S.label}>From</label><input type="date" value={calloutStartDate} onChange={e => setCalloutStartDate(e.target.value)} required style={S.input} /></div>
+                    <div><label style={S.label}>To</label><input type="date" value={calloutEndDate} onChange={e => setCalloutEndDate(e.target.value)} required style={S.input} /></div>
                   </div>
                   <p style={{ fontSize: '0.82rem', color: 'var(--muted)', lineHeight: 1.5 }}>A call-out will be submitted for each of your scheduled shifts within this range. Weekends are skipped automatically.</p>
                 </>}
-                <div><label style={labelStyle}>Reason (optional)</label><textarea value={calloutReason} onChange={e => setCalloutReason(e.target.value)} rows={3} placeholder="Let the team know why..." style={{ ...inputStyle, resize: 'vertical' }} /></div>
+                <div><label style={S.label}>Reason (optional)</label><textarea value={calloutReason} onChange={e => setCalloutReason(e.target.value)} rows={3} placeholder="Let the team know why..." style={{ ...S.input, resize: 'vertical' }} /></div>
                 <button type="submit" disabled={calloutSubmitDisabled} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: calloutSubmitDisabled ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', opacity: calloutSubmitDisabled ? 0.5 : 1 }}>Submit Call-Out</button>
               </form>
             </div>
 
-            <div style={card}>
+            <div style={S.card}>
               <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Open Shifts</h2>
               <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Shifts that need coverage — tap to volunteer.</p>
               {openShifts.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No open shifts right now.</p> : (
@@ -955,7 +1046,7 @@ export default function VolunteerPage() {
           </div>
         )}
 
-        {/* MESSAGES TAB */}
+        {/* ── MESSAGES TAB ────────────────────────────────────────────────── */}
         {tab === 'messages' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -965,37 +1056,51 @@ export default function VolunteerPage() {
             </div>
 
             {msgView === 'inbox' && (
-              <div style={card}>
+              <div style={S.card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Inbox</h2>
                 {inboxMessages.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No messages yet.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                     {inboxMessages.map(m => (
-                      <MessageCardWithViews key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />
+                      <MessageCardWithViews key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} broadcastReadCounts={broadcastReadCounts} />
                     ))}
                   </div>
+                )}
+                {hasMoreMsgs && (
+                  <button
+                    onClick={loadMoreMessages}
+                    disabled={loadingMoreMsgs}
+                    style={{ marginTop: '1rem', width: '100%', padding: '0.65rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', cursor: loadingMoreMsgs ? 'not-allowed' : 'pointer', fontSize: '0.85rem', fontFamily: 'DM Sans, sans-serif' }}
+                  >
+                    {loadingMoreMsgs ? 'Loading…' : 'Load older messages'}
+                  </button>
                 )}
               </div>
             )}
 
             {msgView === 'sent' && (
-              <div style={card}>
+              <div style={S.card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Sent Messages</h2>
                 {sentMessages.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No sent messages yet.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                     {sentMessages.map(m => (
-                      <MessageCardWithViews key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />
+                      <MessageCardWithViews key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} broadcastReadCounts={broadcastReadCounts} />
                     ))}
                   </div>
+                )}
+                {hasMoreMsgs && (
+                  <button onClick={loadMoreMessages} disabled={loadingMoreMsgs} style={{ marginTop: '1rem', width: '100%', padding: '0.65rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', cursor: loadingMoreMsgs ? 'not-allowed' : 'pointer', fontSize: '0.85rem', fontFamily: 'DM Sans, sans-serif' }}>
+                    {loadingMoreMsgs ? 'Loading…' : 'Load older messages'}
+                  </button>
                 )}
               </div>
             )}
 
             {msgView === 'compose' && (
-              <div style={card}>
+              <div style={S.card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>New Message</h2>
                 <form onSubmit={handleSendMessage} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   <div>
-                    <label style={labelStyle}>Send to</label>
+                    <label style={S.label}>Send to</label>
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                       {[
                         { value: 'admin', label: 'Admin' },
@@ -1004,15 +1109,17 @@ export default function VolunteerPage() {
                         ...(myRoles.length > 0 ? [{ value: 'role', label: 'My Role' }] : []),
                         { value: 'user', label: 'Individual' },
                       ].map(opt => (
-                        <button key={opt.value} type="button" onClick={() => { setMsgRecipientType(opt.value); setMsgSelectedShift(null); setMsgSelectedRole(null); setMsgRecipientVolId('') }}
-                          style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: msgRecipientType === opt.value ? 'var(--accent)' : 'var(--surface)', color: msgRecipientType === opt.value ? '#0a0f0a' : 'var(--muted)', border: msgRecipientType === opt.value ? 'none' : '1px solid var(--border)' }}>{opt.label}</button>
+                        <button key={opt.value} type="button"
+                          onClick={() => { setMsgRecipientType(opt.value); setMsgSelectedShift(null); setMsgSelectedRole(null); setMsgRecipientVolId('') }}
+                          style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: msgRecipientType === opt.value ? 'var(--accent)' : 'var(--surface)', color: msgRecipientType === opt.value ? '#0a0f0a' : 'var(--muted)', border: msgRecipientType === opt.value ? 'none' : '1px solid var(--border)' }}>
+                          {opt.label}
+                        </button>
                       ))}
                     </div>
-
                     {msgRecipientType === 'user' && (
                       <div style={{ marginTop: '0.75rem' }}>
-                        <label style={labelStyle}>Select user</label>
-                        <select value={msgRecipientVolId} onChange={e => setMsgRecipientVolId(e.target.value)} style={inputStyle}>
+                        <label style={S.label}>Select user</label>
+                        <select value={msgRecipientVolId} onChange={e => setMsgRecipientVolId(e.target.value)} style={S.input}>
                           <option value="">— Select user —</option>
                           {allUsers.filter(u => u.id !== user?.id).map(v => (
                             <option key={v.id} value={v.id}>{v.full_name}</option>
@@ -1020,10 +1127,9 @@ export default function VolunteerPage() {
                         </select>
                       </div>
                     )}
-
                     {msgRecipientType === 'shift' && myShiftCombos.length > 0 && (
                       <div style={{ marginTop: '0.75rem' }}>
-                        <label style={labelStyle}>Which shift</label>
+                        <label style={S.label}>Which shift</label>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                           {myShiftCombos.map(combo => {
                             const active = msgSelectedShift?.key === combo.key
@@ -1034,7 +1140,7 @@ export default function VolunteerPage() {
                     )}
                     {msgRecipientType === 'role' && myRoles.length > 0 && (
                       <div style={{ marginTop: '0.75rem' }}>
-                        <label style={labelStyle}>Which role</label>
+                        <label style={S.label}>Which role</label>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                           {myRoles.map(role => {
                             const active = msgSelectedRole === role
@@ -1045,11 +1151,11 @@ export default function VolunteerPage() {
                     )}
                   </div>
                   <div>
-                    <label style={labelStyle}>Message</label>
-                    <textarea value={msgBody} onChange={e => setMsgBody(e.target.value)} rows={4} placeholder="Write your message..." style={{ ...inputStyle, resize: 'vertical' }} />
+                    <label style={S.label}>Message</label>
+                    <textarea value={msgBody} onChange={e => setMsgBody(e.target.value)} rows={4} placeholder="Write your message..." style={{ ...S.input, resize: 'vertical' }} />
                   </div>
                   <div>
-                    <label style={labelStyle}>Attach image <span style={{ textTransform: 'none', fontSize: '0.72rem', color: 'var(--muted)' }}>(optional · max 5 MB)</span></label>
+                    <label style={S.label}>Attach image <span style={{ textTransform: 'none', fontSize: '0.72rem', color: 'var(--muted)' }}>(optional · max 5 MB)</span></label>
                     {msgImagePreview ? (
                       <div style={{ position: 'relative', display: 'inline-block' }}>
                         <img src={msgImagePreview} alt="Preview" style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px', objectFit: 'cover', border: '1px solid var(--border)', display: 'block' }} />
@@ -1073,29 +1179,24 @@ export default function VolunteerPage() {
           </div>
         )}
 
-        {/* INTERN REPORT TAB */}
+        {/* ── INTERN REPORT TAB ───────────────────────────────────────────── */}
         {tab === 'internreport' && isIntern && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={{ ...card, borderColor: 'var(--accent)', background: 'rgba(2,65,107,0.04)' }}>
+            <div style={{ ...S.card, borderColor: 'var(--accent)', background: 'rgba(2,65,107,0.04)' }}>
               <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Weekly Hours Report</h2>
-              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-                Log your hours for the week and send a progress update to your internship coordinator.
-              </p>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Log your hours for the week and send a progress update to your internship coordinator.</p>
               <form onSubmit={handleInternReport} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <div>
-                  <label style={labelStyle}>Role</label>
-                  <select value={internRole} onChange={e => setInternRole(e.target.value)} required style={inputStyle}>
+                  <label style={S.label}>Role</label>
+                  <select value={internRole} onChange={e => setInternRole(e.target.value)} required style={S.input}>
                     <option value="">— Select role —</option>
-                    {[...ROLES, "Intern"].map(r => (<option key={r} value={r}>{r}</option>))}
+                    {[...ROLES, "Intern"].map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </div>
+                <div><label style={S.label}>Hours Worked This Week</label><input type="number" min="0.5" max="60" step="0.5" value={internHours} onChange={e => setInternHours(e.target.value)} required placeholder="e.g. 20" style={S.input} /></div>
                 <div>
-                  <label style={labelStyle}>Hours Worked This Week</label>
-                  <input type="number" min="0.5" max="60" step="0.5" value={internHours} onChange={e => setInternHours(e.target.value)} required placeholder="e.g. 20" style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>Weekly Progress <span style={{ textTransform: 'none', color: '#ef4444' }}>*</span></label>
-                  <textarea value={internProgress} onChange={e => setInternProgress(e.target.value)} rows={5} required placeholder="Describe what you worked on this week, any challenges, and goals for next week..." style={{ ...inputStyle, resize: 'vertical' }} />
+                  <label style={S.label}>Weekly Progress <span style={{ textTransform: 'none', color: '#ef4444' }}>*</span></label>
+                  <textarea value={internProgress} onChange={e => setInternProgress(e.target.value)} rows={5} required placeholder="Describe what you worked on this week, any challenges, and goals for next week..." style={{ ...S.input, resize: 'vertical' }} />
                   <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.35rem' }}>This will be sent directly to your internship coordinator.</p>
                 </div>
                 <button type="submit" disabled={submittingInternReport || !internHours || !internRole || !internProgress.trim()} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: submittingInternReport ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', opacity: (!internHours || !internRole || !internProgress.trim()) ? 0.5 : 1 }}>
@@ -1106,12 +1207,12 @@ export default function VolunteerPage() {
           </div>
         )}
 
-        {/* ACCOUNT TAB */}
+        {/* ── ACCOUNT TAB ─────────────────────────────────────────────────── */}
         {tab === 'account' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
             {/* Hours summary */}
-            <div style={{ ...card, borderColor: 'var(--accent)', background: 'rgba(2,65,107,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ ...S.card, borderColor: 'var(--accent)', background: 'rgba(2,65,107,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
                 <p style={{ fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>Total Hours</p>
                 <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: 'var(--accent)', lineHeight: 1 }}>{totalHours()}<span style={{ fontSize: '1rem', fontWeight: 500, marginLeft: '0.25rem', color: 'var(--muted)' }}>hrs</span></p>
@@ -1123,14 +1224,14 @@ export default function VolunteerPage() {
             </div>
 
             {/* Shift history */}
-            <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+            <div style={{ ...S.card, padding: 0, overflow: 'hidden' }}>
               <button onClick={() => setShowShiftHistory(h => !h)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.25rem', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                 <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>Shift History</span>
                 <span style={{ color: 'var(--muted)', fontSize: '1.1rem', transform: showShiftHistory ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>▾</span>
               </button>
               {showShiftHistory && (
                 <div style={{ padding: '0 1.25rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {allShifts.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No shifts recorded yet.</p> : allShifts.map(s => (
+                  {shifts.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No shifts recorded yet.</p> : shifts.map(s => (
                     <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                       <div><p style={{ fontWeight: 500, fontSize: '0.9rem' }}>{formatDate(s.clock_in)}</p><p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{formatTime(s.clock_in)} → {formatTime(s.clock_out)}</p></div>
                       <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', color: s.clock_out ? 'var(--accent)' : 'var(--warn)' }}>{calcHours(s.clock_in, s.clock_out)}</span>
@@ -1140,9 +1241,9 @@ export default function VolunteerPage() {
               )}
             </div>
 
-            {/* ── PROVIDER CREDENTIALS SECTION ─────────────────────────── */}
+            {/* Provider credentials */}
             {isProvider && (
-              <div style={{ ...card, borderColor: 'rgba(125,211,252,0.4)', background: 'rgba(125,211,252,0.03)' }}>
+              <div style={{ ...S.card, borderColor: 'rgba(125,211,252,0.4)', background: 'rgba(125,211,252,0.03)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                   <div>
                     <h2 style={{ fontWeight: 600, fontSize: '1rem' }}>My Credentials</h2>
@@ -1150,15 +1251,7 @@ export default function VolunteerPage() {
                   </div>
                   <button
                     onClick={() => {
-                      if (!editingCreds) {
-                        // Seed form with current profile values when opening edit
-                        setCredForm({
-                          license_exp: profile?.license_exp || '',
-                          bls_exp:     profile?.bls_exp     || '',
-                          dea_exp:     profile?.dea_exp     || '',
-                          tb_exp:      profile?.tb_exp      || '',
-                        })
-                      }
+                      if (!editingCreds) setCredForm({ license_exp: profile?.license_exp || '', bls_exp: profile?.bls_exp || '', dea_exp: profile?.dea_exp || '', tb_exp: profile?.tb_exp || '' })
                       setEditingCreds(e => !e)
                     }}
                     style={{ padding: '0.4rem 0.9rem', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: editingCreds ? 'var(--surface)' : 'rgba(125,211,252,0.15)', color: editingCreds ? 'var(--muted)' : '#7dd3fc', border: editingCreds ? '1px solid var(--border)' : '1px solid rgba(125,211,252,0.4)' }}
@@ -1166,30 +1259,16 @@ export default function VolunteerPage() {
                     {editingCreds ? 'Cancel' : 'Update'}
                   </button>
                 </div>
-
                 {!editingCreds ? (
-                  <ProviderCredCard vol={profile} inputStyle={inputStyle} labelStyle={labelStyle} />
+                  <ProviderCredCard vol={profile} />
                 ) : (
                   <form onSubmit={handleSaveCreds} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.75rem' }}>
                       {PROVIDER_CRED_FIELDS.map(f => (
-                        <CredentialInput
-                          key={f.key}
-                          fieldKey={f.key}
-                          label={f.label}
-                          value={credForm[f.key] || ''}
-                          onChange={val => setCredForm(prev => ({ ...prev, [f.key]: val }))}
-                          allowNA={f.key === 'dea_exp'}
-                          inputStyle={inputStyle}
-                          labelStyle={labelStyle}
-                        />
+                        <CredentialInput key={f.key} fieldKey={f.key} label={f.label} value={credForm[f.key] || ''} onChange={val => setCredForm(prev => ({ ...prev, [f.key]: val }))} allowNA={f.key === 'dea_exp'} />
                       ))}
                     </div>
-                    <button
-                      type="submit"
-                      disabled={savingCreds}
-                      style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: savingCreds ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}
-                    >
+                    <button type="submit" disabled={savingCreds} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: savingCreds ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                       {savingCreds ? 'Saving…' : 'Save Credentials'}
                     </button>
                   </form>
@@ -1199,14 +1278,14 @@ export default function VolunteerPage() {
 
             {/* Submit hours (non-intern) */}
             {!isIntern && (
-              <div style={card}>
+              <div style={S.card}>
                 <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Submit Hours</h2>
                 <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Submit hours worked outside of the clock-in system for admin approval.</p>
                 <form onSubmit={handleSubmitHours} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div><label style={labelStyle}>Date Worked</label><input type="date" value={hoursDate} onChange={e => setHoursDate(e.target.value)} required style={inputStyle} /></div>
-                  <div><label style={labelStyle}>Role</label><select value={hoursRole} onChange={e => setHoursRole(e.target.value)} required style={inputStyle}><option value="">— Select role —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
-                  <div><label style={labelStyle}>Hours Worked</label><input type="number" min="0.5" max="12" step="0.5" value={hoursWorked} onChange={e => setHoursWorked(e.target.value)} required placeholder="e.g. 4" style={inputStyle} /></div>
-                  <div><label style={labelStyle}>Notes (optional)</label><textarea value={hoursNotes} onChange={e => setHoursNotes(e.target.value)} rows={2} placeholder="Any context for the admin..." style={{ ...inputStyle, resize: 'vertical' }} /></div>
+                  <div><label style={S.label}>Date Worked</label><input type="date" value={hoursDate} onChange={e => setHoursDate(e.target.value)} required style={S.input} /></div>
+                  <div><label style={S.label}>Role</label><select value={hoursRole} onChange={e => setHoursRole(e.target.value)} required style={S.input}><option value="">— Select role —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+                  <div><label style={S.label}>Hours Worked</label><input type="number" min="0.5" max="12" step="0.5" value={hoursWorked} onChange={e => setHoursWorked(e.target.value)} required placeholder="e.g. 4" style={S.input} /></div>
+                  <div><label style={S.label}>Notes (optional)</label><textarea value={hoursNotes} onChange={e => setHoursNotes(e.target.value)} rows={2} placeholder="Any context for the admin..." style={{ ...S.input, resize: 'vertical' }} /></div>
                   <button type="submit" disabled={submittingHours || !hoursDate || !hoursRole || !hoursWorked} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: submittingHours ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{submittingHours ? 'Submitting...' : 'Submit Hours'}</button>
                 </form>
                 {myHoursSubmissions.length > 0 && (
@@ -1227,20 +1306,14 @@ export default function VolunteerPage() {
             )}
 
             {/* Push notifications */}
-            <div style={card}>
+            <div style={S.card}>
               <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Notifications</h2>
               <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Get notified about new messages and shift updates.</p>
               <button
                 onClick={async () => {
                   setPushLoading(true)
-                  if (pushEnabled) {
-                    await unsubscribeFromPush(supabase, user.id)
-                    setPushEnabled(false)
-                  } else {
-                    const sub = await subscribeToPush(supabase, user.id)
-                    setPushEnabled(!!sub)
-                    if (!sub) showToast('Notification permission denied', 'error')
-                  }
+                  if (pushEnabled) { await unsubscribeFromPush(supabase, user.id); setPushEnabled(false) }
+                  else { const sub = await subscribeToPush(supabase, user.id); setPushEnabled(!!sub); if (!sub) showToast('Notification permission denied', 'error') }
                   setPushLoading(false)
                 }}
                 disabled={pushLoading}
@@ -1251,12 +1324,12 @@ export default function VolunteerPage() {
             </div>
 
             {/* Change password */}
-            <div style={card}>
+            <div style={S.card}>
               <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Change Password</h2>
               <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Must be at least 6 characters.</p>
               <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <div><label style={labelStyle}>New Password</label><input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required placeholder="New password" style={inputStyle} /></div>
-                <div><label style={labelStyle}>Confirm New Password</label><input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required placeholder="Repeat new password" style={inputStyle} /></div>
+                <div><label style={S.label}>New Password</label><input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required placeholder="New password" style={S.input} /></div>
+                <div><label style={S.label}>Confirm New Password</label><input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required placeholder="Repeat new password" style={S.input} /></div>
                 <button type="submit" disabled={changingPassword || !newPassword || !confirmPassword} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: changingPassword ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{changingPassword ? 'Updating...' : 'Update Password'}</button>
               </form>
             </div>
