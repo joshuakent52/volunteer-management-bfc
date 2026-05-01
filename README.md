@@ -26,13 +26,10 @@ A full-stack volunteer management platform for **Bingham Family Clinic**, built 
   - [Callouts & Coverage](#callouts--coverage)
   - [Provider Credentials](#provider-credentials)
 - [Data Architecture](#data-architecture)
-- [Time Handling](#time-handling)
 - [Messaging System](#messaging-system)
 - [Push Notifications](#push-notifications)
 - [PWA](#pwa)
-- [Performance Optimizations](#performance-optimizations)
 - [Environment Variables](#environment-variables)
-- [Getting Started](#getting-started)
 
 ---
 
@@ -46,8 +43,8 @@ The BFC Volunteer Portal replaces manual spreadsheets and group-chat coordinatio
 
 | Layer | Technology |
 |---|---|
-| Framework | Next.js 15 (App Router, `'use client'` components) |
-| Backend / Database | Supabase (PostgreSQL + Auth + Storage + RPC) |
+| Framework | Next.js 15 |
+| Backend / Database | Supabase |
 | Auth | Supabase Auth (email/password, session persisted to `localStorage` under key `bingham-app`) |
 | File Storage | Supabase Storage |
 | Push Notifications | Web Push API (`web-push` v3) |
@@ -113,7 +110,8 @@ The app has three distinct authenticated views, each with its own route. Role re
 | `/admin` | Admins only | `role = 'admin'` in `profiles` |
 | `/clinical-supervisor` | Clinical supervisors + admins | `default_role = 'Clinical Supervisor'` or `role = 'admin'` |
 
-Users with `role = 'admin'` or `default_role = 'Clinical Supervisor'` see a **Switch View** button to toggle between their primary view and `/volunteer`. If `'affiliation' = 'intern'`, a weekly reporting hours feature is seen, and if `'affiliation' = 'provider'`, they are allowed to change the experiation dates of their credentials.
+Users with `role = 'admin'` or `default_role = 'Clinical Supervisor'` see a **Switch View** button to toggle between their primary view and `/volunteer`.
+
 ---
 
 ## Features by Role
@@ -235,7 +233,7 @@ Located at `/clinical-supervisor/page.js`. Read-only. Scoped to the shifts the C
 
 ### Shifts & Scheduling
 
-The clinic runs **weekday shifts only**, Monday–Friday:
+The clinic runs reoccuring **weekday shifts only**, Monday–Friday.:
 
 | Shift ID | Window |
 |---|---|
@@ -268,25 +266,6 @@ Five credential expiration dates are tracked per provider: License, BLS, DEA, FT
 ## Data Architecture
 
 See Supabase.
-
-## Time Handling
-
-All timestamps are stored in UTC. The clinic operates in **Mountain Time (America/Denver)**, which is UTC-7 (MDT) in summer and UTC-6 (MST) in winter. `lib/timeUtils.js` provides:
-
-| Function | Purpose |
-|---|---|
-| `getMountainNow()` | Current `Date` object representing Mountain Time wall clock |
-| `getMountainLabel()` | Returns `"MDT"` or `"MST"` based on current UTC offset |
-| `asUTC(ts)` | Parses a timestamp string to a UTC `Date`, appending `Z` if no timezone suffix |
-| `formatMountain(ts)` | `hh:mm AM/PM` in Mountain Time |
-| `formatDate(ts)` | `Mon D` in Mountain Time |
-| `formatDateTime(ts)` | `Mon D, hh:mm AM/PM` in Mountain Time |
-| `toMountainInputValue(ts)` | UTC ISO → `datetime-local` input value in Mountain Time |
-| `fromMountainInputValue(val)` | `datetime-local` value in Mountain Time → UTC ISO string (DST-safe iterative correction) |
-
-`fromMountainInputValue` uses an iterative correction loop (up to 4 passes) to correctly handle DST boundary inputs where a naive `UTC+7` offset would be wrong.
-
----
 
 ## Messaging System
 
