@@ -584,7 +584,10 @@ export default function AdminPage() {
       const { data: { session } } = await supabase.auth.getSession()
       const user = session?.user
       if (!user) { window.location.href = '/'; return }
-      const { data: p } = await supabase.from('profiles').select('id, full_name, email, role').eq('id', user.id).single()
+      const { data: p } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, role, default_role')
+        .eq('id', user.id).single()
       if (p?.role !== 'admin') { window.location.href = '/volunteer'; return }
       setProfile(p)
       await Promise.all([loadVolunteers(), loadActiveShifts(), loadCallouts(), loadSchedule(), loadCoverRequests()])
@@ -872,7 +875,7 @@ export default function AdminPage() {
     const { data, error } = await supabase.auth.signUp({ email: newEmail, password: newPassword })
     if (error) { showMessage(error.message, 'error'); setCreating(false); return }
     const { error: pe } = await supabase.from('profiles').insert({
-      id: data.user.id, full_name: newName, email: newEmail, role: newRole,
+      id: data.user.id, full_name: newName, email: newEmail, role: 'volunteer',
       affiliation: newAffiliation||null, credentials: newCredentials || null,
       phone: newPhone||null, languages: newLanguages||null,
       sma_name: isMission ? (newSmaName||null) : null, sma_contact: isMission ? (newSmaContact||null) : null,
@@ -1302,9 +1305,17 @@ export default function AdminPage() {
                   <div><label style={labelStyle}>Full Name</label><input value={editForm.full_name} onChange={e => setEditForm({...editForm, full_name: e.target.value})} style={inputStyle} /></div>
                   <div><label style={labelStyle}>Phone</label><input value={editForm.phone} onChange={e => setEditForm({...editForm, phone: e.target.value})} placeholder="xxx-xxx-xxxx" style={inputStyle} /></div>
                   <div><label style={labelStyle}>Affiliation</label><select value={editForm.affiliation} onChange={e => setEditForm({...editForm, affiliation: e.target.value})} style={inputStyle}><option value="">— Select —</option><option value="missionary">Missionary</option><option value="intern">Intern</option><option value="student">Student</option><option value="volunteer">Volunteer</option><option value="provider">Provider</option></select></div>
-                  <div><label style={labelStyle}>Credentials / Skills</label><input type="text" value={editForm.credentials} onChange={e => setEditForm({...editForm, credentials: e.target.value})} placeholder="e.g. EMT, Phlebotomy" style={inputStyle} /></div>
+                  <div><label style={labelStyle}>Credentials / Skills</label><input type="text" value={editForm.credentials} onChange={e => setEditForm({...editForm, credentials: e.target.value})} placeholder="e.g. EMT, Phlebotomy" style={inputStyle} /></div>                
                   <div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Languages</label><input value={editForm.languages} onChange={e => setEditForm({...editForm, languages: e.target.value})} placeholder="e.g. Spanish, French" style={inputStyle} /></div>
-                  <div><label style={labelStyle}>Role</label><select value={editForm.role} onChange={e => setEditForm({...editForm, role: e.target.value})} style={inputStyle}><option value="volunteer">Volunteer</option><option value="admin">Admin</option></select></div>
+                  {profile?.default_role === 'director' && (  
+                    <div><label style={labelStyle}>Role</label><select value={editForm.role} onChange={e => setEditForm({...editForm, role: e.target.value})} style={inputStyle}><option value="volunteer">Volunteer</option><option value="admin">Admin</option></select></div>
+                  )}
+                  {!profile?.default_role === 'director' && (
+                    <div>
+                      <label style={labelStyle}>Role</label>
+                      <p style={{ padding: '0.75rem 1rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', fontSize: '0.95rem' }}>{editForm.role}</p>
+                    </div>
+                  )}                  
                   <div><label style={labelStyle}>Default Position</label><select value={editForm.default_role} onChange={e => setEditForm({...editForm, default_role: e.target.value})} style={inputStyle}><option value="">— None —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                   <div><label style={labelStyle}>Birthday</label><input type="date" value={editForm.birthday || ''} onChange={e => setEditForm({ ...editForm, birthday: e.target.value })} style={inputStyle} /></div>
                   {editForm.affiliation === 'missionary' && (<><div><label style={labelStyle}>SMA Name</label><input value={editForm.sma_name} onChange={e => setEditForm({...editForm, sma_name: e.target.value})} placeholder="SMA full name" style={inputStyle} /></div><div><label style={labelStyle}>SMA Contact</label><input value={editForm.sma_contact} onChange={e => setEditForm({...editForm, sma_contact: e.target.value})} placeholder="Phone or email" style={inputStyle} /></div></>)}
@@ -1628,7 +1639,6 @@ export default function AdminPage() {
                 <div><label style={labelStyle}>Affiliation</label><select value={newAffiliation} onChange={e => setNewAffiliation(e.target.value)} style={inputStyle}><option value="">— Select —</option><option value="missionary">Missionary</option><option value="student">Student</option><option value="intern">Intern</option><option value="volunteer">Volunteer</option><option value="provider">Provider</option></select></div>
                 <div><label style={labelStyle}>Credentials / Skills</label><input type="text" value={newCredentials} onChange={e => setNewCredentials(e.target.value)} placeholder="e.g. EMT, Phlebotomy" style={inputStyle} /></div>
                 <div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Languages Spoken</label><input value={newLanguages} onChange={e => setNewLanguages(e.target.value)} placeholder="e.g. Spanish, Mandarin" style={inputStyle} /></div>
-                <div><label style={labelStyle}>Role</label><select value={newRole} onChange={e => setNewRole(e.target.value)} style={inputStyle}><option value="volunteer">Volunteer</option><option value="admin">Admin</option></select></div>
                 <div><label style={labelStyle}>Default Position</label><select value={newDefaultRole} onChange={e => setNewDefaultRole(e.target.value)} style={inputStyle}><option value="">— None —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                 <div><label style={labelStyle}>Birthday</label><input type="date" value={newBirthday} onChange={e => setNewBirthday(e.target.value)} style={inputStyle} /></div>
                 {newAffiliation === 'missionary' && (<><div><label style={labelStyle}>SMA Name</label><input value={newSmaName} onChange={e => setNewSmaName(e.target.value)} placeholder="SMA full name" style={inputStyle} /></div><div><label style={labelStyle}>SMA Contact</label><input value={newSmaContact} onChange={e => setNewSmaContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div></>)}
