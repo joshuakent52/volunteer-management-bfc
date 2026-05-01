@@ -113,9 +113,7 @@ The app has three distinct authenticated views, each with its own route. Role re
 | `/admin` | Admins only | `role = 'admin'` in `profiles` |
 | `/clinical-supervisor` | Clinical supervisors + admins | `default_role = 'Clinical Supervisor'` or `role = 'admin'` |
 
-Users with `role = 'admin'` or `default_role = 'Clinical Supervisor'` see a **Switch View** button to toggle between their primary view and `/volunteer`.
-
-If `'affiliation' = 'intern'`, a weekly reporting hours feature is seen, and if `'affiliation' = 'provider'`, they are allowed to change the experiation dates of their credentials.
+Users with `role = 'admin'` or `default_role = 'Clinical Supervisor'` see a **Switch View** button to toggle between their primary view and `/volunteer`. If `'affiliation' = 'intern'`, a weekly reporting hours feature is seen, and if `'affiliation' = 'provider'`, they are allowed to change the experiation dates of their credentials.
 ---
 
 ## Features by Role
@@ -329,11 +327,11 @@ Create a `.env.local` file at the project root:
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-
-# Required for server-side push notification delivery
-VAPID_PUBLIC_KEY=your-vapid-public-key
+SUPABASE_SERVICE_ROLE_KEY = your-service-role-key
+CRON_SECRET = cron-secret
+NEXT_PUBLIC_VAPID_KEY=your-vapid-public-key
 VAPID_PRIVATE_KEY=your-vapid-private-key
-VAPID_SUBJECT=mailto:admin@yourdomain.com
+VAPID_EMAIL=mailto:admin@yourdomain.com
 ```
 
 The Supabase client is initialised once in `lib/supabase.js` and imported everywhere.
