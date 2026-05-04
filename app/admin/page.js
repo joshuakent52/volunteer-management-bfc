@@ -7,6 +7,7 @@ import DataDashboard from '../../components/DataDashboard'
 import ClinicOpenings from '../../components/ClinicOpenings'
 import Pipeline from '../../components/Pipeline'
 import Waitlist from '../../components/Waitlist'
+import LunchScheduler from '../../components/LunchScheduler'
 
 export const dynamic = 'force-dynamic'
 
@@ -961,7 +962,7 @@ export default function AdminPage() {
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
           {[
-            ['dashboard', 'Live'], ['schedule', 'Scheduling'], ['volunteers', 'Volunteers'],
+            ['dashboard', 'Live'], ['schedule', 'Scheduling'], ['lunch', 'Lunch'], ['volunteers', 'Volunteers'],
             ['pipeline', 'Pipeline'], ['shifts', 'Shifts'], ['callouts', 'Call-Outs'],
             ['hours', 'Hours'], ['audit', 'Recent Activity'], ['create', 'Add Volunteer'], ['data', 'Data'],
           ].map(([key, label]) => (
@@ -1662,7 +1663,9 @@ export default function AdminPage() {
 
         {/* ── DATA TAB ──────────────────────────────────────────────────────── */}
         {tab === 'data' && <DataDashboard supabase={supabase} />}
-
+        {tab === 'lunch' && (
+          <LunchScheduler supabase={supabase} profile={profile} />
+        )}
         {/* Toast */}
         {toast && (
           <div style={{ position: 'fixed', bottom: '1.5rem', left: '50%', transform: 'translateX(-50%)', background: toast.type === 'success' ? 'var(--accent)' : 'var(--danger)', color: toast.type === 'success' ? '#0a0f0a' : '#fff', padding: '0.75rem 1.5rem', borderRadius: '100px', fontWeight: 500, fontSize: '0.9rem', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', zIndex: 100 }}>
