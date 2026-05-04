@@ -4,8 +4,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { LUNCH_SHIFTS } from '../lib/constants'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-
-// Days when the clinic runs (Mon–Fri only)
 const WEEKDAY_NAMES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -13,14 +11,8 @@ function getMtnToday() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
 }
 
-function getMtnDayName() {
-  const idx = new Date().toLocaleString('en-US', { timeZone: 'America/Denver', weekday: 'long' }).toLowerCase()
-  return idx
-}
-
 function formatDateDisplay(dateStr) {
   if (!dateStr) return ''
-  const [y, m, d] = dateStr.split('-')
   return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric',
   })
@@ -30,73 +22,53 @@ function formatDateDisplay(dateStr) {
 export default function LunchScheduler({ supabase, profile }) {
   const today = getMtnToday()
 
-  const [selectedDate, setSelectedDate]   = useState(today)
-  const [scheduledVols, setScheduledVols] = useState([])   // volunteers scheduled that day
-  const [assignments, setAssignments]     = useState([])   // existing lunch_assignments rows
-  const [loading, setLoading]             = useState(false)
-  const [saving, setSaving]               = useState(null)  // volunteer_id being saved
-  const [toast, setToast]                 = useState(null)
-  const [dragOver, setDragOver]           = useState(null)  // lunch_shift id being dragged over
+  const [selectedDate, setSelectedDate] = useState(today)
+  const [scheduledVols, setScheduledVols] = useState([])
+  const [assignments, setAssignments] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(null)
+  const [toast, setToast] = useState(null)
+  const [dragOver, setDragOver] = useState(null)
 
   // ── Load data whenever date changes ──────────────────────────────────────
-    const loadData = useCallback(async (date) => {
-        setLoading(true)
+  const loadData = useCallback(async (date) => {
+    setLoading(true)
 
-        const dateObj  = new Date(date + 'T12:00:00')
-        const dayIndex = dateObj.getDay()
-        const dayName  = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
+    const dateObj  = new Date(date + 'T12:00:00')
+    const dayIndex = dateObj.getDay()
+    const dayName  = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
 
-        const [{ data: schedRows }, { data: lunches }] = await Promise.all([
-        supabase
-            .from('schedule')
-            .select('volunteer_id, shift_time, role, profiles(id, full_name, default_role)')
-            .eq('day_of_week', dayName)
-            .not('volunteer_id', 'is', null),
-        supabase
-            .from('lunch_assignments')
-            .select('id, volunteer_id, lunch_shift, notes')
-            .eq('assignment_date', date),
-        ])
+    const [{ data: schedRows }, { data: lunches }] = await Promise.all([
+      supabase
+        .from('schedule')
+        .select('volunteer_id, shift_time, role, profiles(id, full_name, default_role)')
+        .eq('day_of_week', dayName)
+        .not('volunteer_id', 'is', null),
+      supabase
+        .from('lunch_assignments')
+        .select('id, volunteer_id, lunch_shift, notes')
+        .eq('assignment_date', date),
+    ])
 
-        // ── CHANGED: group shifts per volunteer, then filter to both 10-2 AND 2-6 ──
-        const volMap = {}  // volunteer_id → { profile, shifts: Set }
-        for (const row of (schedRows || [])) {
-        if (!row.profiles) continue
-        if (!volMap[row.volunteer_id]) {
-            volMap[row.volunteer_id] = {
-            id:           row.volunteer_id,
-            full_name:    row.profiles.full_name,
-            default_role: row.profiles.default_role,
-            shifts:       new Set(),
-            }
-        }
-        volMap[row.volunteer_id].shifts.add(row.shift_time)
-        }
-
-        const vols = Object.values(volMap)
-        .filter(v => v.shifts.has('10-2') && v.shifts.has('2-6'))
-        .map(({ shifts, ...rest }) => rest)  // drop the shifts Set before storing
-        .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
-        // ── END CHANGE ──
-
-        setScheduledVols(vols)
-        setAssignments(lunches || [])
-        setLoading(false)
-    }, [supabase])
-
-    // Deduplicate volunteers (someone may have multiple roles same day)
-    const seen = new Set()
-    const vols = []
+    // Group shifts per volunteer, then filter to only those with both 10-2 AND 2-6
+    const volMap = {}
     for (const row of (schedRows || [])) {
-      if (!row.profiles || seen.has(row.volunteer_id)) continue
-      seen.add(row.volunteer_id)
-      vols.push({
-        id:           row.volunteer_id,
-        full_name:    row.profiles.full_name,
-        default_role: row.profiles.default_role,
-      })
+      if (!row.profiles) continue
+      if (!volMap[row.volunteer_id]) {
+        volMap[row.volunteer_id] = {
+          id:           row.volunteer_id,
+          full_name:    row.profiles.full_name,
+          default_role: row.profiles.default_role,
+          shifts:       new Set(),
+        }
+      }
+      volMap[row.volunteer_id].shifts.add(row.shift_time)
     }
-    vols.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
+
+    const vols = Object.values(volMap)
+      .filter(v => v.shifts.has('10-2') && v.shifts.has('2-6'))
+      .map(({ shifts, ...rest }) => rest)
+      .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
 
     setScheduledVols(vols)
     setAssignments(lunches || [])
@@ -106,7 +78,7 @@ export default function LunchScheduler({ supabase, profile }) {
   useEffect(() => { loadData(selectedDate) }, [selectedDate, loadData])
 
   // ── Derived maps ──────────────────────────────────────────────────────────
-  const assignmentMap = {}  // volunteer_id → lunch_shift (1|2|null)
+  const assignmentMap = {}
   for (const a of assignments) assignmentMap[a.volunteer_id] = a.lunch_shift
 
   const slotVols = {
@@ -123,7 +95,6 @@ export default function LunchScheduler({ supabase, profile }) {
     let error
     if (existing) {
       if (existing.lunch_shift === lunchShift) {
-        // Clicking the same slot — unassign
         ;({ error } = await supabase
           .from('lunch_assignments')
           .delete()
@@ -148,7 +119,6 @@ export default function LunchScheduler({ supabase, profile }) {
     if (error) {
       showToast(error.message, 'error')
     } else {
-      // Optimistic local update
       setAssignments(prev => {
         const without = prev.filter(a => a.volunteer_id !== volunteerId)
         const same    = existing && existing.lunch_shift === lunchShift
@@ -168,7 +138,6 @@ export default function LunchScheduler({ supabase, profile }) {
     setSaving(null)
   }
 
-  // Drag-and-drop helpers
   function onDragStart(e, volunteerId) {
     e.dataTransfer.setData('volunteer_id', volunteerId)
     e.dataTransfer.effectAllowed = 'move'
@@ -189,13 +158,13 @@ export default function LunchScheduler({ supabase, profile }) {
   const isToday = selectedDate === today
 
   // ── Styles ────────────────────────────────────────────────────────────────
-  const card      = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }
-  const inputSt   = { padding: '0.65rem 1rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none', fontFamily: 'DM Sans, sans-serif' }
-  const labelSt   = { display: 'block', fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '0.35rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
+  const card    = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }
+  const inputSt = { padding: '0.65rem 1rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none', fontFamily: 'DM Sans, sans-serif' }
+  const labelSt = { display: 'block', fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '0.35rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
 
   const slotColors = {
-    1: { bg: 'rgba(251,146,60,0.07)', border: '#172a3b', text: '#92a6b9', pill: 'rgba(251,146,60,0.15)', pillBorder: '#283b4c' },
-    2: { bg: 'rgba(96,165,250,0.07)', border: 'rgba(96,165,250,0.45)', text: '#02416b', pill: 'rgba(96,165,250,0.12)', pillBorder: 'rgba(96,165,250,0.35)' },
+    1: { bg: 'rgba(251,146,60,0.07)', border: 'rgba(251,146,60,0.45)', text: '#f97316', pill: 'rgba(251,146,60,0.15)', pillBorder: 'rgba(251,146,60,0.45)' },
+    2: { bg: 'rgba(96,165,250,0.07)', border: 'rgba(96,165,250,0.45)', text: '#60a5fa', pill: 'rgba(96,165,250,0.12)', pillBorder: 'rgba(96,165,250,0.35)' },
   }
 
   return (
