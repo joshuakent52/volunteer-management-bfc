@@ -39,25 +39,50 @@ export default function LunchScheduler({ supabase, profile }) {
   const [dragOver, setDragOver]           = useState(null)  // lunch_shift id being dragged over
 
   // ── Load data whenever date changes ──────────────────────────────────────
-  const loadData = useCallback(async (date) => {
-    setLoading(true)
+    const loadData = useCallback(async (date) => {
+        setLoading(true)
 
-    const dateObj  = new Date(date + 'T12:00:00')
-    const dayIndex = dateObj.getDay() // 0 = Sun
-    const dayName  = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
+        const dateObj  = new Date(date + 'T12:00:00')
+        const dayIndex = dateObj.getDay()
+        const dayName  = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
 
-    // 1. Volunteers scheduled for that day (any shift that day)
-    const [{ data: schedRows }, { data: lunches }] = await Promise.all([
-      supabase
-        .from('schedule')
-        .select('volunteer_id, shift_time, role, profiles(id, full_name, default_role)')
-        .eq('day_of_week', dayName)
-        .not('volunteer_id', 'is', null),
-      supabase
-        .from('lunch_assignments')
-        .select('id, volunteer_id, lunch_shift, notes')
-        .eq('assignment_date', date),
-    ])
+        const [{ data: schedRows }, { data: lunches }] = await Promise.all([
+        supabase
+            .from('schedule')
+            .select('volunteer_id, shift_time, role, profiles(id, full_name, default_role)')
+            .eq('day_of_week', dayName)
+            .not('volunteer_id', 'is', null),
+        supabase
+            .from('lunch_assignments')
+            .select('id, volunteer_id, lunch_shift, notes')
+            .eq('assignment_date', date),
+        ])
+
+        // ── CHANGED: group shifts per volunteer, then filter to both 10-2 AND 2-6 ──
+        const volMap = {}  // volunteer_id → { profile, shifts: Set }
+        for (const row of (schedRows || [])) {
+        if (!row.profiles) continue
+        if (!volMap[row.volunteer_id]) {
+            volMap[row.volunteer_id] = {
+            id:           row.volunteer_id,
+            full_name:    row.profiles.full_name,
+            default_role: row.profiles.default_role,
+            shifts:       new Set(),
+            }
+        }
+        volMap[row.volunteer_id].shifts.add(row.shift_time)
+        }
+
+        const vols = Object.values(volMap)
+        .filter(v => v.shifts.has('10-2') && v.shifts.has('2-6'))
+        .map(({ shifts, ...rest }) => rest)  // drop the shifts Set before storing
+        .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
+        // ── END CHANGE ──
+
+        setScheduledVols(vols)
+        setAssignments(lunches || [])
+        setLoading(false)
+    }, [supabase])
 
     // Deduplicate volunteers (someone may have multiple roles same day)
     const seen = new Set()
