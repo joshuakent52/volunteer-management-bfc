@@ -1,11 +1,9 @@
-# volunteer-management
-
 This repository is publicly visible for portfolio and review purposes only.
 Commercial or other use requires written permission.
 
 # BFC Volunteer Portal
 
-A full-stack volunteer management platform for **Bingham Family Clinic**, built with Next.js 15 and Supabase. The app is installable as a PWA and covers the full lifecycle of clinic volunteer operations — scheduling, attendance, callouts, shift coverage, messaging, and administrative oversight.
+A full-stack volunteer management platform for **Bingham Family Free Clinic**, built with Next.js 15 and Supabase. The app is installable as a PWA and covers the full lifecycle of clinic volunteer operations — scheduling, attendance, callouts, shift coverage, messaging, and administrative oversight.
 
 ---
 
@@ -105,7 +103,7 @@ The app has three distinct authenticated views, each with its own route. Role re
 |---|---|---|
 | `/volunteer` | All authenticated users | Default for `role = 'volunteer'` |
 | `/admin` | Admins only | `role = 'admin'` in `profiles` |
-| `/clinical-supervisor` | Clinical supervisors + admins | `default_role = 'Clinical Supervisor'` or `role = 'admin'` |
+| `/clinical-supervisor` | Clinical supervisors | `default_role = 'Clinical Supervisor'`|
 
 Users with `role = 'admin'` or `default_role = 'Clinical Supervisor'` see a **Switch View** button to toggle between their primary view and `/volunteer`.
 
@@ -168,14 +166,20 @@ Located at `/admin/page.js`. Uses a `loadedTabs` ref to prevent re-fetching on t
 - Per-role assignment with optional start/end date, week pattern, and schedule note
 - `ROLE_SUGGESTIONS` cap enforcement (warns when a role slot is full)
 - Date picker to preview schedule on a specific date, showing callout/cover status inline
-- Waitlist and Clinic Openings sub-panels
+- Waitlist shows a list of onboarded volunteers waiting for a specific shift. The list filters on avaliable days and roles. 
+- Clinic openings shows a list of the slots that don't have a volunteered scheduled for the next shift.
 
 **Volunteers tab**
 - Filterable list: search, affiliation, role, default position, active/inactive toggle
 - Provider Credentials Summary Banner — collapsible alert listing any expired or expiring-soon credentials across all active providers
 - Volunteer detail: full profile, edit form, status change (deactivate with reason / reactivate), recent shifts (last 10, lazy), recurring schedule (lazy), total hours (fetched on open)
 
-**Pipeline tab** — recruitment / onboarding pipeline (see `Pipeline.jsx`)
+**Pipeline tab**
+- View new volunteer applications, and either accept or reject. PDF's are viewable.
+- View applications with a scheduled interview, and either accept or reject post-interview.
+- View rejected applications.
+- Onboarding tab, which allows admin to enter in needed credentials, id, default position, birthday, affiliation, affiliation specific information, avaliability, etc.. 
+- Once onboarding is complete, the application is automatically added to the waitlist.
 
 **Shifts tab**
 - Paginated shift log (25 at a time, "load more")
@@ -201,7 +205,12 @@ Located at `/admin/page.js`. Uses a `loadedTabs` ref to prevent re-fetching on t
 - Creates a Supabase Auth account + `profiles` row in one form
 - Affiliation-conditional fields: missionary (SMA info), student (school/major), intern (advisor/school/dept), provider (credential dates)
 
-**Data tab** — aggregate charts and statistics (see `DataDashboard.jsx`)
+**Data tab**
+- Display total hours volunteered at the clinic, filtered by month, year, or affiliation.
+- Career no-shows per individuals are shown. When selected, a banner appears outlining which shifts have been skipped. No-shows are shifts where an individual niether clocked in or called-out.
+- Career late apperance per individual. Sorted by frequency, same reporting features as no-shows.
+- Filterable report of volunteer hours per individual by month, year, or affiliation.
+- Missing information within profiles is highlighted.
 
 ---
 
