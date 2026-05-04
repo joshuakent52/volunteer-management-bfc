@@ -913,7 +913,7 @@ export default function VolunteerPage() {
             )}
 
             {lunchAssignment && (
-              <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: '#92a6b9', border: '1px solid rgba(19, 90, 115, 0.35)', borderRadius: '8px' }}>
+              <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: '#b8cee3', border: '1px solid rgba(19, 90, 115, 0.35)', borderRadius: '8px' }}>
                 <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>Your Lunch Slot</p>
                 <p style={{ fontWeight: 600, color: '#02416b', fontSize: '0.95rem' }}>
                   {lunchAssignment.lunch_shift === 1 ? 'Shift 1 · 12:30–1:00 PM' : 'Shift 2 · 1:00–1:30 PM'}
