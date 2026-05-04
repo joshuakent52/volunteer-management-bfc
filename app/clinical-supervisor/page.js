@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 import { getMountainNow, getMountainLabel, asUTC, formatMountain } from '../../lib/timeUtils'
+import LunchScheduler from '../../components/LunchScheduler'
 
 function minutesSince(ts) {
   if (!ts) return null
@@ -414,6 +415,7 @@ export default function CSPage() {
             ['live', 'Live'],
             ['schedule', 'Schedule'],
             ['languages', 'Language Coverage']
+            ['lunch', 'Lunch']
           ].map(([key, label]) => (
             <button
               key={key}
@@ -661,6 +663,10 @@ export default function CSPage() {
               </div>
             )}
 
+            {tab === 'lunch' && (
+              <LunchScheduler supabase={supabase} profile={myProfile} />
+            )}
+            
             {/* Per-shift breakdown — my shifts only */}
             {myShiftCombos.length === 0 ? (
               <div style={card}><p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No scheduled shifts on record.</p></div>

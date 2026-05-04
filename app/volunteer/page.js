@@ -218,6 +218,7 @@ export default function VolunteerPage() {
   // ── Clock tab state ───────────────────────────────────────────────────────
   const [activeShift, setActiveShift]   = useState(null)
   const [clockLoading, setClockLoading] = useState(false)
+  const [lunchAssignment, setLunchAssignment] = useState(null)
 
   // ── Schedule tab state (lazy) ─────────────────────────────────────────────
   const [schedule, setSchedule] = useState([])
@@ -302,7 +303,6 @@ export default function VolunteerPage() {
     if (!user) { window.location.href = '/'; return }
     setUser(user)
 
-    // Fetch only the columns we actually render
     const { data: profileData } = await supabase
       .from('profiles')
       .select('id, full_name, role, default_role, affiliation, license_exp, bls_exp, dea_exp, tb_exp')
@@ -319,7 +319,6 @@ export default function VolunteerPage() {
       })
     }
 
-    // Active shift — needed for the status banner on every tab
     const { data: open } = await supabase
       .from('shifts')
       .select('id, clock_in, role')
@@ -328,9 +327,16 @@ export default function VolunteerPage() {
       .maybeSingle()
     setActiveShift(open || null)
 
-    // Clock tab is the default — also fetch schedule (needed for clock-in role resolution)
-    await fetchScheduleTab(user.id)
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
+    const { data: lunch } = await supabase
+      .from('lunch_assignments')
+      .select('lunch_shift')
+      .eq('volunteer_id', user.id)
+      .eq('assignment_date', today)
+      .maybeSingle()
+    setLunchAssignment(lunch || null)
 
+    await fetchScheduleTab(user.id)
     setLoading(false)
   }
 
@@ -905,6 +911,16 @@ export default function VolunteerPage() {
                 {clockLoading ? 'Processing...' : 'Clock In'}
               </button>
             )}
+
+            {lunchAssignment && (
+              <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: 'rgba(96,165,250,0.12)', border: '1px solid rgba(19, 90, 115, 0.35)', borderRadius: '8px' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>Your Lunch Slot</p>
+                <p style={{ fontWeight: 600, color: '#02416b', fontSize: '0.95rem' }}>
+                  {lunchAssignment.lunch_shift === 1 ? 'Shift 1 · 12:30–1:00 PM' : 'Shift 2 · 1:00–1:30 PM'}
+                </p>
+              </div>
+            )}
+
           </div>
         )}
 
