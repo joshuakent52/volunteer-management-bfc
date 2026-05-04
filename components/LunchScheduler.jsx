@@ -93,6 +93,8 @@ export default function LunchScheduler({ supabase, profile }) {
     const existing = assignments.find(a => a.volunteer_id === volunteerId)
 
     let error
+    let inserted = null
+
     if (existing) {
       if (existing.lunch_shift === lunchShift) {
         ;({ error } = await supabase
@@ -106,14 +108,16 @@ export default function LunchScheduler({ supabase, profile }) {
           .eq('id', existing.id))
       }
     } else {
-      ;({ error } = await supabase
+      ;({ data: inserted, error } = await supabase
         .from('lunch_assignments')
         .insert({
           volunteer_id:    volunteerId,
           assignment_date: selectedDate,
           lunch_shift:     lunchShift,
           assigned_by:     profile?.id,
-        }))
+        })
+        .select('id, volunteer_id, lunch_shift')
+        .single())
     }
 
     if (error) {
@@ -122,7 +126,10 @@ export default function LunchScheduler({ supabase, profile }) {
       setAssignments(prev => {
         const without = prev.filter(a => a.volunteer_id !== volunteerId)
         const same    = existing && existing.lunch_shift === lunchShift
-        return same ? without : [...without, { volunteer_id: volunteerId, lunch_shift: lunchShift }]
+        if (same) return without
+        // Use the real row (with id) if it was a fresh insert, otherwise patch existing
+        const newRow = inserted ?? { ...existing, lunch_shift: lunchShift }
+        return [...without, newRow]
       })
     }
     setSaving(null)

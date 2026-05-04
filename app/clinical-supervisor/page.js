@@ -414,7 +414,7 @@ export default function CSPage() {
          {[
             ['live', 'Live'],
             ['schedule', 'Schedule'],
-            ['languages', 'Language Coverage']
+            ['languages', 'Language Coverage'],
             ['lunch', 'Lunch']
           ].map(([key, label]) => (
             <button
@@ -663,10 +663,6 @@ export default function CSPage() {
               </div>
             )}
 
-            {tab === 'lunch' && (
-              <LunchScheduler supabase={supabase} profile={myProfile} />
-            )}
-            
             {/* Per-shift breakdown — my shifts only */}
             {myShiftCombos.length === 0 ? (
               <div style={card}><p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No scheduled shifts on record.</p></div>
@@ -731,6 +727,10 @@ export default function CSPage() {
             </div>
 
           </div>
+        )}
+
+        {tab === 'lunch' && (
+          <LunchScheduler supabase={supabase} profile={myProfile} />
         )}
 
       </div>
