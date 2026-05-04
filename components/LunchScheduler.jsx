@@ -194,8 +194,8 @@ export default function LunchScheduler({ supabase, profile }) {
   const labelSt   = { display: 'block', fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '0.35rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
 
   const slotColors = {
-    1: { bg: 'rgba(251,146,60,0.07)', border: 'rgba(251,146,60,0.45)', text: '#f97316', pill: 'rgba(251,146,60,0.15)', pillBorder: 'rgba(251,146,60,0.45)' },
-    2: { bg: 'rgba(96,165,250,0.07)', border: 'rgba(96,165,250,0.45)', text: '#60a5fa', pill: 'rgba(96,165,250,0.12)', pillBorder: 'rgba(96,165,250,0.35)' },
+    1: { bg: 'rgba(251,146,60,0.07)', border: '#172a3b', text: '#92a6b9', pill: 'rgba(251,146,60,0.15)', pillBorder: '#283b4c' },
+    2: { bg: 'rgba(96,165,250,0.07)', border: 'rgba(96,165,250,0.45)', text: '#02416b', pill: 'rgba(96,165,250,0.12)', pillBorder: 'rgba(96,165,250,0.35)' },
   }
 
   return (
@@ -234,7 +234,7 @@ export default function LunchScheduler({ supabase, profile }) {
           {[
             { label: 'Scheduled Today', value: scheduledVols.length, color: 'var(--text)' },
             { label: 'Assigned',        value: scheduledVols.length - unassigned.length, color: 'var(--accent)' },
-            { label: 'Unassigned',      value: unassigned.length, color: unassigned.length > 0 ? '#f97316' : 'var(--muted)' },
+            { label: 'Unassigned',      value: unassigned.length, color: unassigned.length > 0 ? '#5c0303' : 'var(--muted)' },
           ].map(s => (
             <div key={s.label} style={{ ...card, padding: '0.85rem 1rem', textAlign: 'center' }}>
               <p style={{ fontSize: '1.6rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: s.color, lineHeight: 1 }}>{s.value}</p>
