@@ -163,8 +163,8 @@ export default function LunchScheduler({ supabase, profile }) {
   const labelSt = { display: 'block', fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '0.35rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
 
   const slotColors = {
-    1: { bg: 'rgba(251,146,60,0.07)', border: 'rgba(251,146,60,0.45)', text: '#f97316', pill: 'rgba(251,146,60,0.15)', pillBorder: 'rgba(251,146,60,0.45)' },
-    2: { bg: 'rgba(96,165,250,0.07)', border: 'rgba(96,165,250,0.45)', text: '#60a5fa', pill: 'rgba(96,165,250,0.12)', pillBorder: 'rgba(96,165,250,0.35)' },
+    1: { bg: 'rgba(30,64,175,0.08)', border: 'rgba(30,64,175,0.45)', text: '#3b82f6', pill: 'rgba(30,64,175,0.12)', pillBorder: 'rgba(30,64,175,0.4)' },
+    2: { bg: 'rgba(125,211,252,0.08)', border: 'rgba(125,211,252,0.45)', text: '#7dd3fc', pill: 'rgba(125,211,252,0.12)', pillBorder: 'rgba(125,211,252,0.4)' },
   }
 
   return (
