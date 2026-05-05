@@ -222,6 +222,8 @@ export default function VolunteerPage() {
 
   // ── Schedule tab state (lazy) ─────────────────────────────────────────────
   const [schedule, setSchedule] = useState([])
+  const [approvedCallouts, setApprovedCallouts] = useState([])
+  const [approvedCovers, setApprovedCovers]     = useState([])
 
   // ── Callout tab state (lazy) ──────────────────────────────────────────────
   const [calloutDate, setCalloutDate]           = useState('')
@@ -347,12 +349,36 @@ export default function VolunteerPage() {
     if (!userId || fetchedTabs.current.has('schedule')) return
     fetchedTabs.current.add('schedule')
 
-    const { data: sched } = await supabase
-      .from('schedule')
-      .select('id, day_of_week, shift_time, role, start_date, end_date, week_pattern, notes, volunteer_id')
-      .eq('volunteer_id', userId)
-      .order('day_of_week')
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
+
+    const [{ data: sched }, { data: myCallouts }, { data: myCoverReqs }] = await Promise.all([
+      supabase
+        .from('schedule')
+        .select('id, day_of_week, shift_time, role, start_date, end_date, week_pattern, notes, volunteer_id')
+        .eq('volunteer_id', userId)
+        .order('day_of_week'),
+      supabase
+        .from('callouts')
+        .select('id, callout_date, day_of_week, shift_time, role, reason')
+        .eq('volunteer_id', userId)
+        .eq('status', 'approved')
+        .gte('callout_date', today)
+        .order('callout_date', { ascending: true }),
+      supabase
+        .from('shift_cover_requests')
+        .select('id, callout_id, status, callout:callouts!shift_cover_requests_callout_id_fkey(callout_date, day_of_week, shift_time, role, volunteer:profiles!callouts_volunteer_id_fkey(full_name))')
+        .eq('volunteer_id', userId)
+        .eq('status', 'approved')
+        .gte('callouts.callout_date', today),
+    ])
+
     setSchedule(sched || [])
+    setApprovedCallouts(myCallouts || [])
+    // Filter out any cover rows where the joined callout date is in the past
+    // (the .gte filter above applies to the join, but guard here too)
+    setApprovedCovers(
+      (myCoverReqs || []).filter(r => r.callout?.callout_date >= today)
+    )
   }, [user?.id])
 
   const fetchCalloutTab = useCallback(async () => {
@@ -924,57 +950,210 @@ export default function VolunteerPage() {
           </div>
         )}
 
-        {/* ── SCHEDULE TAB ────────────────────────────────────────────────── */}
         {tab === 'schedule' && (
-          <div style={S.card}>
-            <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>My Schedule</h2>
-            {schedule.length === 0 ? (
-              <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>You have no scheduled shifts yet.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {DAYS.map(day => {
-                  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
-                  const wom = (() => {
-                    const d = new Date(today + 'T12:00:00'); let count = 0; const target = d.getDay()
-                    const check = new Date(d.getFullYear(), d.getMonth(), 1)
-                    while (check <= d) { if (check.getDay() === target) count++; check.setDate(check.getDate() + 1) }
-                    return count
-                  })()
-                  const dayEntries = schedule.filter(s => {
-                    if (s.day_of_week !== day.toLowerCase()) return false
-                    if (s.start_date && s.start_date > today) return false
-                    if (s.end_date   && s.end_date   < today) return false
-                    if (s.week_pattern === 'odd'  && wom % 2 !== 1) return false
-                    if (s.week_pattern === 'even' && wom % 2 !== 0) return false
-                    return true
-                  })
-                  if (dayEntries.length === 0) return null
-                  return (
-                    <div key={day} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                      <p style={{ fontWeight: 600, textTransform: 'capitalize', marginBottom: '0.6rem' }}>{day}</p>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                        {SHIFTS.map(shift => {
-                          const shiftEntries = dayEntries.filter(s => s.shift_time === shift)
-                          if (shiftEntries.length === 0) return null
-                          return shiftEntries.map(entry => (
-                            <div key={entry.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
-                              <div>
-                                <span style={{ fontSize: '0.9rem' }}>{entry.role}</span>
-                                {entry.week_pattern && entry.week_pattern !== 'every' && (
-                                  <span style={{ marginLeft: '0.4rem', fontSize: '0.72rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>
-                                    {entry.week_pattern === 'odd' ? '1st & 3rd week' : '2nd & 4th week'}
-                                  </span>
-                                )}
-                                {entry.notes && <span style={{ marginLeft: '0.4rem', fontSize: '0.72rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>{entry.notes}</span>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {/* ── Existing recurring schedule ── */}
+            <div style={S.card}>
+              <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>My Schedule</h2>
+              {schedule.length === 0 ? (
+                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>You have no scheduled shifts yet.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {DAYS.map(day => {
+                    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
+                    const wom = (() => {
+                      const d = new Date(today + 'T12:00:00'); let count = 0; const target = d.getDay()
+                      const check = new Date(d.getFullYear(), d.getMonth(), 1)
+                      while (check <= d) { if (check.getDay() === target) count++; check.setDate(check.getDate() + 1) }
+                      return count
+                    })()
+                    const dayEntries = schedule.filter(s => {
+                      if (s.day_of_week !== day.toLowerCase()) return false
+                      if (s.start_date && s.start_date > today) return false
+                      if (s.end_date   && s.end_date   < today) return false
+                      if (s.week_pattern === 'odd'  && wom % 2 !== 1) return false
+                      if (s.week_pattern === 'even' && wom % 2 !== 0) return false
+                      return true
+                    })
+                    if (dayEntries.length === 0) return null
+                    return (
+                      <div key={day} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <p style={{ fontWeight: 600, textTransform: 'capitalize', marginBottom: '0.6rem' }}>{day}</p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                          {SHIFTS.map(shift => {
+                            const shiftEntries = dayEntries.filter(s => s.shift_time === shift)
+                            if (shiftEntries.length === 0) return null
+                            return shiftEntries.map(entry => (
+                              <div key={entry.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                                <div>
+                                  <span style={{ fontSize: '0.9rem' }}>{entry.role}</span>
+                                  {entry.week_pattern && entry.week_pattern !== 'every' && (
+                                    <span style={{ marginLeft: '0.4rem', fontSize: '0.72rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>
+                                      {entry.week_pattern === 'odd' ? '1st & 3rd week' : '2nd & 4th week'}
+                                    </span>
+                                  )}
+                                  {entry.notes && (
+                                    <span style={{ marginLeft: '0.4rem', fontSize: '0.72rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>
+                                      {entry.notes}
+                                    </span>
+                                  )}
+                                </div>
+                                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', background: 'var(--surface)', padding: '0.2rem 0.6rem', borderRadius: '6px', whiteSpace: 'nowrap' }}>
+                                  {shift}
+                                </span>
                               </div>
-                              <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', background: 'var(--surface)', padding: '0.2rem 0.6rem', borderRadius: '6px', whiteSpace: 'nowrap' }}>{shift}</span>
-                            </div>
-                          ))
-                        })}
+                            ))
+                          })}
+                        </div>
                       </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* ── Your approved call-outs ── */}
+            {approvedCallouts.length > 0 && (
+              <div style={{
+                borderRadius: '12px',
+                border: '1px solid rgba(239,68,68,0.35)',
+                background: 'rgba(239,68,68,0.04)',
+                overflow: 'hidden',
+              }}>
+                <div style={{
+                  padding: '0.75rem 1.25rem',
+                  borderBottom: '1px solid rgba(239,68,68,0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.6rem',
+                }}>
+                  <span style={{
+                    fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.07em',
+                    textTransform: 'uppercase', padding: '0.2rem 0.6rem',
+                    borderRadius: '100px', background: 'rgba(239,68,68,0.12)',
+                    color: '#ef4444', border: '1px solid rgba(239,68,68,0.35)',
+                  }}>
+                    Approved Call-Outs
+                  </span>
+                  <span style={{ fontSize: '0.82rem', color: '#ef4444', fontWeight: 500 }}>
+                    {approvedCallouts.length} upcoming shift{approvedCallouts.length !== 1 ? 's' : ''} you won't be attending
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+                  {approvedCallouts.map((c, i) => (
+                    <div
+                      key={c.id}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '0.65rem 1.25rem',
+                        borderBottom: i < approvedCallouts.length - 1 ? '1px solid rgba(239,68,68,0.12)' : 'none',
+                        gap: '0.75rem',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                        <span style={{
+                          fontFamily: 'DM Mono, monospace', fontSize: '0.85rem',
+                          fontWeight: 600, color: 'var(--text)',
+                        }}>
+                          {new Date(c.callout_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                        </span>
+                        <span style={{
+                          fontFamily: 'DM Mono, monospace', fontSize: '0.78rem',
+                          background: 'rgba(239,68,68,0.1)', color: '#ef4444',
+                          padding: '0.15rem 0.5rem', borderRadius: '6px',
+                          border: '1px solid rgba(239,68,68,0.25)',
+                        }}>
+                          {c.shift_time}
+                        </span>
+                        {c.role && (
+                          <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{c.role}</span>
+                        )}
+                      </div>
+                      {c.reason && (
+                        <span style={{ fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic' }}>
+                          {c.reason}
+                        </span>
+                      )}
                     </div>
-                  )
-                })}
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── Shifts you're covering ── */}
+            {approvedCovers.length > 0 && (
+              <div style={{
+                borderRadius: '12px',
+                border: '1px solid rgba(2,65,107,0.4)',
+                background: 'rgba(2,65,107,0.04)',
+                overflow: 'hidden',
+              }}>
+                <div style={{
+                  padding: '0.75rem 1.25rem',
+                  borderBottom: '1px solid rgba(2,65,107,0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.6rem',
+                }}>
+                  <span style={{
+                    fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.07em',
+                    textTransform: 'uppercase', padding: '0.2rem 0.6rem',
+                    borderRadius: '100px', background: 'rgba(2,65,107,0.12)',
+                    color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)',
+                  }}>
+                    Covering
+                  </span>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--accent)', fontWeight: 500 }}>
+                    {approvedCovers.length} shift{approvedCovers.length !== 1 ? 's' : ''} you've picked up
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {approvedCovers.map((r, i) => {
+                    const c = r.callout
+                    return (
+                      <div
+                        key={r.id}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '0.65rem 1.25rem',
+                          borderBottom: i < approvedCovers.length - 1 ? '1px solid rgba(2,65,107,0.1)' : 'none',
+                          gap: '0.75rem',
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                          <span style={{
+                            fontFamily: 'DM Mono, monospace', fontSize: '0.85rem',
+                            fontWeight: 600, color: 'var(--text)',
+                          }}>
+                            {new Date(c.callout_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                          </span>
+                          <span style={{
+                            fontFamily: 'DM Mono, monospace', fontSize: '0.78rem',
+                            background: 'rgba(2,65,107,0.1)', color: 'var(--accent)',
+                            padding: '0.15rem 0.5rem', borderRadius: '6px',
+                            border: '1px solid rgba(2,65,107,0.3)',
+                          }}>
+                            {c.shift_time}
+                          </span>
+                          {c.role && (
+                            <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{c.role}</span>
+                          )}
+                        </div>
+                        {c.volunteer?.full_name && (
+                          <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>
+                            covering for <span style={{ fontWeight: 600, color: 'var(--text)' }}>{c.volunteer.full_name}</span>
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             )}
           </div>
