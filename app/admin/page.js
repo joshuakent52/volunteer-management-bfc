@@ -1453,11 +1453,6 @@ export default function AdminPage() {
                 >
                   <h2 style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
                     Pending Call-Outs
-                    {pendingCallouts.length > 0 && (
-                      <span style={{ padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>
-                        {pendingCallouts.length}
-                      </span>
-                    )}
                   </h2>
                   <span style={{ color: 'var(--muted)', fontSize: '0.85rem', transform: pendingCalloutsOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', flexShrink: 0 }}>▾</span>
                 </button>
@@ -1542,11 +1537,6 @@ export default function AdminPage() {
                   >
                     <h2 style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
                       Open Shifts — Awaiting Coverage
-                      {pendingCovers.length > 0 && (
-                        <span style={{ padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.15)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>
-                          {pendingCovers.length} request{pendingCovers.length !== 1 ? 's' : ''}
-                        </span>
-                      )}
                     </h2>
                     <span style={{ color: 'var(--muted)', fontSize: '0.85rem', transform: openShiftsOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', flexShrink: 0 }}>▾</span>
                   </button>
@@ -1583,31 +1573,6 @@ export default function AdminPage() {
                           </div>
                         )
                       })}
-                    </div>
-                  )}
-                </div>
-              )}
-        
-              {/* ── Covered / Closed (unchanged) ── */}
-              {closedCallouts.length > 0 && (
-                <div style={card}>
-                  <button onClick={() => setShowReadCallouts(!showReadCallouts)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.9rem', fontWeight: 500, padding: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span style={{ display: 'inline-block', transform: showReadCallouts ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>›</span>
-                    Covered / Closed ({closedCallouts.length})
-                  </button>
-                  {showReadCallouts && (
-                    <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {closedCallouts.map(c => (
-                        <div key={c.id} style={{ padding: '0.6rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', opacity: 0.65, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-                          <div>
-                            <span style={{ fontWeight: 500 }}>{c.profiles?.full_name}</span>
-                            <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', color: 'var(--muted)' }}>{c.callout_date} · {c.shift_time}</span>
-                          </div>
-                          <span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: c.covered_by ? 'rgba(2,65,107,0.1)' : 'rgba(239,68,68,0.08)', color: c.covered_by ? 'var(--accent)' : '#ef4444', border: `1px solid ${c.covered_by ? 'rgba(2,65,107,0.35)' : 'rgba(239,68,68,0.25)'}` }}>
-                            {c.covered_by ? 'covered' : 'denied'}
-                          </span>
-                        </div>
-                      ))}
                     </div>
                   )}
                 </div>
