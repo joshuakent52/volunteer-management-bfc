@@ -483,6 +483,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
     setCreatingProfile(true)
 
+    // 1. Create auth user
     const { data: authData, error: authErr } = await supabase.auth.signUp({ email: selected.email, password: 'BFC2025!' })
     if (authErr) { msg(authErr.message, 'error'); setCreatingProfile(false); return }
 
@@ -490,6 +491,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     const isProvider = affil === 'provider'
     const affiliData = onboardForm
 
+    // 2. Create profile row
     const { error: profileErr } = await supabase.from('profiles').insert({
       id: uid, full_name: selected.full_name, email: selected.email,
       phone: selected.phone || null, role: 'volunteer', affiliation: affil || null,
@@ -514,22 +516,49 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     })
     if (profileErr) { msg(profileErr.message, 'error'); setCreatingProfile(false); return }
 
-    await supabase.from('waitlist').insert({
+    // 3. Add to waitlist — FIX: check error explicitly instead of silently discarding
+    const { error: waitlistErr } = await supabase.from('waitlist').insert({
       volunteer_id:    uid,
-      preferred_slots: affiliData.preferred_slots,
-      preferred_roles: affiliData.preferred_roles,
+      preferred_slots: affiliData.preferred_slots ?? [],
+      preferred_roles: affiliData.preferred_roles ?? [],
       source:          'pipeline',
       added_by:        profile.id,
     })
+    if (waitlistErr) {
+      // Profile was already created — warn but don't abort so the admin isn't
+      // left in a broken state. They can manually add to waitlist if needed.
+      msg(`Profile created but waitlist insert failed: ${waitlistErr.message}`, 'error')
+    }
 
-    await supabase.from('volunteer_applications')
-      .update({ stage: 'completed', volunteer_id: uid }).eq('id', selected.id)
+    // 4. FIX: was missing `stage_updated_at`; application was updating stage correctly
+    //    but the missing timestamp could cause ordering/filtering issues elsewhere.
+    const { error: appErr } = await supabase.from('volunteer_applications')
+      .update({
+        stage:            'completed',
+        volunteer_id:     uid,
+        stage_updated_at: new Date().toISOString(),
+      })
+      .eq('id', selected.id)
+    if (appErr) {
+      msg(`Profile created but application stage update failed: ${appErr.message}`, 'error')
+    }
 
     await audit('created_volunteer', 'volunteer', uid, selected.full_name, 'from pipeline → added to waitlist')
-    msg(`Profile created for ${selected.full_name} — added to waitlist`)
+    if (!waitlistErr && !appErr) msg(`Profile created for ${selected.full_name} — added to waitlist`)
     if (onVolunteerCreated) onVolunteerCreated()
-    setSelected(null); setOnboardStep(1); setOnboardForm(EMPTY_FORM); setChecklist(EMPTY_CHECKLIST)
+
+    // 5. FIX: clear selected BEFORE loadAll() so the onboarding view closes
+    //    immediately and doesn't re-show the applicant if loadAll is slow.
+    setSelected(null)
+    setOnboardStep(1)
+    setOnboardForm(EMPTY_FORM)
+    setChecklist(EMPTY_CHECKLIST)
+
+    // 6. FIX: reload data then switch to 'recent' tab so the admin sees the
+    //    newly created volunteer right away instead of staying on the pipeline.
     await loadAll()
+    setActiveTab('recent')
+
     setCreatingProfile(false)
   }
 
