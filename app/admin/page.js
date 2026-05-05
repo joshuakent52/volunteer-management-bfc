@@ -1426,7 +1426,12 @@ export default function AdminPage() {
         {tab === 'callouts' && (() => {
           const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
           const pendingCallouts  = callouts.filter(c => (!c.status || c.status === 'pending') && c.callout_date >= todayStr)
-          const approvedCallouts = callouts.filter(c => c.status === 'approved' && !c.covered_by && c.callout_date >= todayStr)
+          const approvedCallouts = [...callouts.filter(c => c.status === 'approved' && !c.covered_by && c.callout_date >= todayStr)]
+            .sort((a, b) => {
+              const aPending = coverRequests.filter(r => r.callout_id === a.id && r.status === 'pending').length
+              const bPending = coverRequests.filter(r => r.callout_id === b.id && r.status === 'pending').length
+              return bPending - aPending
+            })
           const closedCallouts   = callouts.filter(c => c.status === 'denied' || (c.status === 'approved' && c.covered_by))
           const pendingCovers    = coverRequests.filter(r => r.status === 'pending')
         
@@ -1529,7 +1534,7 @@ export default function AdminPage() {
               </div>
         
               {/* ── Open Shifts — Awaiting Coverage (collapsible) ── */}
-              {(approvedCallouts.length > 0 || pendingCovers.length > 0) && (
+              {(approvedCallouts.length > 0 ) && (
                 <div style={card}>
                   <button
                     onClick={() => setOpenShiftsOpen(o => !o)}
