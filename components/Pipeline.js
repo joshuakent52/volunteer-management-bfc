@@ -49,6 +49,10 @@ const CHECKLIST_ITEMS = [
   { key: 'welcome_packet',            label: 'Welcome Packet',            mandatory: true,  bucket: null,                           urlKey: null                    },
   { key: 'parking_pass',              label: 'Parking Pass',              mandatory: false, bucket: 'onboarding-parking-passes',    urlKey: 'parking_pass_url'      },
 ]
+
+// Items that have actual files attached (for zip/offload)
+const FILE_CHECKLIST_ITEMS = CHECKLIST_ITEMS.filter(i => i.bucket && i.urlKey)
+
 const TOTAL_STEPS = 5
 
 const C = { blue: '#3b82f6', yellow: '#f59e0b', red: '#ef4444', green: '#22c55e', purple: '#a78bfa' }
@@ -135,15 +139,22 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
   // Pipeline state
   const [applicants,      setApplicants]      = useState([])
+  const [completed,       setCompleted]       = useState([])   // recently added
   const [loading,         setLoading]         = useState(true)
   const [loadError,       setLoadError]       = useState(null)
   const [selected,        setSelected]        = useState(null)
+  const [activeTab,       setActiveTab]       = useState('pipeline') // 'pipeline' | 'recent'
   const [stageFilter,     setStageFilter]     = useState('applied')
   const [movingStage,     setMovingStage]     = useState(false)
   const [interviewDate,   setInterviewDate]   = useState('')
   const [interviewTime,   setInterviewTime]   = useState('')
   const [savingInterview, setSavingInterview] = useState(false)
   const [creatingProfile, setCreatingProfile] = useState(false)
+
+  // Recently Added state
+  const [recentChecklist,    setRecentChecklist]    = useState({})   // { [applicantId]: checklistObj }
+  const [recentUploadingKey, setRecentUploadingKey] = useState(null) // `${applicantId}-${itemKey}`
+  const [offloadingId,       setOffloadingId]       = useState(null)
 
   // Onboarding form
   const EMPTY_FORM = {
@@ -160,7 +171,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   const [onboardStep,  setOnboardStep]  = useState(1)
   const [savingStep,   setSavingStep]   = useState(false)
 
-  // Checklist
+  // Checklist (onboarding view)
   const EMPTY_CHECKLIST = {
     confidentiality_agreement: false, tb_test: false, background_check: false,
     welcome_packet: false, parking_pass: false, id_check: false, immunization: false,
@@ -174,17 +185,68 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   const [toast, setToast] = useState(null)
 
   // Boot
-  useEffect(() => { loadApplicants() }, [])
+  useEffect(() => { loadAll() }, [])
 
   // ─── Loaders ──────────────────────────────────────────────────────────────
 
-  async function loadApplicants() {
+  async function loadAll() {
     setLoading(true); setLoadError(null)
+    const [appRes, compRes] = await Promise.all([
+      supabase.from('volunteer_applications').select('*').in('stage', STAGES).order('created_at', { ascending: false }),
+      supabase.from('volunteer_applications').select('*').eq('stage', 'completed').order('full_name', { ascending: true }),
+    ])
+    if (appRes.error)  { setLoadError(appRes.error.message);  setApplicants([]) }
+    else setApplicants(appRes.data || [])
+    if (!compRes.error) {
+      const completedApps = compRes.data || []
+      setCompleted(completedApps)
+      if (completedApps.length > 0) {
+        await loadRecentChecklists(completedApps.map(a => a.id))
+      }
+    }
+    setLoading(false)
+  }
+
+  async function loadApplicants() {
     const { data, error } = await supabase
-      .from('volunteer_applications').select('*').order('created_at', { ascending: false })
+      .from('volunteer_applications').select('*').in('stage', STAGES).order('created_at', { ascending: false })
     if (error) { setLoadError(error.message); setApplicants([]) }
     else setApplicants(data || [])
-    setLoading(false)
+  }
+
+  async function loadCompleted() {
+    const { data, error } = await supabase
+      .from('volunteer_applications').select('*').eq('stage', 'completed').order('full_name', { ascending: true })
+    if (!error && data) {
+      setCompleted(data)
+      if (data.length > 0) await loadRecentChecklists(data.map(a => a.id))
+    }
+  }
+
+  async function loadRecentChecklists(ids) {
+    if (!ids.length) return
+    const { data } = await supabase.from('onboarding_checklists').select('*').in('applicant_id', ids)
+    if (data) {
+      const map = {}
+      data.forEach(row => {
+        map[row.applicant_id] = {
+          confidentiality_agreement: row.confidentiality_agreement ?? false,
+          tb_test:          row.tb_test          ?? false,
+          background_check: row.background_check ?? false,
+          welcome_packet:   row.welcome_packet   ?? false,
+          parking_pass:     row.parking_pass     ?? false,
+          id_check:         row.id_check         ?? false,
+          immunization:     row.immunization     ?? false,
+          background_check_url: row.background_check_url ?? null,
+          id_check_url:     row.id_check_url     ?? null,
+          confidentiality_url: row.confidentiality_url ?? null,
+          immunization_url: row.immunization_url ?? null,
+          tb_test_url:      row.tb_test_url      ?? null,
+          parking_pass_url: row.parking_pass_url ?? null,
+        }
+      })
+      setRecentChecklist(map)
+    }
   }
 
   async function loadChecklist(applicantId) {
@@ -225,6 +287,18 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     setSavingStep(true)
     await supabase.from('volunteer_applications').update(patch).eq('id', applicantId)
     setSavingStep(false)
+  }
+
+  // ─── Format interview datetime ─────────────────────────────────────────────
+
+  function formatInterviewDateTime(isoString) {
+    if (!isoString) return null
+    const d = new Date(isoString)
+    const date = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+    const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+    // Only show time if it's not midnight (i.e. a time was actually set)
+    const hasTime = d.getHours() !== 0 || d.getMinutes() !== 0
+    return hasTime ? `${date} at ${time}` : date
   }
 
   // ─── Pipeline actions ─────────────────────────────────────────────────────
@@ -284,6 +358,28 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     setUploadingKey(null)
   }
 
+  // ─── Recently Added: parking pass upload ──────────────────────────────────
+
+  async function handleRecentFileUpload(applicantId, item, file) {
+    if (!file || !item.bucket || !item.urlKey) return
+    const uploadKey = `${applicantId}-${item.key}`
+    setRecentUploadingKey(uploadKey)
+    try {
+      const ext  = file.name.split('.').pop()
+      const path = `${applicantId}/${item.key}-${Date.now()}.${ext}`
+      const { error: upErr } = await supabase.storage.from(item.bucket).upload(path, file, { upsert: true })
+      if (upErr) { msg(upErr.message, 'error'); setRecentUploadingKey(null); return }
+      const existing = recentChecklist[applicantId] || { ...EMPTY_CHECKLIST }
+      const next = { ...existing, [item.urlKey]: path, parking_pass: true }
+      setRecentChecklist(prev => ({ ...prev, [applicantId]: next }))
+      const { error: dbErr } = await supabase.from('onboarding_checklists')
+        .upsert({ applicant_id: applicantId, ...next, updated_at: new Date().toISOString() }, { onConflict: 'applicant_id' })
+      if (dbErr) msg(dbErr.message, 'error')
+      else msg('Parking pass uploaded')
+    } catch (e) { msg(e.message, 'error') }
+    setRecentUploadingKey(null)
+  }
+
   async function openFile(bucket, storagePath) {
     const { data, error } = await supabase.storage.from(bucket).createSignedUrl(storagePath, 120)
     if (error) { msg('Could not open file', 'error'); return }
@@ -295,6 +391,85 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     const { data, error } = await supabase.storage.from('resumes').createSignedUrl(resumeUrl, 60)
     if (error) { msg('Could not load resume', 'error'); return }
     window.open(data.signedUrl, '_blank')
+  }
+
+  // ─── Offload: zip all files for a volunteer then mark offloaded ────────────
+
+  async function handleOffload(applicant) {
+    setOffloadingId(applicant.id)
+    try {
+      const cl = recentChecklist[applicant.id] || {}
+
+      // Collect all signed URLs for files that exist
+      const fileEntries = []
+      for (const item of FILE_CHECKLIST_ITEMS) {
+        const storagePath = cl[item.urlKey]
+        if (!storagePath) continue
+        const { data, error } = await supabase.storage.from(item.bucket).createSignedUrl(storagePath, 300)
+        if (!error && data?.signedUrl) {
+          fileEntries.push({ label: item.label, url: data.signedUrl, filename: `${item.key}.${storagePath.split('.').pop()}` })
+        }
+      }
+
+      if (fileEntries.length === 0) {
+        msg('No files to download — marking as offloaded', 'success')
+      } else {
+        // Download each file and collect as blobs for zipping
+        // We use a simple approach: fetch each file and trigger individual downloads
+        // grouped under the volunteer's name folder. For a true zip we'd need JSZip.
+        // Load JSZip dynamically if available, otherwise fall back to sequential downloads.
+        let JSZip = null
+        try {
+          // Attempt dynamic import (works if JSZip is in the bundle)
+          JSZip = (await import('jszip')).default
+        } catch (_) { /* not available */ }
+
+        if (JSZip) {
+          const zip    = new JSZip()
+          const folder = zip.folder(applicant.full_name.replace(/\s+/g, '_'))
+          for (const entry of fileEntries) {
+            try {
+              const res  = await fetch(entry.url)
+              const blob = await res.blob()
+              folder.file(entry.filename, blob)
+            } catch (e) { console.warn(`Could not fetch ${entry.label}:`, e) }
+          }
+          const zipBlob = await zip.generateAsync({ type: 'blob' })
+          const link    = document.createElement('a')
+          link.href     = URL.createObjectURL(zipBlob)
+          link.download = `${applicant.full_name.replace(/\s+/g, '_')}_files.zip`
+          link.click()
+          URL.revokeObjectURL(link.href)
+        } else {
+          // Fallback: open each signed URL in a new tab / sequential anchor downloads
+          for (const entry of fileEntries) {
+            const link    = document.createElement('a')
+            link.href     = entry.url
+            link.download = entry.filename
+            link.target   = '_blank'
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            await new Promise(r => setTimeout(r, 400)) // small delay between downloads
+          }
+        }
+      }
+
+      // Mark as offloaded in DB
+      await supabase.from('volunteer_applications')
+        .update({ stage: 'offloaded', offloaded_at: new Date().toISOString() }).eq('id', applicant.id)
+
+      await audit('offloaded_volunteer', 'volunteer', applicant.id, applicant.full_name, 'files downloaded, removed from recently added')
+      msg(`${applicant.full_name} offloaded successfully`)
+
+      // Remove from local state immediately
+      setCompleted(prev => prev.filter(a => a.id !== applicant.id))
+      setRecentChecklist(prev => { const next = { ...prev }; delete next[applicant.id]; return next })
+
+    } catch (e) {
+      msg(e.message || 'Offload failed', 'error')
+    }
+    setOffloadingId(null)
   }
 
   // ─── Create volunteer profile + auto-add to waitlist ──────────────────────
@@ -354,11 +529,11 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     msg(`Profile created for ${selected.full_name} — added to waitlist`)
     if (onVolunteerCreated) onVolunteerCreated()
     setSelected(null); setOnboardStep(1); setOnboardForm(EMPTY_FORM); setChecklist(EMPTY_CHECKLIST)
-    await loadApplicants()
+    await loadAll()
     setCreatingProfile(false)
   }
 
-  // ─── Select applicant — restore saved onboarding progress ────────────────
+  // ─── Select applicant ────────────────────────────────────────────────────
 
   function selectApplicant(a) {
     setSelected(a)
@@ -523,11 +698,12 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     if (!item.bucket || !item.urlKey) return null
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.4rem' }}>
-        <input ref={ref} type="file" accept=".pdf,image/*" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload(applicantId, item, f); e.target.value = '' }} />
+        <input ref={ref} type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,image/*" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload(applicantId, item, f); e.target.value = '' }} />
         {has
           ? <><button onClick={() => openFile(item.bucket, checklist[item.urlKey])} style={{ padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}44` }}>View File</button><button onClick={() => ref.current?.click()} style={{ padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>Replace</button></>
           : <button onClick={() => ref.current?.click()} disabled={uploading} style={{ padding: '0.2rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: uploading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', opacity: uploading ? 0.5 : 1 }}>{uploading ? 'Uploading...' : '+ Attach File'}</button>
         }
+        <span style={{ fontSize: '0.67rem', color: 'var(--muted)', opacity: 0.6, fontFamily: 'DM Mono, monospace' }}>PDF or JPG/PNG</span>
       </div>
     )
   }
@@ -570,6 +746,123 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     }
   }
 
+  // ─────────────────────── RECENTLY ADDED VIEW ──────────────────────────────
+
+  function RecentlyAdded() {
+    const parkingItem = CHECKLIST_ITEMS.find(i => i.key === 'parking_pass')
+
+    if (loading) return <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading...</p>
+
+    if (completed.length === 0) return (
+      <div style={{ ...card, textAlign: 'center', padding: '2.5rem' }}>
+        <p style={{ color: 'var(--muted)', fontSize: '0.9rem', fontStyle: 'italic' }}>No recently added volunteers.</p>
+      </div>
+    )
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        {completed.map(a => {
+          const cl           = recentChecklist[a.id] || {}
+          const hasParkPass  = !!(cl.parking_pass_url)
+          const uploadKey    = `${a.id}-parking_pass`
+          const isUploading  = recentUploadingKey === uploadKey
+          const isOffloading = offloadingId === a.id
+          const fileCount    = FILE_CHECKLIST_ITEMS.filter(i => cl[i.urlKey]).length
+          const ref          = useRef(null)
+
+          return (
+            <div key={a.id} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.1rem 1.25rem' }}>
+
+              {/* Row header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                  <div style={{ width: 38, height: 38, borderRadius: '50%', background: C.green + '18', border: `2px solid ${C.green}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '1rem', color: C.green, flexShrink: 0 }}>{a.full_name?.charAt(0)}</div>
+                  <div>
+                    <p style={{ fontWeight: 600, fontSize: '0.95rem' }}>{a.full_name}</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.15rem' }}>
+                      <p style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{a.email}</p>
+                      <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.5rem', borderRadius: '100px', background: C.green + '14', color: C.green, border: `1px solid ${C.green}33`, fontWeight: 600 }}>Active</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>{fileCount} file{fileCount !== 1 ? 's' : ''}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  {/* Parking pass */}
+                  <input
+                    ref={ref}
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp,image/*"
+                    style={{ display: 'none' }}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) handleRecentFileUpload(a.id, parkingItem, f); e.target.value = '' }}
+                  />
+                  {hasParkPass
+                    ? (
+                      <div style={{ display: 'flex', gap: '0.35rem' }}>
+                        <button onClick={() => openFile(parkingItem.bucket, cl.parking_pass_url)} style={{ padding: '0.35rem 0.75rem', borderRadius: '7px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.purple + '14', color: C.purple, border: `1px solid ${C.purple}44` }}>🅿 View Pass</button>
+                        <button onClick={() => ref.current?.click()} style={{ padding: '0.35rem 0.6rem', borderRadius: '7px', fontSize: '0.72rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>Replace</button>
+                      </div>
+                    )
+                    : (
+                      <button onClick={() => ref.current?.click()} disabled={isUploading} style={{ padding: '0.35rem 0.85rem', borderRadius: '7px', fontSize: '0.75rem', fontWeight: 600, cursor: isUploading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.purple + '10', color: C.purple, border: `1px solid ${C.purple}44`, opacity: isUploading ? 0.5 : 1 }}>
+                        {isUploading ? 'Uploading...' : '+ Parking Pass'}
+                      </button>
+                    )
+                  }
+
+                  {/* Offload button */}
+                  <button
+                    onClick={() => handleOffload(a)}
+                    disabled={isOffloading}
+                    style={{
+                      padding: '0.35rem 0.85rem', borderRadius: '7px', fontSize: '0.75rem', fontWeight: 600,
+                      cursor: isOffloading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif',
+                      background: isOffloading ? 'var(--surface)' : C.green + '10',
+                      color: isOffloading ? 'var(--muted)' : C.green,
+                      border: `1px solid ${C.green}${isOffloading ? '22' : '44'}`,
+                      opacity: isOffloading ? 0.6 : 1,
+                      display: 'flex', alignItems: 'center', gap: '0.35rem',
+                    }}
+                  >
+                    {isOffloading
+                      ? <><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', border: `2px solid ${C.green}`, borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} /> Offloading...</>
+                      : '↑ Offload to OneDrive'
+                    }
+                  </button>
+                </div>
+              </div>
+
+              {/* File summary chips */}
+              {fileCount > 0 && (
+                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
+                  {FILE_CHECKLIST_ITEMS.map(item => {
+                    const hasFile = !!(cl[item.urlKey])
+                    if (!hasFile) return null
+                    return (
+                      <button
+                        key={item.key}
+                        onClick={() => openFile(item.bucket, cl[item.urlKey])}
+                        style={{ padding: '0.2rem 0.6rem', borderRadius: '100px', fontSize: '0.7rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.blue + '0e', color: C.blue, border: `1px solid ${C.blue}33` }}
+                      >
+                        {item.label} ↗
+                      </button>
+                    )
+                  })}
+                  {!hasParkPass && (
+                    <span style={{ padding: '0.2rem 0.6rem', borderRadius: '100px', fontSize: '0.7rem', color: 'var(--muted)', border: '1px dashed var(--border)', fontFamily: 'DM Sans, sans-serif' }}>
+                      No parking pass yet
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   // ─────────────────────────── APPLICANT DETAIL ─────────────────────────────
   function ApplicantDetail({ applicant }) {
     const isApplied    = applicant.stage === 'applied'
@@ -577,8 +870,8 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     const isOnboarding = applicant.stage === 'onboarding'
     const isRejected   = applicant.stage === 'rejected'
 
-    const existingDate = applicant.interview_scheduled_at ? new Date(applicant.interview_scheduled_at).toLocaleDateString([], { dateStyle: 'medium' }) : null
-    const existingTime = applicant.interview_scheduled_at ? new Date(applicant.interview_scheduled_at).toLocaleTimeString([], { timeStyle: 'short' })  : null
+    // ── FIXED: show full date + time in interview section ──
+    const scheduledLabel = formatInterviewDateTime(applicant.interview_scheduled_at)
 
     const fields = [
       { label: 'Email',       value: applicant.email },
@@ -646,9 +939,10 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
             <p style={{ ...secLabel, color: C.yellow }}>Interview</p>
             <div style={{ padding: '1rem', background: 'var(--bg)', borderRadius: '10px', border: '1px solid var(--border)', marginBottom: '1.25rem' }}>
               <p style={{ ...secLabel, marginBottom: '0.75rem' }}>Schedule</p>
-              {existingDate && (
+              {/* ── FIXED: show full date + time ── */}
+              {scheduledLabel && (
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.85rem', padding: '0.45rem 0.9rem', borderRadius: '8px', background: C.yellow + '14', border: `1px solid ${C.yellow}44` }}>
-                  <span style={{ fontSize: '0.82rem', color: C.yellow, fontWeight: 600 }}>{existingDate}{existingTime ? ` at ${existingTime}` : ''}</span>
+                  <span style={{ fontSize: '0.82rem', color: C.yellow, fontWeight: 600 }}>{scheduledLabel}</span>
                   <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>— scheduled</span>
                 </div>
               )}
@@ -874,62 +1168,103 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-        {STAGES.map(stage => {
-          const color  = STAGE_COLORS[stage]
-          const active = stageFilter === stage
-          return (
-            <button key={stage} onClick={() => setStageFilter(stage)} style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: active ? color + '18' : 'var(--surface)', color: active ? color : 'var(--muted)', border: active ? `1px solid ${color}55` : '1px solid var(--border)' }}>
-              {STAGE_LABELS[stage]} <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', opacity: 0.8 }}>({stageCounts[stage]})</span>
-            </button>
-          )
-        })}
+      {/* ── Top-level tab switcher ── */}
+      <div style={{ display: 'flex', gap: '0.4rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
+        {[
+          { id: 'pipeline', label: 'Pipeline' },
+          { id: 'recent',   label: `Recently Added${completed.length > 0 ? ` (${completed.length})` : ''}` },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            style={{
+              padding: '0.45rem 1rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: activeTab === tab.id ? 700 : 500,
+              cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+              background: activeTab === tab.id ? C.blue + '18' : 'transparent',
+              color: activeTab === tab.id ? C.blue : 'var(--muted)',
+              border: activeTab === tab.id ? `1px solid ${C.blue}44` : '1px solid transparent',
+              transition: 'all 0.15s',
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      {loadError && (
-        <div style={{ padding: '0.85rem 1rem', borderRadius: '10px', background: C.red + '08', border: `1px solid ${C.red}33` }}>
-          <p style={{ fontSize: '0.85rem', color: C.red, fontWeight: 500 }}>Failed to load: {loadError}</p>
-        </div>
+      {/* ── Pipeline tab ── */}
+      {activeTab === 'pipeline' && (
+        <>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {STAGES.map(stage => {
+              const color  = STAGE_COLORS[stage]
+              const active = stageFilter === stage
+              return (
+                <button key={stage} onClick={() => setStageFilter(stage)} style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: active ? color + '18' : 'var(--surface)', color: active ? color : 'var(--muted)', border: active ? `1px solid ${color}55` : '1px solid var(--border)' }}>
+                  {STAGE_LABELS[stage]} <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', opacity: 0.8 }}>({stageCounts[stage]})</span>
+                </button>
+              )
+            })}
+          </div>
+
+          {loadError && (
+            <div style={{ padding: '0.85rem 1rem', borderRadius: '10px', background: C.red + '08', border: `1px solid ${C.red}33` }}>
+              <p style={{ fontSize: '0.85rem', color: C.red, fontWeight: 500 }}>Failed to load: {loadError}</p>
+            </div>
+          )}
+
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }}>
+            {loading ? (
+              <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading applicants...</p>
+            ) : filteredApplicants.length === 0 ? (
+              <p style={{ color: 'var(--muted)', fontSize: '0.9rem', fontStyle: 'italic' }}>No applicants in this stage.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                {filteredApplicants.map(a => {
+                  // ── FIXED: show date + time in the list card ──
+                  const interviewLabel = formatInterviewDateTime(a.interview_scheduled_at)
+                  return (
+                    <div key={a.id} onClick={() => selectApplicant(a)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg)', cursor: 'pointer', transition: 'border-color 0.15s' }} onMouseEnter={e => e.currentTarget.style.borderColor = C.blue} onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: C.blue, fontSize: '0.95rem', flexShrink: 0 }}>{a.full_name?.charAt(0)}</div>
+                        <div>
+                          <p style={{ fontWeight: 500, fontSize: '0.9rem' }}>{a.full_name}</p>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <p style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{a.email}</p>
+                            {/* ── FIXED: full date + time label ── */}
+                            {interviewLabel && (
+                              <span style={{ fontSize: '0.72rem', color: C.yellow, fontWeight: 600 }}>{interviewLabel}</span>
+                            )}
+                            {a.stage === 'onboarding' && (
+                              <span style={{ display: 'flex', gap: '0.2rem' }}>
+                                {[a.onboard_affiliation, a.onboard_birthday, a.onboard_default_role].map((v, i) => (
+                                  <span key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: v ? C.green : 'var(--border)' }} />
+                                ))}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <StagePill stage={a.stage} />
+                        {a.created_at && <span style={{ fontSize: '0.75rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>{new Date(a.created_at).toLocaleDateString()}</span>}
+                        <span style={{ color: 'var(--muted)' }}>›</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </>
       )}
 
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }}>
-        {loading ? (
-          <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading applicants...</p>
-        ) : filteredApplicants.length === 0 ? (
-          <p style={{ color: 'var(--muted)', fontSize: '0.9rem', fontStyle: 'italic' }}>No applicants in this stage.</p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-            {filteredApplicants.map(a => (
-              <div key={a.id} onClick={() => selectApplicant(a)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg)', cursor: 'pointer', transition: 'border-color 0.15s' }} onMouseEnter={e => e.currentTarget.style.borderColor = C.blue} onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: C.blue, fontSize: '0.95rem', flexShrink: 0 }}>{a.full_name?.charAt(0)}</div>
-                  <div>
-                    <p style={{ fontWeight: 500, fontSize: '0.9rem' }}>{a.full_name}</p>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <p style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{a.email}</p>
-                      {a.interview_scheduled_at && <span style={{ fontSize: '0.72rem', color: C.yellow, fontWeight: 600 }}>{new Date(a.interview_scheduled_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>}
-                      {a.stage === 'onboarding' && (
-                        <span style={{ display: 'flex', gap: '0.2rem' }}>
-                          {[a.onboard_affiliation, a.onboard_birthday, a.onboard_default_role].map((v, i) => (
-                            <span key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: v ? C.green : 'var(--border)' }} />
-                          ))}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <StagePill stage={a.stage} />
-                  {a.created_at && <span style={{ fontSize: '0.75rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>{new Date(a.created_at).toLocaleDateString()}</span>}
-                  <span style={{ color: 'var(--muted)' }}>›</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* ── Recently Added tab ── */}
+      {activeTab === 'recent' && <RecentlyAdded />}
 
       {toast && <Toast toast={toast} />}
+
+      {/* Spinner keyframe */}
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </div>
   )
 }
