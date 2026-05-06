@@ -418,6 +418,16 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     try {
       const cl = recentChecklist[applicant.id] || {}
       const fileEntries = []
+
+      // Include resume submitted with the original application
+      if (applicant.resume_url) {
+        const { data: rData, error: rErr } = await supabase.storage.from('resumes').createSignedUrl(applicant.resume_url, 300)
+        if (!rErr && rData?.signedUrl) {
+          const ext = applicant.resume_url.split('.').pop()
+          fileEntries.push({ label: 'Resume', url: rData.signedUrl, filename: `resume.${ext}` })
+        }
+      }
+
       for (const item of FILE_CHECKLIST_ITEMS) {
         const storagePath = cl[item.urlKey]
         if (!storagePath) continue
@@ -829,6 +839,26 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                   <p style={{ ...secLabel, color: C.blue, marginBottom: '0.9rem' }}>Documents & Files</p>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {/* ── Resume (submitted with application) ── */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.65rem 0.9rem', borderRadius: '8px', background: a.resume_url ? C.blue + '0a' : 'var(--bg)', border: `1px solid ${a.resume_url ? C.blue + '44' : 'var(--border)'}`, gap: '0.75rem', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flex: 1, minWidth: 0 }}>
+                        <div style={{ width: 18, height: 18, borderRadius: '4px', flexShrink: 0, background: a.resume_url ? C.blue : 'transparent', border: `2px solid ${a.resume_url ? C.blue : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {a.resume_url && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                        </div>
+                        <span style={{ fontSize: '0.85rem', fontWeight: a.resume_url ? 600 : 400, color: a.resume_url ? 'var(--text)' : 'var(--muted)' }}>
+                          Resume
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)', fontWeight: 400, marginLeft: '0.35rem' }}>(submitted with application)</span>
+                        </span>
+                        {a.resume_url && <span style={{ fontSize: '0.7rem', color: C.light, fontWeight: 600, flexShrink: 0 }}>Uploaded</span>}
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.35rem', flexShrink: 0 }}>
+                        {a.resume_url
+                          ? <button onClick={() => openResume(a.resume_url)} style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}44` }}>View ↗</button>
+                          : <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontStyle: 'italic' }}>None submitted</span>
+                        }
+                      </div>
+                    </div>
+
                     {FILE_CHECKLIST_ITEMS.map(item => {
                       const hasFile   = !!(cl[item.urlKey])
                       const uploadKey = `${a.id}-${item.key}`
@@ -1237,6 +1267,9 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                             <p style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{a.email}</p>
                             {interviewLabel && (
                               <span style={{ fontSize: '0.72rem', color: C.warn, fontWeight: 600 }}>{interviewLabel}</span>
+                            )}
+                            {a.resume_url && (
+                              <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}33`, fontWeight: 600 }}>résumé</span>
                             )}
                             {a.stage === 'onboarding' && (
                               <span style={{ display: 'flex', gap: '0.2rem' }}>
