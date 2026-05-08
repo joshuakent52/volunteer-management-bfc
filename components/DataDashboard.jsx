@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 
-const AFFILIATIONS = ['All', 'missionary', 'student', 'volunteer', 'provider']
+const AFFILIATIONS = ['All', 'missionary', 'student', 'volunteer', 'provider', 'intern']
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = [{ value: 0, label: 'All years' }, ...Array.from({ length: 5 }, (_, i) => ({ value: CURRENT_YEAR - i, label: String(CURRENT_YEAR - i) }))]
 const MONTHS = [
