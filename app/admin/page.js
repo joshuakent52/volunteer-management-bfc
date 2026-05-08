@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
-import { SHIFTS, ROLES, ROLE_SUGGESTIONS, SCHOOLS, MAJORS, ACTION_LABELS, ACTION_COLORS } from '../../lib/constants'
+import { SHIFTS, ROLES, ROLE_SUGGESTIONS, SCHOOLS, MAJORS, ACTION_LABELS, ACTION_COLORS, AFFILIATION_LABELS } from '../../lib/constants'
 import { getMountainNow, getMountainLabel, asUTC, formatMountain, formatDateMountain, formatDateTime, toMountainInputValue, fromMountainInputValue } from '../../lib/timeUtils'
 import DataDashboard from '../../components/DataDashboard'
 import ClinicOpenings from '../../components/ClinicOpenings'
@@ -110,7 +110,7 @@ function ProviderCredentialsView({ vol }) {
   const fields = PROVIDER_CRED_FIELDS.map(f => ({ ...f, value: vol[f.key] || null, status: credentialStatus(vol[f.key]) }))
   return (
     <div style={{ padding: '1rem 1.25rem', borderRadius: '10px', border: '1px solid rgba(125,211,252,0.35)', background: 'rgba(125,211,252,0.04)', gridColumn: '1 / -1' }}>
-      <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>Provider Credentials</p>
+      <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>Clinical Care Volunteer Credentials</p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.6rem' }}>
         {fields.map(f => {
           const isNA = f.status === 'na'; const isMissing = f.status === 'missing'
@@ -160,7 +160,7 @@ function ProviderCredentialsSummaryBanner({ volunteers, onSelect }) {
     <div style={{ borderRadius: '12px', border: `1px solid ${borderColor}`, background: bgColor, overflow: 'hidden' }}>
       <button onClick={() => setCollapsed(c => !c)} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.85rem 1.25rem', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '0.2rem 0.6rem', borderRadius: '100px', background: `${headerColor}18`, color: headerColor, border: `1px solid ${headerColor}44` }}>Provider Credentials</span>
+          <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '0.2rem 0.6rem', borderRadius: '100px', background: `${headerColor}18`, color: headerColor, border: `1px solid ${headerColor}44` }}>Clinical Care Volunteer Credentials</span>
           <span style={{ fontSize: '0.82rem', color: headerColor, fontWeight: 500 }}>
             {allOk ? `All ${providers.length} provider${providers.length !== 1 ? 's' : ''} up to date` : flagged.length > 0 ? `${flagged.length} credential${flagged.length !== 1 ? 's' : ''} expired or missing` : `${expiring.length} credential${expiring.length !== 1 ? 's' : ''} expiring soon`}
           </span>
@@ -1051,6 +1051,23 @@ export default function AdminPage() {
                   </div>
                 )
               })()}
+              {(() => {
+                const today   = getMountainNow()
+                const todayMD = `${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
+                const bdays   = volunteers.filter(v => v.birthday && v.birthday.slice(5) === todayMD)
+                return bdays.length > 0 && (
+                  <div style={{ ...card, borderColor: 'rgba(129,140,248,0.5)', background: 'rgba(129,140,248,0.04)' }}>
+                    <h2 style={{ fontWeight: 600, marginBottom: '0.75rem', fontSize: '1rem' }}>Birthdays Today</h2>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      {bdays.map(v => (
+                        <span key={v.id} style={{ padding: '0.3rem 0.75rem', borderRadius: '100px', background: 'rgba(129,140,248,0.12)', color: '#818cf8', border: '1px solid rgba(129,140,248,0.35)', fontSize: '0.875rem', fontWeight: 500 }}>
+                          {v.full_name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}              
             </div>
           )
         })()}
@@ -1146,7 +1163,7 @@ export default function AdminPage() {
                 <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)' }}>
                   <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
                     <input placeholder="Search name or email…" value={filterSearch} onChange={e => setFilterSearch(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
-                    <select value={filterAffiliation} onChange={e => setFilterAffiliation(e.target.value)} style={inputStyle}><option value="all">All affiliations</option><option value="missionary">Missionary</option><option value="student">Student</option><option value="volunteer">Volunteer</option><option value="intern">Intern</option><option value="provider">Provider</option><option value="BYU">BYU</option><option value="UVU">UVU</option></select>
+                    <select value={filterAffiliation} onChange={e => setFilterAffiliation(e.target.value)} style={inputStyle}><option value="all">All affiliations</option><option value="missionary">Missionary</option><option value="student">Student</option><option value="volunteer">Volunteer</option><option value="intern">Intern</option><option value="provider">Clinical Care Volunteer</option><option value="BYU">BYU</option><option value="UVU">UVU</option></select>
                     <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={inputStyle}><option value="all">All roles</option><option value="volunteer">Volunteer</option><option value="admin">Admin</option></select>
                     <select value={filterDefaultRole} onChange={e => setFilterDefaultRole(e.target.value)} style={inputStyle}><option value="all">All positions</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select>
                     <button onClick={() => setShowInactive(s => !s)} style={pillBtn(showInactive, false)}>{showInactive ? 'Hide Inactive' : 'Show Inactive'}</button>
@@ -1170,7 +1187,7 @@ export default function AdminPage() {
                         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                           {isInactive && <span style={badgeStyle('#9ca3af')}>inactive</span>}
                           {v.role === 'admin' && <span style={badgeStyle('#f59e0b')}>admin</span>}
-                          {v.affiliation && <span style={badgeStyle(affiliationColor[v.affiliation] ?? '#9ca3af')}>{v.affiliation}</span>}
+                          {v.affiliation && <span style={badgeStyle(affiliationColor[v.affiliation] ?? '#9ca3af')}>{AFFILIATION_LABELS[v.affiliation] ?? v.affiliation}</span>}
                           <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--muted)', fontSize: '0.8rem' }}>›</span>
                         </div>
                       </div>
@@ -1206,7 +1223,7 @@ export default function AdminPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                   {[
                     { label: 'Phone', value: selectedVolunteer.phone },
-                    { label: 'Affiliation', value: selectedVolunteer.affiliation },
+                    { label: 'Affiliation', value: AFFILIATION_LABELS[selectedVolunteer.affiliation] ?? selectedVolunteer.affiliation },
                     { label: 'Credentials / Skills', value: selectedVolunteer.credentials },
                     { label: 'Languages', value: selectedVolunteer.languages },
                     { label: 'Role', value: selectedVolunteer.role },
@@ -1307,7 +1324,7 @@ export default function AdminPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                   <div><label style={labelStyle}>Full Name</label><input value={editForm.full_name} onChange={e => setEditForm({...editForm, full_name: e.target.value})} style={inputStyle} /></div>
                   <div><label style={labelStyle}>Phone</label><input value={editForm.phone} onChange={e => setEditForm({...editForm, phone: e.target.value})} placeholder="xxx-xxx-xxxx" style={inputStyle} /></div>
-                  <div><label style={labelStyle}>Affiliation</label><select value={editForm.affiliation} onChange={e => setEditForm({...editForm, affiliation: e.target.value})} style={inputStyle}><option value="">— Select —</option><option value="missionary">Missionary</option><option value="intern">Intern</option><option value="student">Student</option><option value="volunteer">Volunteer</option><option value="provider">Provider</option></select></div>
+                  <div><label style={labelStyle}>Affiliation</label><select value={editForm.affiliation} onChange={e => setEditForm({...editForm, affiliation: e.target.value})} style={inputStyle}><option value="">— Select —</option><option value="missionary">Missionary</option><option value="intern">Intern</option><option value="student">Student</option><option value="volunteer">Volunteer</option><option value="provider">Clinical Care Volunteer</option></select></div>
                   <div><label style={labelStyle}>Credentials / Skills</label><input type="text" value={editForm.credentials} onChange={e => setEditForm({...editForm, credentials: e.target.value})} placeholder="e.g. EMT, Phlebotomy" style={inputStyle} /></div>                
                   <div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Languages</label><input value={editForm.languages} onChange={e => setEditForm({...editForm, languages: e.target.value})} placeholder="e.g. Spanish, French" style={inputStyle} /></div>
                   {profile?.default_role === 'Director' && (  
@@ -1715,7 +1732,7 @@ export default function AdminPage() {
                 <div><label style={labelStyle}>Email</label><input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} required placeholder="jane@example.com" style={inputStyle} /></div>
                 <div><label style={labelStyle}>Temporary Password</label><input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required placeholder="Min 6 characters" style={inputStyle} /></div>
                 <div><label style={labelStyle}>Phone</label><input value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="xxx-xxx-xxxx" style={inputStyle} /></div>
-                <div><label style={labelStyle}>Affiliation</label><select value={newAffiliation} onChange={e => setNewAffiliation(e.target.value)} style={inputStyle}><option value="">— Select —</option><option value="missionary">Missionary</option><option value="student">Student</option><option value="intern">Intern</option><option value="volunteer">Volunteer</option><option value="provider">Provider</option></select></div>
+                <div><label style={labelStyle}>Affiliation</label><select value={newAffiliation} onChange={e => setNewAffiliation(e.target.value)} style={inputStyle}><option value="">— Select —</option><option value="missionary">Missionary</option><option value="student">Student</option><option value="intern">Intern</option><option value="volunteer">Volunteer</option><option value="provider">Clinical Care Volunteer</option></select></div>
                 <div><label style={labelStyle}>Credentials / Skills</label><input type="text" value={newCredentials} onChange={e => setNewCredentials(e.target.value)} placeholder="e.g. EMT, Phlebotomy" style={inputStyle} /></div>
                 <div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Languages Spoken</label><input value={newLanguages} onChange={e => setNewLanguages(e.target.value)} placeholder="e.g. Spanish, Mandarin" style={inputStyle} /></div>
                 <div><label style={labelStyle}>Default Position</label><select value={newDefaultRole} onChange={e => setNewDefaultRole(e.target.value)} style={inputStyle}><option value="">— None —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
