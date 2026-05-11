@@ -194,10 +194,10 @@ function ViewCountBadge({ message, broadcastReadCounts }) {
   )
 }
 
-function MessageCardWithViews({ m, readMessageIds, user, setLightboxUrl, broadcastReadCounts }) {
+function MessageCardWithViews({ m, readMessageIds, user, setLightboxUrl, broadcastReadCounts, senderLabel }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-      <MessageCard m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} />
+      <MessageCard m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} senderLabel={senderLabel} />
       {BROADCAST_TYPES.includes(m?.recipient_type) && (
         <div style={{ paddingLeft: '0.25rem' }}>
           <ViewCountBadge message={m} broadcastReadCounts={broadcastReadCounts} />
@@ -1276,21 +1276,15 @@ export default function VolunteerPage() {
                 {sentMessages.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No sent messages yet.</p> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                     {sentMessages.map(m => {
-                      const recipientLabel = 
-                        m.recipient_type === 'everyone' ? 'Everyone' :
-                        m.recipient_type === 'admin' ? 'Admin' :
-                        m.recipient_type === 'shift' ? `${m.recipient_day ? m.recipient_day.charAt(0).toUpperCase() + m.recipient_day.slice(1,3) : ''} ${m.recipient_shift || ''}`.trim() :
-                        m.recipient_type === 'role' ? m.recipient_role :
-                        m.recipient_type === 'volunteer' ? (allUsers.find(u => u.id === m.recipient_volunteer_id)?.full_name || 'Individual') :
-                        m.recipient_type
-
+                      const toLabel =
+                        m.recipient_type === 'everyone' ? 'To: Everyone' :
+                        m.recipient_type === 'admin' ? 'To: Admin' :
+                        m.recipient_type === 'shift' ? `To: ${m.recipient_day ? m.recipient_day.charAt(0).toUpperCase() + m.recipient_day.slice(1,3) : ''} ${m.recipient_shift || ''}`.trim() :
+                        m.recipient_type === 'role' ? `To: ${m.recipient_role}` :
+                        m.recipient_type === 'volunteer' ? `To: ${allUsers.find(u => u.id === m.recipient_volunteer_id)?.full_name || 'Individual'}` :
+                        'To: ' + m.recipient_type
                       return (
-                        <div key={m.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                          <p style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', paddingLeft: '0.25rem' }}>
-                            To: <span style={{ fontWeight: 600, color: 'var(--text)' }}>{recipientLabel}</span>
-                          </p>
-                          <MessageCardWithViews m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} broadcastReadCounts={broadcastReadCounts} />
-                        </div>
+                        <MessageCardWithViews key={m.id} m={m} readMessageIds={readMessageIds} user={user} setLightboxUrl={setLightboxUrl} broadcastReadCounts={broadcastReadCounts} senderLabel={toLabel} />
                       )
                     })}
                   </div>
