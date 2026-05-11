@@ -570,13 +570,6 @@ export default function ProviderPage() {
                               Call out of {formatShiftDate(s.shift_date)} {s.shift_time}?
                             </p>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                              <input
-                                type="text"
-                                placeholder="Reason (optional)"
-                                value={calloutReasonMap[s.id] || ''}
-                                onChange={e => setCalloutReasonMap(prev => ({ ...prev, [s.id]: e.target.value }))}
-                                style={{ ...S.input, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
-                              />
                               <div style={{ display: 'flex', gap: '0.5rem' }}>
                                 <button
                                   onClick={() => handleCallOut(s)}
