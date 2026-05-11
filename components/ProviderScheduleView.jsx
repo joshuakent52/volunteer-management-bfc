@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { SHIFTS } from '../../lib/constants'
+import { getEffectiveProviders } from '../../lib/scheduleUtils'
 
 const DAYS      = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
 const DAY_LABEL = { monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed', thursday: 'Thu', friday: 'Fri' }
@@ -11,112 +12,139 @@ function getMountainDateStr(offsetDays = 0) {
   return d.toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
 }
 
-// Generate Mon–Fri dates for a given week offset
 function getWeekDates(weekOffset = 0) {
   const today = new Date(getMountainDateStr() + 'T12:00:00')
-  // Find this Monday
-  const dow = today.getDay() // 0=Sun
+  const dow = today.getDay()
   const diffToMonday = dow === 0 ? -6 : 1 - dow
   const monday = new Date(today)
   monday.setDate(today.getDate() + diffToMonday + weekOffset * 7)
-
   return DAYS.map((day, i) => {
     const d = new Date(monday)
     d.setDate(monday.getDate() + i)
     return {
       day,
-      date: d.toLocaleDateString('en-CA'),
+      date:    d.toLocaleDateString('en-CA'),
       display: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      dayNum: d.getDate(),
+      dayNum:  d.getDate(),
     }
   })
 }
 
-export default function ProviderScheduleView({ supabase, providers }) {
-  const [weekOffset, setWeekOffset]     = useState(0)
-  const [slotData, setSlotData]         = useState({}) // "date|shift" → [{ id, full_name }]
-  const [loading, setLoading]           = useState(false)
-  const [hoveredCell, setHoveredCell]   = useState(null) // "date|shift"
-  const [viewMode, setViewMode]         = useState('week') // 'week' | 'month'
-  const [monthOffset, setMonthOffset]   = useState(0)
-  const [monthData, setMonthData]       = useState({})
+export default function ProviderScheduleView({ supabase }) {
+  const [weekOffset,   setWeekOffset]   = useState(0)
+  const [monthOffset,  setMonthOffset]  = useState(0)
+  const [viewMode,     setViewMode]     = useState('week') // 'week' | 'month'
+
+  // Combined slot map: "date|shift" → Array<{ id, full_name, source }>
+  const [slotData,   setSlotData]   = useState({})
+  const [monthData,  setMonthData]  = useState({})
+  const [loading,    setLoading]    = useState(false)
+  const [hovered,    setHovered]    = useState(null)
+
+  // We cache recurring rows so we don't re-fetch on every week navigation.
+  const [recurringRows, setRecurringRows] = useState(null) // null = not yet loaded
 
   const weekDates = getWeekDates(weekOffset)
+  const today     = getMountainDateStr()
 
+  // ── Load all recurring rows once (they don't change per-week) ─────────────
   useEffect(() => {
-    if (viewMode === 'week') fetchWeekData()
-  }, [weekOffset, viewMode])
+    async function loadRecurring() {
+      const { data } = await supabase
+        .from('provider_recurring_schedule')
+        .select('provider_id, day_of_week, shift_time, week_pattern, start_date, end_date, profiles!provider_recurring_schedule_provider_id_fkey(id, full_name)')
+      setRecurringRows(data || [])
+    }
+    loadRecurring()
+  }, [supabase])
 
+  // ── Fetch week data whenever week offset or recurring cache changes ────────
   useEffect(() => {
-    if (viewMode === 'month') fetchMonthData()
-  }, [monthOffset, viewMode])
+    if (viewMode === 'week' && recurringRows !== null) fetchWeekData()
+  }, [weekOffset, viewMode, recurringRows]) // eslint-disable-line
 
+  // ── Fetch month data similarly ─────────────────────────────────────────────
+  useEffect(() => {
+    if (viewMode === 'month' && recurringRows !== null) fetchMonthData()
+  }, [monthOffset, viewMode, recurringRows]) // eslint-disable-line
+
+  /**
+   * Builds the combined slot map for the visible week.
+   * Fetches one-time shifts for this week's date range, then merges
+   * with the cached recurring rows via getEffectiveProviders.
+   */
   async function fetchWeekData() {
     setLoading(true)
-    const dates = weekDates.map(d => d.date)
-    const from  = dates[0]
-    const to    = dates[dates.length - 1]
+    const from = weekDates[0].date
+    const to   = weekDates[weekDates.length - 1].date
 
-    const { data } = await supabase
+    const { data: oneTime } = await supabase
       .from('provider_shifts')
       .select('shift_date, shift_time, provider_id, profiles(id, full_name)')
       .gte('shift_date', from)
       .lte('shift_date', to)
 
     const map = {}
-    ;(data || []).forEach(row => {
-      const key = `${row.shift_date}|${row.shift_time}`
-      if (!map[key]) map[key] = []
-      map[key].push({ id: row.provider_id, full_name: row.profiles?.full_name || '?' })
-    })
+    for (const { date } of weekDates) {
+      for (const shift of SHIFTS) {
+        const providers = getEffectiveProviders(date, shift, oneTime || [], recurringRows || [])
+        if (providers.length > 0) map[`${date}|${shift}`] = providers
+      }
+    }
     setSlotData(map)
     setLoading(false)
   }
 
   async function fetchMonthData() {
     setLoading(true)
-    const now = new Date()
+    const now    = new Date()
     const target = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1)
-    const from = target.toLocaleDateString('en-CA')
-    const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0)
-    const to = lastDay.toLocaleDateString('en-CA')
+    const from   = target.toLocaleDateString('en-CA')
+    const to     = new Date(target.getFullYear(), target.getMonth() + 1, 0).toLocaleDateString('en-CA')
 
-    const { data } = await supabase
+    const { data: oneTime } = await supabase
       .from('provider_shifts')
       .select('shift_date, shift_time, provider_id, profiles(id, full_name)')
       .gte('shift_date', from)
       .lte('shift_date', to)
 
+    // Enumerate all weekdays in this month to build combined map
     const map = {}
-    ;(data || []).forEach(row => {
-      const key = `${row.shift_date}|${row.shift_time}`
-      if (!map[key]) map[key] = []
-      map[key].push({ id: row.provider_id, full_name: row.profiles?.full_name || '?' })
-    })
+    const d   = new Date(from + 'T12:00:00')
+    const end = new Date(to   + 'T12:00:00')
+    while (d <= end) {
+      const dow = d.getDay()
+      if (dow >= 1 && dow <= 5) {
+        const dateStr = d.toLocaleDateString('en-CA')
+        for (const shift of SHIFTS) {
+          const providers = getEffectiveProviders(dateStr, shift, oneTime || [], recurringRows || [])
+          if (providers.length > 0) map[`${dateStr}|${shift}`] = providers
+        }
+      }
+      d.setDate(d.getDate() + 1)
+    }
     setMonthData(map)
     setLoading(false)
   }
 
-  // ── Month view helpers ────────────────────────────────────────────────────
+  // ── Month calendar helpers ────────────────────────────────────────────────
   function getMonthCalendarDays() {
-    const now = new Date()
+    const now    = new Date()
     const target = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1)
-    const year  = target.getFullYear()
-    const month = target.getMonth()
-    const firstDow = new Date(year, month, 1).getDay() // 0=Sun
+    const year   = target.getFullYear()
+    const month  = target.getMonth()
+    const firstDow    = new Date(year, month, 1).getDay()
     const daysInMonth = new Date(year, month + 1, 0).getDate()
-    // Pad to start on Monday
-    const startPad = firstDow === 0 ? 6 : firstDow - 1
+    const startPad    = firstDow === 0 ? 6 : firstDow - 1
     const cells = []
     for (let i = 0; i < startPad; i++) cells.push(null)
-    for (let d = 1; d <= daysInMonth; d++) {
-      const date = new Date(year, month, d)
+    for (let day = 1; day <= daysInMonth; day++) {
+      const date = new Date(year, month, day)
       const dow  = date.getDay()
-      // Skip weekends
       cells.push({
         date: date.toLocaleDateString('en-CA'),
         day:  ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dow],
-        num:  d,
+        num:  day,
         isWeekend: dow === 0 || dow === 6,
       })
     }
@@ -134,91 +162,65 @@ export default function ProviderScheduleView({ supabase, providers }) {
     }),
   }
 
+  // ── Coverage cell (shared between week and month views) ───────────────────
   function CoverageCell({ cellKey, slim = false }) {
-    const providers = slotData[cellKey] || monthData[cellKey] || []
-    const count     = providers.length
-    const isHovered = hoveredCell === cellKey
+    const data      = (viewMode === 'week' ? slotData : monthData)[cellKey] || []
+    const count     = data.length
+    const isHovered = hovered === cellKey
     const isEmpty   = count === 0
     const isFull    = count >= 3
 
     return (
       <div
-        onMouseEnter={() => setHoveredCell(cellKey)}
-        onMouseLeave={() => setHoveredCell(null)}
+        onMouseEnter={() => setHovered(cellKey)}
+        onMouseLeave={() => setHovered(null)}
         style={{
           position: 'relative',
           padding: slim ? '0.3rem 0.25rem' : '0.5rem 0.35rem',
           borderRadius: '8px',
           border: `1px solid ${isFull ? 'rgba(2,65,107,0.4)' : isEmpty ? 'var(--border)' : 'rgba(2,65,107,0.25)'}`,
-          background: isFull
-            ? 'rgba(2,65,107,0.1)'
-            : isEmpty
-              ? 'transparent'
-              : 'rgba(2,65,107,0.05)',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: '0.2rem',
+          background: isFull ? 'rgba(2,65,107,0.1)' : isEmpty ? 'transparent' : 'rgba(2,65,107,0.05)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem',
           minHeight: slim ? '36px' : '52px',
-          cursor: count > 0 ? 'pointer' : 'default',
+          cursor: count > 0 ? 'default' : 'default',
           transition: 'background 0.15s, border-color 0.15s',
         }}
       >
         {/* Pip dots */}
         <div style={{ display: 'flex', gap: '3px' }}>
           {[0,1,2].map(i => (
-            <div key={i} style={{
-              width: slim ? '5px' : '6px',
-              height: slim ? '5px' : '6px',
-              borderRadius: '50%',
-              background: i < count ? 'var(--accent)' : 'var(--border)',
-            }} />
+            <div key={i} style={{ width: slim ? '5px' : '6px', height: slim ? '5px' : '6px', borderRadius: '50%', background: i < count ? 'var(--accent)' : 'var(--border)' }} />
           ))}
         </div>
         {!slim && (
-          <span style={{
-            fontSize: '0.62rem',
-            fontFamily: 'DM Mono, monospace',
-            color: isEmpty ? 'var(--border)' : 'var(--accent)',
-            fontWeight: isEmpty ? 400 : 600,
-          }}>
+          <span style={{ fontSize: '0.62rem', fontFamily: 'DM Mono, monospace', color: isEmpty ? 'var(--border)' : 'var(--accent)', fontWeight: isEmpty ? 400 : 600 }}>
             {count}/3
           </span>
         )}
 
-        {/* Hover tooltip */}
+        {/* Hover tooltip — shows names + source badge */}
         {isHovered && count > 0 && (
           <div style={{
-            position: 'absolute',
-            bottom: 'calc(100% + 6px)',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            background: 'var(--surface)',
-            border: '1px solid var(--accent)',
-            borderRadius: '8px',
-            padding: '0.5rem 0.75rem',
-            zIndex: 50,
-            minWidth: '140px',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
-            pointerEvents: 'none',
+            position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%', transform: 'translateX(-50%)',
+            background: 'var(--surface)', border: '1px solid var(--accent)', borderRadius: '8px',
+            padding: '0.5rem 0.75rem', zIndex: 50, minWidth: '160px',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.2)', pointerEvents: 'none',
           }}>
-            {providers.map(p => (
-              <p key={p.id} style={{ fontSize: '0.78rem', color: 'var(--text)', fontWeight: 500, whiteSpace: 'nowrap' }}>
-                {p.full_name}
-              </p>
+            {data.map(p => (
+              <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.2rem' }}>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text)', fontWeight: 500, whiteSpace: 'nowrap' }}>{p.full_name}</p>
+                {p.source === 'recurring' && (
+                  <span style={{ fontSize: '0.62rem', padding: '0.05rem 0.3rem', borderRadius: '4px', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)', whiteSpace: 'nowrap' }}>↻</span>
+                )}
+              </div>
             ))}
-            {count === 0 && <p style={{ fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic' }}>No providers</p>}
           </div>
         )}
       </div>
     )
   }
 
-  // ── Week view ─────────────────────────────────────────────────────────────
-  const today = getMountainDateStr()
-  const isCurrentWeek = weekOffset === 0 ||
-    weekDates.some(d => d.date === today)
-
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
@@ -231,32 +233,18 @@ export default function ProviderScheduleView({ supabase, providers }) {
 
         {viewMode === 'week' ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <button
-              onClick={() => setWeekOffset(o => o - 1)}
-              style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.85rem' }}
-            >←</button>
+            <button onClick={() => setWeekOffset(o => o - 1)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.85rem' }}>←</button>
             <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)', minWidth: '160px', textAlign: 'center' }}>
               {weekDates[0]?.display} – {weekDates[4]?.display}
               {weekOffset === 0 && <span style={{ marginLeft: '0.4rem', fontSize: '0.72rem', color: 'var(--accent)', fontWeight: 500 }}>This week</span>}
             </span>
-            <button
-              onClick={() => setWeekOffset(o => o + 1)}
-              style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.85rem' }}
-            >→</button>
+            <button onClick={() => setWeekOffset(o => o + 1)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.85rem' }}>→</button>
           </div>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <button
-              onClick={() => setMonthOffset(o => o - 1)}
-              style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.85rem' }}
-            >←</button>
-            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)', minWidth: '140px', textAlign: 'center' }}>
-              {getMonthCalendarDays().label}
-            </span>
-            <button
-              onClick={() => setMonthOffset(o => o + 1)}
-              style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.85rem' }}
-            >→</button>
+            <button onClick={() => setMonthOffset(o => o - 1)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.85rem' }}>←</button>
+            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)', minWidth: '140px', textAlign: 'center' }}>{getMonthCalendarDays().label}</span>
+            <button onClick={() => setMonthOffset(o => o + 1)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.85rem' }}>→</button>
           </div>
         )}
       </div>
@@ -264,9 +252,7 @@ export default function ProviderScheduleView({ supabase, providers }) {
       {/* Week grid */}
       {viewMode === 'week' && (
         <div style={S.card}>
-          {loading ? (
-            <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Loading…</p>
-          ) : (
+          {loading ? <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Loading…</p> : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               {/* Header */}
               <div style={{ display: 'grid', gridTemplateColumns: '70px repeat(5, 1fr)', gap: '0.4rem', marginBottom: '0.25rem' }}>
@@ -274,41 +260,33 @@ export default function ProviderScheduleView({ supabase, providers }) {
                 {weekDates.map(d => (
                   <div key={d.date} style={{ textAlign: 'center' }}>
                     <p style={{ fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{DAY_LABEL[d.day]}</p>
-                    <p style={{
-                      fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', fontWeight: 700,
-                      color: d.date === today ? 'var(--accent)' : 'var(--text)',
-                    }}>{d.dayNum}</p>
+                    <p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', fontWeight: 700, color: d.date === today ? 'var(--accent)' : 'var(--text)' }}>{d.dayNum}</p>
                   </div>
                 ))}
               </div>
 
-              {/* Rows */}
+              {/* Shift rows */}
               {SHIFTS.map(shift => (
                 <div key={shift} style={{ display: 'grid', gridTemplateColumns: '70px repeat(5, 1fr)', gap: '0.4rem', alignItems: 'center' }}>
                   <p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.72rem', color: 'var(--muted)', fontWeight: 600 }}>{shift}</p>
-                  {weekDates.map(d => (
-                    <CoverageCell key={d.date} cellKey={`${d.date}|${shift}`} />
-                  ))}
+                  {weekDates.map(d => <CoverageCell key={d.date} cellKey={`${d.date}|${shift}`} />)}
                 </div>
               ))}
 
               {/* Legend */}
               <div style={{ display: 'flex', gap: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)', flexWrap: 'wrap', marginTop: '0.25rem' }}>
-                {[
-                  { label: 'No coverage', dots: 0 },
-                  { label: 'Partial', dots: 1 },
-                  { label: 'Full (3/3)', dots: 3 },
-                ].map(item => (
+                {[{ label: 'No coverage', dots: 0 }, { label: 'Partial', dots: 1 }, { label: 'Full (3/3)', dots: 3 }].map(item => (
                   <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                     <div style={{ display: 'flex', gap: '2px' }}>
-                      {[0,1,2].map(i => (
-                        <div key={i} style={{ width: '6px', height: '6px', borderRadius: '50%', background: i < item.dots ? 'var(--accent)' : 'var(--border)' }} />
-                      ))}
+                      {[0,1,2].map(i => <div key={i} style={{ width: '6px', height: '6px', borderRadius: '50%', background: i < item.dots ? 'var(--accent)' : 'var(--border)' }} />)}
                     </div>
                     <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>{item.label}</span>
                   </div>
                 ))}
-                <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontStyle: 'italic' }}>Hover a cell to see names</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <span style={{ fontSize: '0.72rem', padding: '0.05rem 0.3rem', borderRadius: '4px', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)' }}>↻</span>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>Recurring provider (hover to see names)</span>
+                </div>
               </div>
             </div>
           )}
@@ -317,33 +295,23 @@ export default function ProviderScheduleView({ supabase, providers }) {
 
       {/* Month grid */}
       {viewMode === 'month' && (() => {
-        const { cells, label } = getMonthCalendarDays()
+        const { cells } = getMonthCalendarDays()
         return (
           <div style={S.card}>
-            {loading ? (
-              <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Loading…</p>
-            ) : (
+            {loading ? <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Loading…</p> : (
               <div>
-                {/* Day headers Mon–Fri only */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.35rem', marginBottom: '0.5rem' }}>
                   {['Mon','Tue','Wed','Thu','Fri'].map(d => (
                     <p key={d} style={{ textAlign: 'center', fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{d}</p>
                   ))}
                 </div>
-
-                {/* Cells — render weeks as rows, skipping weekend cells */}
                 {(() => {
                   const weekdayCells = cells.filter(c => !c?.isWeekend)
-                  // Chunk into rows of 5 (Mon–Fri)
-                  const rows = []
-                  // We need to figure out which Monday each cell starts on
-                  // Group by ISO week
                   const byWeek = {}
                   weekdayCells.forEach(c => {
                     if (!c) return
-                    const d = new Date(c.date + 'T12:00:00')
-                    const mon = new Date(d)
-                    mon.setDate(d.getDate() - (d.getDay() - 1))
+                    const d   = new Date(c.date + 'T12:00:00')
+                    const mon = new Date(d); mon.setDate(d.getDate() - (d.getDay() - 1))
                     const key = mon.toLocaleDateString('en-CA')
                     if (!byWeek[key]) byWeek[key] = []
                     byWeek[key].push(c)
@@ -356,16 +324,8 @@ export default function ProviderScheduleView({ supabase, providers }) {
                         const isToday = cell.date === today
                         return (
                           <div key={day} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                            <p style={{
-                              fontSize: '0.72rem',
-                              fontFamily: 'DM Mono, monospace',
-                              fontWeight: isToday ? 700 : 400,
-                              color: isToday ? 'var(--accent)' : 'var(--muted)',
-                              textAlign: 'center',
-                            }}>{cell.num}</p>
-                            {SHIFTS.map(shift => (
-                              <CoverageCell key={shift} cellKey={`${cell.date}|${shift}`} slim />
-                            ))}
+                            <p style={{ fontSize: '0.72rem', fontFamily: 'DM Mono, monospace', fontWeight: isToday ? 700 : 400, color: isToday ? 'var(--accent)' : 'var(--muted)', textAlign: 'center' }}>{cell.num}</p>
+                            {SHIFTS.map(shift => <CoverageCell key={shift} cellKey={`${cell.date}|${shift}`} slim />)}
                           </div>
                         )
                       })}
