@@ -61,7 +61,7 @@ function formatBody(text) {
   })
 }
 
-export function MessageCard({ m, readMessageIds, user, setLightboxUrl }) {
+export function MessageCard({ m, readMessageIds, user, setLightboxUrl, senderLabel }) {
   const isUnread =
     readMessageIds &&
     !readMessageIds.has(m.id) &&
@@ -106,7 +106,7 @@ export function MessageCard({ m, readMessageIds, user, setLightboxUrl }) {
               fontSize: '0.9rem',
             }}
           >
-            {m.sender?.full_name || 'Unknown'}
+            {senderLabel || m.sender?.full_name || 'Unknown'}
           </span>
         </div>
 
