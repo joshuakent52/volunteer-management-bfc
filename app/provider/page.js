@@ -863,9 +863,7 @@ export default function ProviderPage() {
                   >
                     {savingRecurring ? 'Saving…' : 'Add Recurring Slot'}
                   </button>
-                </form>
-              )} */}
-            </div>
+                </form>  */}
           </div>
         )}
 
