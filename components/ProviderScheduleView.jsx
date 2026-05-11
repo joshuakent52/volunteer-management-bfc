@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { SHIFTS } from '../../lib/constants'
-import { getEffectiveProviders } from '../../lib/scheduleUtils'
+import { SHIFTS } from '../lib/constants'
+import { getEffectiveProviders } from '../lib/scheduleUtils'
 
 const DAYS      = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
 const DAY_LABEL = { monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed', thursday: 'Thu', friday: 'Fri' }
