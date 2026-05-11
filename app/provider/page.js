@@ -766,7 +766,7 @@ export default function ProviderPage() {
                 </button>
               </div>
 
-              {/* Existing recurring */}
+              {/* Existing recurring 
               {myRecurring.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: addingRecurring ? '1rem' : 0 }}>
                   {myRecurring.map(r => (
@@ -804,7 +804,7 @@ export default function ProviderPage() {
                 <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No recurring slots set.</p>
               )}
 
-              {/* Add recurring form */}
+              Add recurring form 
               {addingRecurring && (
                 <form onSubmit={handleAddRecurring} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(2,65,107,0.3)', background: 'rgba(2,65,107,0.03)' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
@@ -864,7 +864,7 @@ export default function ProviderPage() {
                     {savingRecurring ? 'Saving…' : 'Add Recurring Slot'}
                   </button>
                 </form>
-              )}
+              )} */}
             </div>
           </div>
         )}
