@@ -741,7 +741,7 @@ export default function ProviderPage() {
               </div>
             </div>
 
-            {/* ── Recurring Schedule ── */}
+            {/* ── Recurring Schedule ── 
             <div style={S.card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: myRecurring.length > 0 || addingRecurring ? '1.25rem' : 0 }}>
                 <div>
@@ -764,7 +764,7 @@ export default function ProviderPage() {
                 >
                   {addingRecurring ? 'Cancel' : '+ Add slot'}
                 </button>
-              </div>
+              </div>*/}
 
               {/* Existing recurring 
               {myRecurring.length > 0 && (
