@@ -424,7 +424,7 @@ function RecurringSlotManager({ supabase, providers, onToast }) {
 
         {!addingFor ? (
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
-            {providers.map(p => (
+            {providers.filter(p => p.default_role === 'Provider').map(p => (
               <button
                 key={p.id}
                 onClick={() => setAddingFor(p.id)}
@@ -665,7 +665,7 @@ export default function Providers({ supabase }) {
     const { data } = await supabase
       .from('profiles')
       .select('id, full_name, email, phone, affiliation, credentials, languages, default_role, license_exp, bls_exp, dea_exp, ftca_exp, tb_exp, status')
-      .eq('affiliation', 'provider')
+      .eq('default_role', 'Provider')
       .order('full_name')
     setProviders((data || []).filter(v => (v.status ?? 'active') === 'active'))
     setLoading(false)
