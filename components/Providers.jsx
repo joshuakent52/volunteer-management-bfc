@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { getEffectiveProviders, getEffectiveProviderIds, recurringAppliesToDate } from '../../lib/scheduleUtils'
+import { getEffectiveProviders, getEffectiveProviderIds, recurringAppliesToDate } from '../lib/scheduleUtils'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const SHIFTS     = ['10-2', '2-6']
