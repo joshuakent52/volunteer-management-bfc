@@ -157,6 +157,7 @@ function ProviderScheduleView({ supabase }) {
   const [loading,       setLoading]       = useState(false)
   const [hovered,       setHovered]       = useState(null)
   const [recurringRows, setRecurringRows] = useState(null)   // null = not yet loaded
+  const [calloutsRows,  setCalloutsRows]  = useState([])     // callouts for visible range
 
   const today     = getMtnDateStr()
   const weekDates = getWeekDates(weekOffset)
@@ -187,16 +188,26 @@ function ProviderScheduleView({ supabase }) {
     const from = weekDates[0].date
     const to   = weekDates[weekDates.length - 1].date
 
-    const { data: oneTime } = await supabase
-      .from('provider_shifts')
-      .select('shift_date, shift_time, provider_id, profiles(id, full_name)')
-      .gte('shift_date', from)
-      .lte('shift_date', to)
+    const [{ data: oneTime }, { data: callouts }] = await Promise.all([
+      supabase
+        .from('provider_shifts')
+        .select('shift_date, shift_time, provider_id, profiles(id, full_name)')
+        .gte('shift_date', from)
+        .lte('shift_date', to),
+      supabase
+        .from('provider_callouts')
+        .select('provider_id, shift_date, shift_time')
+        .gte('shift_date', from)
+        .lte('shift_date', to),
+    ])
+
+    const co = callouts || []
+    setCalloutsRows(co)
 
     const map = {}
     for (const { date } of weekDates) {
       for (const shift of SHIFTS) {
-        const providers = getEffectiveProviders(date, shift, oneTime || [], recurringRows || [])
+        const providers = getEffectiveProviders(date, shift, oneTime || [], recurringRows || [], co)
         if (providers.length > 0) map[`${date}|${shift}`] = providers
       }
     }
@@ -211,11 +222,21 @@ function ProviderScheduleView({ supabase }) {
     const from   = target.toLocaleDateString('en-CA')
     const to     = new Date(target.getFullYear(), target.getMonth() + 1, 0).toLocaleDateString('en-CA')
 
-    const { data: oneTime } = await supabase
-      .from('provider_shifts')
-      .select('shift_date, shift_time, provider_id, profiles(id, full_name)')
-      .gte('shift_date', from)
-      .lte('shift_date', to)
+    const [{ data: oneTime }, { data: callouts }] = await Promise.all([
+      supabase
+        .from('provider_shifts')
+        .select('shift_date, shift_time, provider_id, profiles(id, full_name)')
+        .gte('shift_date', from)
+        .lte('shift_date', to),
+      supabase
+        .from('provider_callouts')
+        .select('provider_id, shift_date, shift_time')
+        .gte('shift_date', from)
+        .lte('shift_date', to),
+    ])
+
+    const co = callouts || []
+    setCalloutsRows(co)
 
     const map = {}
     const d   = new Date(from + 'T12:00:00')
@@ -225,7 +246,7 @@ function ProviderScheduleView({ supabase }) {
       if (dow >= 1 && dow <= 5) {
         const dateStr = d.toLocaleDateString('en-CA')
         for (const shift of SHIFTS) {
-          const providers = getEffectiveProviders(dateStr, shift, oneTime || [], recurringRows || [])
+          const providers = getEffectiveProviders(dateStr, shift, oneTime || [], recurringRows || [], co)
           if (providers.length > 0) map[`${dateStr}|${shift}`] = providers
         }
       }
