@@ -548,7 +548,25 @@ export default function CSPage() {
         )}
 
         {tab === 'providers' && (
-          <ProviderScheduleView supabase={supabase} />
+          <>
+            <div
+              style={{
+                background: '#fef3c7',
+                border: '1px solid #f59e0b',
+                color: '#92400e',
+                padding: '0.75rem 1rem',
+                borderRadius: '10px',
+                fontWeight: 700,
+                textAlign: 'center',
+                fontSize: '0.9rem',
+                marginBottom: '1rem',
+              }}
+            >
+              Please Ignore — In Testing
+            </div>
+        
+            <ProviderScheduleView supabase={supabase} />
+          </>
         )}
 
         {/* ── MY SCHEDULE TAB ───────────────────────────────── */}
