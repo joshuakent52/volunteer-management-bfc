@@ -284,6 +284,8 @@ export default function AdminPage() {
   const [newAdvisorName, setNewAdvisorName]       = useState(''); const [newAdvisorContact, setNewAdvisorContact] = useState('')
   const [newInternSchool, setNewInternSchool]     = useState(''); const [newInternDepartment, setNewInternDepartment] = useState('')
   const [newProviderCreds, setNewProviderCreds]   = useState({ license_exp: '', bls_exp: '', dea_exp: '', ftca_exp: '', tb_exp: '' })
+  const [endDateInput, setEndDateInput] = useState('')
+  const [newEndDate, setNewEndDate] = useState('')
 
   // ── Cover requests state ────────────────────────────────────────────────────
   const [coverRequests, setCoverRequests]   = useState([])
@@ -347,7 +349,7 @@ export default function AdminPage() {
   async function loadVolunteers() {
     const { data } = await supabase
       .from('profiles')
-      .select('id, full_name, email, phone, role, affiliation, status, status_reason, credentials, languages, default_role, school, major, sma_name, sma_contact, advisor_name, advisor_contact, intern_school, intern_department, license_exp, bls_exp, dea_exp, ftca_exp, tb_exp, birthday')
+      .select('id, full_name, email, phone, role, affiliation, status, status_reason, credentials, languages, default_role, school, major, sma_name, sma_contact, advisor_name, advisor_contact, intern_school, intern_department, license_exp, bls_exp, dea_exp, ftca_exp, tb_exp, birthday, end_date')
       .order('full_name')
     setVolunteers(data || [])
   }
@@ -669,7 +671,7 @@ export default function AdminPage() {
       advisor_name: v.advisor_name||'', advisor_contact: v.advisor_contact||'',
       intern_school: v.intern_school||'', intern_department: v.intern_department||'',
       license_exp: v.license_exp||'', bls_exp: v.bls_exp||'',
-      dea_exp: v.dea_exp||'', ftca_exp: v.ftca_exp||'', tb_exp: v.tb_exp||'',
+      dea_exp: v.dea_exp||'', ftca_exp: v.ftca_exp||'', tb_exp: v.tb_exp||'', end_date: v.end_date || '', status_reason: v.status_reason || '',
     })
     setStatusForm({ status: v.status || 'active', status_reason: v.status_reason || '' })
     setEditing(false)
@@ -679,6 +681,7 @@ export default function AdminPage() {
     // CHANGE: fetch total hours immediately when opening a volunteer detail
     // (replaces the old shifts(*) join that ran for every volunteer in the list)
     loadVolunteerTotalHours(v.id)
+    setEndDateInput(v.end_date || '')
   }
 
   function handleToggleRecentShifts(volunteerId) {
@@ -844,13 +847,18 @@ export default function AdminPage() {
       const { error: se } = await supabase.from('schedule').delete().eq('volunteer_id', volunteerId)
       if (se) { showMessage(se.message, 'error'); setChangingStatus(false); return }
     }
-    const { data: fresh } = await supabase.from('profiles').select('id, full_name, email, phone, role, affiliation, status, status_reason, credentials, languages, default_role, school, major, sma_name, sma_contact, advisor_name, advisor_contact, intern_school, intern_department, license_exp, bls_exp, dea_exp, ftca_exp, tb_exp, birthday').eq('id', volunteerId).single()
+    const { data: fresh } = await supabase.from('profiles').select('id, full_name, email, phone, role, affiliation, status, status_reason, credentials, languages, default_role, school, major, sma_name, sma_contact, advisor_name, advisor_contact, intern_school, intern_department, license_exp, bls_exp, dea_exp, ftca_exp, tb_exp, birthday, end_date').eq('id', volunteerId).single()
     await audit(isDeactivating ? 'deactivated_volunteer' : 'reactivated_volunteer', 'volunteer', volunteerId, selectedVolunteer.full_name, reason || null)
     showMessage(isDeactivating ? 'Volunteer deactivated and removed from schedule.' : 'Volunteer reactivated!', 'success')
     setSelectedVolunteer(fresh); await loadVolunteers(); setChangingStatus(false)
   }
   async function handleSaveEdit() {
     setSaving(true)
+    if (editForm.end_date && !editForm.status_reason) {
+      showMessage('Please select a deactivation reason when setting an end date.', 'error')
+      setSaving(false)
+      return
+    }    
     const isProvider = editForm.affiliation === 'provider'; const isIntern   = editForm.affiliation === 'intern'
     const isMission  = editForm.affiliation === 'missionary'; const isStudent = editForm.affiliation === 'student'
     const { error } = await supabase.from('profiles').update({
@@ -863,10 +871,10 @@ export default function AdminPage() {
       license_exp: isProvider ? (editForm.license_exp||null) : null, bls_exp: isProvider ? (editForm.bls_exp||null) : null,
       dea_exp: isProvider ? (editForm.dea_exp||null) : null, ftca_exp: isProvider ? (editForm.ftca_exp||null) : null,
       tb_exp: isProvider ? (editForm.tb_exp||null) : null,
-      default_role: editForm.default_role || null, birthday: editForm.birthday || null,
+      default_role: editForm.default_role || null, birthday: editForm.birthday || null, end_date: editForm.end_date || null, status_reason: editForm.end_date ? (editForm.status_reason || null) : null,
     }).eq('id', selectedVolunteer.id)
     if (error) { showMessage(error.message, 'error'); setSaving(false); return }
-    const { data: fresh } = await supabase.from('profiles').select('id, full_name, email, phone, role, affiliation, status, status_reason, credentials, languages, default_role, school, major, sma_name, sma_contact, advisor_name, advisor_contact, intern_school, intern_department, license_exp, bls_exp, dea_exp, ftca_exp, tb_exp, birthday').eq('id', selectedVolunteer.id).single()
+    const { data: fresh } = await supabase.from('profiles').select('id, full_name, email, phone, role, affiliation, status, status_reason, credentials, languages, default_role, school, major, sma_name, sma_contact, advisor_name, advisor_contact, intern_school, intern_department, license_exp, bls_exp, dea_exp, ftca_exp, tb_exp, birthday, end_date').eq('id', selectedVolunteer.id).single()
     showMessage('Profile updated!', 'success')
     await audit('edited_volunteer', 'volunteer', selectedVolunteer.id, selectedVolunteer.full_name)
     setEditing(false); setSelectedVolunteer(fresh); await loadVolunteers(); setSaving(false)
@@ -888,7 +896,7 @@ export default function AdminPage() {
       license_exp: isProvider ? (newProviderCreds.license_exp||null) : null, bls_exp: isProvider ? (newProviderCreds.bls_exp||null) : null,
       dea_exp: isProvider ? (newProviderCreds.dea_exp||null) : null, ftca_exp: isProvider ? (newProviderCreds.ftca_exp||null) : null,
       tb_exp: isProvider ? (newProviderCreds.tb_exp||null) : null,
-      birthday: newBirthday || null, default_role: newDefaultRole || null,
+      birthday: newBirthday || null, default_role: newDefaultRole || null, end_date: newEndDate || null,
     })
     if (pe) showMessage(pe.message, 'error')
     else {
@@ -897,7 +905,7 @@ export default function AdminPage() {
       setNewName(''); setNewEmail(''); setNewPassword(''); setNewRole('volunteer')
       setNewAffiliation(''); setNewCredentials(''); setNewPhone(''); setNewLanguages('')
       setNewSmaName(''); setNewSmaContact(''); setNewSchool(''); setNewMajor('')
-      setNewBirthday(''); setNewDefaultRole('')
+      setNewBirthday(''); setNewDefaultRole(''); setNewEndDate('')
       setNewAdvisorName(''); setNewAdvisorContact('')
       setNewInternSchool(''); setNewInternDepartment('')
       setNewProviderCreds({ license_exp: '', bls_exp: '', dea_exp: '', ftca_exp: '', tb_exp: '' })
@@ -1229,6 +1237,7 @@ export default function AdminPage() {
                     { label: 'Role', value: selectedVolunteer.role },
                     { label: 'Default Position', value: selectedVolunteer.default_role },
                     { label: 'Birthday', value: selectedVolunteer.birthday },
+                    { label: 'End Date', value: selectedVolunteer.end_date || null },
                     ...(selectedVolunteer.affiliation === 'missionary' ? [{ label: 'SMA Name', value: selectedVolunteer.sma_name }, { label: 'SMA Contact', value: selectedVolunteer.sma_contact }] : []),
                     ...(selectedVolunteer.affiliation === 'intern' ? [{ label: 'Advisor Name', value: selectedVolunteer.advisor_name }, { label: 'Advisor Contact', value: selectedVolunteer.advisor_contact }, { label: 'School', value: selectedVolunteer.intern_school }, { label: 'Dept / Company', value: selectedVolunteer.intern_department }] : []),
                     ...(selectedVolunteer.affiliation === 'student' ? [{ label: 'School', value: selectedVolunteer.school }, { label: 'Major', value: selectedVolunteer.major }] : [])
@@ -1338,6 +1347,46 @@ export default function AdminPage() {
                   )}                  
                   <div><label style={labelStyle}>Default Position</label><select value={editForm.default_role} onChange={e => setEditForm({...editForm, default_role: e.target.value})} style={inputStyle}><option value="">— None —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                   <div><label style={labelStyle}>Birthday</label><input type="date" value={editForm.birthday || ''} onChange={e => setEditForm({ ...editForm, birthday: e.target.value })} style={inputStyle} /></div>
+                  <div>
+                    <label style={labelStyle}>
+                      End Date{' '}
+                      <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>
+                        (auto-deactivates on this date)
+                      </span>
+                    </label>
+                    <input
+                      type="date"
+                      value={editForm.end_date || ''}
+                      onChange={e => setEditForm({ ...editForm, end_date: e.target.value })}
+                      style={inputStyle}
+                    />
+                    {editForm.end_date && (
+                      <p style={{ fontSize: '0.75rem', color: '#f97316', marginTop: '0.3rem' }}>
+                        ⚠ A deactivation reason is required below.
+                      </p>
+                    )}
+                  </div>
+
+                  {editForm.end_date && (
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label style={labelStyle}>
+                        Reason for deactivation{' '}
+                        <span style={{ color: '#ef4444' }}>*</span>
+                      </label>
+                      <select
+                        value={editForm.status_reason || ''}
+                        onChange={e => setEditForm({ ...editForm, status_reason: e.target.value })}
+                        style={inputStyle}
+                      >
+                        <option value="">— Select reason —</option>
+                        <option value="Graduated">Graduated</option>
+                        <option value="Mission / Service Term Ended">Mission / Service Term Ended</option>
+                        <option value="Schedule Conflict">Schedule Conflict</option>
+                        <option value="Moved Away">Moved Away</option>
+                        <option value="Personal / Unknown">Personal / Unknown</option>
+                      </select>
+                    </div>
+                  )}
                   {editForm.affiliation === 'missionary' && (<><div><label style={labelStyle}>SMA Name</label><input value={editForm.sma_name} onChange={e => setEditForm({...editForm, sma_name: e.target.value})} placeholder="SMA full name" style={inputStyle} /></div><div><label style={labelStyle}>SMA Contact</label><input value={editForm.sma_contact} onChange={e => setEditForm({...editForm, sma_contact: e.target.value})} placeholder="Phone or email" style={inputStyle} /></div></>)}
                   {editForm.affiliation === 'intern' && (<><div><label style={labelStyle}>Advisor Name</label><input value={editForm.advisor_name} onChange={e => setEditForm({...editForm, advisor_name: e.target.value})} placeholder="Advisor full name" style={inputStyle} /></div><div><label style={labelStyle}>Advisor Contact</label><input value={editForm.advisor_contact} onChange={e => setEditForm({...editForm, advisor_contact: e.target.value})} placeholder="Phone or email" style={inputStyle} /></div><div><label style={labelStyle}>School</label><input value={editForm.intern_school} onChange={e => setEditForm({...editForm, intern_school: e.target.value})} placeholder="University or institution" style={inputStyle} /></div><div><label style={labelStyle}>Dept / Company</label><input value={editForm.intern_department} onChange={e => setEditForm({...editForm, intern_department: e.target.value})} placeholder="Department or company name" style={inputStyle} /></div></>)}
                   {editForm.affiliation === 'student' && (<><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>School</label><select value={editForm.school} onChange={e => setEditForm({...editForm, school: e.target.value})} style={inputStyle}><option value="">— Select school —</option>{SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}</select></div><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Major</label><select value={editForm.major || ''} onChange={e => setEditForm({...editForm, major: e.target.value})} style={inputStyle}><option value="">— Select major —</option>{MAJORS.map(m => <option key={m} value={m}>{m}</option>)}</select></div></>)}
@@ -1737,6 +1786,20 @@ export default function AdminPage() {
                 <div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Languages Spoken</label><input value={newLanguages} onChange={e => setNewLanguages(e.target.value)} placeholder="e.g. Spanish, Mandarin" style={inputStyle} /></div>
                 <div><label style={labelStyle}>Default Position</label><select value={newDefaultRole} onChange={e => setNewDefaultRole(e.target.value)} style={inputStyle}><option value="">— None —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                 <div><label style={labelStyle}>Birthday</label><input type="date" value={newBirthday} onChange={e => setNewBirthday(e.target.value)} style={inputStyle} /></div>
+                <div>
+                  <label style={labelStyle}>
+                    End Date{' '}
+                    <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>
+                      (optional — auto-deactivates on this date)
+                    </span>
+                  </label>
+                  <input
+                    type="date"
+                    value={newEndDate}
+                    onChange={e => setNewEndDate(e.target.value)}
+                    style={inputStyle}
+                  />
+                </div>          
                 {newAffiliation === 'missionary' && (<><div><label style={labelStyle}>SMA Name</label><input value={newSmaName} onChange={e => setNewSmaName(e.target.value)} placeholder="SMA full name" style={inputStyle} /></div><div><label style={labelStyle}>SMA Contact</label><input value={newSmaContact} onChange={e => setNewSmaContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div></>)}
                 {newAffiliation === 'student' && (<><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>School</label><select value={newSchool} onChange={e => setNewSchool(e.target.value)} style={inputStyle}><option value="">— Select school —</option>{SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}</select></div><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Major</label><select value={newMajor} onChange={e => setNewMajor(e.target.value)} style={inputStyle}><option value="">— Select major —</option>{MAJORS.map(m => <option key={m} value={m}>{m}</option>)}</select></div></>)}
                 {newAffiliation === 'intern' && (<><div><label style={labelStyle}>Advisor Name</label><input value={newAdvisorName} onChange={e => setNewAdvisorName(e.target.value)} placeholder="Advisor full name" style={inputStyle} /></div><div><label style={labelStyle}>Advisor Contact</label><input value={newAdvisorContact} onChange={e => setNewAdvisorContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div><div><label style={labelStyle}>School</label><input value={newInternSchool} onChange={e => setNewInternSchool(e.target.value)} placeholder="University or institution" style={inputStyle} /></div><div><label style={labelStyle}>Dept / Company</label><input value={newInternDepartment} onChange={e => setNewInternDepartment(e.target.value)} placeholder="Department or company" style={inputStyle} /></div></>)}
