@@ -360,16 +360,14 @@ export default function AdminPage() {
     setActiveShifts(data || [])
   }
 
-  // CHANGE: limit reduced from 100 to 60; only future + today callouts fetched
-  // by default. Old closed callouts only show when admin expands that section.
   async function loadCallouts() {
     const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
     const { data } = await supabase
       .from('callouts')
       .select('id, volunteer_id, callout_date, day_of_week, shift_time, role, reason, status, is_read, covered_by, submitted_at, volunteer:profiles!callouts_volunteer_id_fkey(full_name)')
-      .gte('callout_date', todayStr)           // CHANGE: only future callouts on init
-      .order('submitted_at', { ascending: false })
-      .limit(CALLOUTS_LIMIT)
+      .gte('callout_date', todayStr)
+      .order('callout_date', { ascending: true })
+      .limit(90)
     setCallouts((data || []).map(c => ({ ...c, profiles: c.volunteer, status: c.status ?? (c.is_read ? 'approved' : 'pending') })))
   }
 
