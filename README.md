@@ -21,6 +21,7 @@ A full-stack volunteer management platform for **Bingham Family Free Clinic**, b
 - [Callouts & Coverage](#callouts--coverage)
 - [Provider Credentials](#provider-credentials)
 - [Data Architecture](#data-architecture)
+- [Pipeline](#pipeline)
 - [Messaging System](#messaging-system)
 - [Push Notifications](#push-notifications)
 - [PWA](#pwa)
@@ -55,11 +56,13 @@ The BFC Volunteer Portal replaces manual spreadsheets and group-chat coordinatio
 ├── app/
 │   ├── page.js                  # Login / landing
 │   ├── volunteer/
-│   │   └── page.js              # Volunteer view (clock, schedule, callouts, messages, account)
+│   │   └── page.js              # Volunteer default view (clock, schedule, callouts, messages, account)
 │   ├── admin/
 │   │   └── page.js              # Admin dashboard
 │   ├── clinical-supervisor/
 │   │   └── page.js              # Clinical Supervisor view
+│   ├── providers/
+│   │   └── page.js              # Provider default view
 │   ├── forgot-password/
 │   │   └── page.js              
 │   ├── reset-password/
@@ -74,17 +77,21 @@ The BFC Volunteer Portal replaces manual spreadsheets and group-chat coordinatio
 |   ├── globals.css
 |   └── layout.js
 ├── components/
-│   ├── DataDashboard.jsx        # Charts / aggregate stats (admin Data tab)
-│   ├── Pipeline.jsx             # Volunteer recruitment pipeline (admin)
-│   ├── Waitlist.jsx             # Scheduling waitlist (admin)
-│   ├── ClinicOpenings.jsx       # Open slot display (admin)
-│   └── MessageCard.jsx          # Shared message bubble component
+│   ├── DataDashboard.jsx         # Charts / aggregate stats (admin Data tab)
+│   ├── Pipeline.jsx              # Volunteer recruitment pipeline (admin)
+│   ├── Waitlist.jsx              # Scheduling waitlist (admin)
+│   ├── ClinicOpenings.jsx        # Open slot display (admin)
+│   ├── LunchScheduler.jsx        # Schedule volunteer lunches
+│   ├── Providers.jsx             # Track provider schedules, credentials, and information.
+│   ├── ProvidersScheduleView.jsx # Shared provider schedule, so both the admin and clinical supervisor can view schedules.
+│   └── MessageCard.jsx           # Shared message bubble component
 ├── lib/
 │   ├── supabase.js              # Supabase client (singleton)
 │   ├── constants.js             # DAYS, SHIFTS, ROLES, SCHOOLS, MAJORS, action labels/colors
 │   ├── timeUtils.js             # Mountain Time helpers
 │   ├── messageUtils.js          # Inbox filter logic
-│   └── pushNotifications.js     # Subscribe / unsubscribe helpers
+│   ├── pushNotifications.js     # Subscribe / unsubscribe helpers
+│   └── ScheduleUtils.js         # Provider schedule manipulation - snythesising information from 3 tables.
 ├── public/
 │   ├── manifest.json            # PWA manifest
 │   ├── logo3.png                # App icon (192×512)
@@ -101,9 +108,10 @@ The app has three distinct authenticated views, each with its own route. Role re
 
 | Route | Who can access | How access is determined |
 |---|---|---|
-| `/volunteer` | All authenticated users | Default for `role = 'volunteer'` |
+| `/volunteer` | Non-Providers Default View | Default for `role = 'volunteer'` |
 | `/admin` | Admins only | `role = 'admin'` in `profiles` |
-| `/clinical-supervisor` | Clinical supervisors | `default_role = 'Clinical Supervisor'`|
+| `/clinical-supervisor` | Clinical supervisors only | `default_role = 'Clinical Supervisor'`|
+| `/providers` | Provider Default View | `default_role = 'Provider'`|
 
 Users with `role = 'admin'` or `default_role = 'Clinical Supervisor'` see a **Switch View** button to toggle between their primary view and `/volunteer`.
 
@@ -119,11 +127,13 @@ Located at `/volunteer/page.js`. Tabs load lazily — data for a tab is only fet
 - One-tap clock in / clock out
 - Automatically resolves the volunteer's scheduled role for the current shift window and stamps it on the shift record
 - Falls back to `default_role` if no schedule match is found
+- View assigned lunch if relevant
 
 **Schedule tab**
 - Displays the volunteer's personal recurring schedule
 - Filters by week-of-month pattern (`every`, `odd` = 1st & 3rd, `even` = 2nd & 4th)
 - Respects `start_date` / `end_date` bounds on schedule entries
+- View approved call-outs, or shift pick-up requests
 
 **Call-Out tab**
 - Single-shift callout: date + shift + role + optional reason
@@ -237,6 +247,25 @@ Located at `/clinical-supervisor/page.js`. Read-only. Scoped to the shifts the C
 
 ---
 
+### Providers View
+
+This is a personalized page built for Providers to track their schedules. 
+
+**My Shifts** (critical path — loaded on init)
+- Immediate view of upcoming shifts
+- Easily remove upcoming shifts, by selecting a pale black x.
+
+**Schedule tab**
+- Displays clinical openings for provider.
+- Easily add or remove shifts by selecting the relevant shift icon.
+
+**Account tab**
+- View profile information
+- Change password functionality
+- View previously worked shifts - default closed.
+
+---
+
 ### Shifts & Scheduling
 
 The clinic runs reoccuring **weekday shifts only**, Monday–Friday.:
@@ -257,6 +286,15 @@ When a volunteer can't make a shift they submit a **callout**. An admin approves
 - Admin approves one cover request; all other requests for that callout are auto-denied
 - **Approved + `covered_by` set** → shift is covered
 
+### Provider Scheduling
+
+Providers are scheduled differently from normal volunteers. To begin, Providers are individuals where `default_role = 'Provider'`.
+
+- One-time shifts scheduled by Provider
+- Recurring shifts scheduled by Admin
+- Provider can remove any shift from his schedule.
+- Admin and Clinical Supervisors can view the collective provider schedule.
+
 ### Provider Credentials
 
 Five credential expiration dates are tracked per provider: License, BLS, DEA, FTCA, TB. Each field can hold:
@@ -271,7 +309,11 @@ Five credential expiration dates are tracked per provider: License, BLS, DEA, FT
 
 ## Data Architecture
 
-See Supabase.
+To do.
+
+## Pipeline
+
+To do.
 
 ## Messaging System
 
