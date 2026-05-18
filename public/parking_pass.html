@@ -140,6 +140,26 @@
       letter-spacing: 0.08em;
     }
     .pass-badge-number input::placeholder { color: var(--rule); font-weight: 400; }
+    
+    #pass-number-render {
+        display: none;
+
+        font-family: 'Libre Baskerville', serif;
+        font-size: 32px;
+        font-weight: 700;
+        color: var(--navy);
+
+        line-height: 1;
+        text-align: center;
+    }
+
+    body.capturing #pass-number {
+        display: none;
+    }
+
+    body.capturing #pass-number-render {
+        display: block;
+    }
 
     /* Section title */
     .section-title {
@@ -270,12 +290,21 @@
   </div>
 
   <!-- Pass number -->
-  <div class="pass-badge">
+    <div class="pass-badge">
     <span class="pass-badge-label">Pass No.</span>
+
     <div class="pass-badge-number">
-      <input type="text" id="pass-number" name="pass_number" placeholder="—" maxlength="8" />
+        <input
+        type="text"
+        id="pass-number"
+        name="pass_number"
+        placeholder="—"
+        maxlength="8"
+        />
+
+        <span id="pass-number-render"></span>
     </div>
-  </div>
+    </div>
 
   <!-- Receipt acknowledgment -->
   <div class="agreement">
@@ -354,12 +383,15 @@
         && document.getElementById('date-issued').value !== ''
   }
 
-  // ── Generate PDF → base64 ─────────────────────────────────────────────────
   async function generatePdfBase64() {
     const { jsPDF } = window.jspdf
-    const pageEl    = document.getElementById('pass-page')
+    const pageEl = document.getElementById('pass-page')
+
+    document.getElementById('pass-number-render').textContent =
+        document.getElementById('pass-number').value || '—'
 
     document.body.classList.add('capturing')
+
     try {
       const canvas = await html2canvas(pageEl, {
         scale: 2,
