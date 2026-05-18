@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { ROLES, SHIFTS, ROLE_SUGGESTIONS } from '../lib/constants'
+import { ROLES, SHIFTS, ROLE_SUGGESTIONS, SCHOOLS, MAJORS } from '../lib/constants'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -681,8 +681,37 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       <div style={{ padding: '1rem', background: 'var(--bg)', borderRadius: '10px', border: `1px solid ${C.blue}33` }}>
         <p style={{ ...secLabel, marginBottom: '0.75rem' }}>Academic Information</p>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
-          <div><label style={labelStyle}>School <span style={{ color: C.danger }}>*</span></label><input value={onboardForm.school} onChange={e => setOnboardForm(f => ({ ...f, school: e.target.value }))} placeholder="University or college" style={inputStyle} /></div>
-          <div><label style={labelStyle}>Major <span style={{ color: C.danger }}>*</span></label><input value={onboardForm.major} onChange={e => setOnboardForm(f => ({ ...f, major: e.target.value }))} placeholder="Field of study" style={inputStyle} /></div>
+          <div>
+            <label style={labelStyle}>
+              School <span style={{ color: C.danger }}>*</span>
+            </label>
+            <select
+              value={onboardForm.school}
+              onChange={e => setOnboardForm(f => ({ ...f, school: e.target.value }))}
+              style={inputStyle}
+            >
+              <option value="">— Select school —</option>
+              {SCHOOLS.map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={labelStyle}>
+              Major <span style={{ color: C.danger }}>*</span>
+            </label>
+            <select
+              value={onboardForm.major}
+              onChange={e => setOnboardForm(f => ({ ...f, major: e.target.value }))}
+              style={inputStyle}
+            >
+              <option value="">— Select major —</option>
+              {MAJORS.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
     )
