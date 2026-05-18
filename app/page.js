@@ -99,10 +99,17 @@ export default function LoginPage() {
       padding: '1rem',
     }}>
       <div style={{
-        position: 'fixed', inset: 0, zIndex: 0,
-        backgroundImage: 'linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px)',
-        backgroundSize: '40px 40px',
-        opacity: 0.3,
+        position: 'fixed',
+        inset: 0,
+        zIndex: 0,
+        background: `
+          radial-gradient(
+            ellipse at center,
+            rgba(0,0,0,0) 0%,
+            rgba(0,0,0,0.25) 100%
+          ),
+          var(--bg)
+        `,
       }} />
 
       <div style={{
@@ -118,12 +125,12 @@ export default function LoginPage() {
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
           <img
-            src="/logo.jpg"
+            src="/logo3.png"
             alt="Logo"
             style={{ width: '120px', height: 'auto', display: 'block', margin: '0 auto 1rem', borderRadius: '12px' }}
           />
           <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--text)', letterSpacing: '-0.02em' }}>
-            {forgotMode ? 'Reset Password' : 'Bingham Family Clinic Volunteers'}
+            {forgotMode ? 'Reset Password' : 'BFC Portal'}
           </h1>
           <p style={{ color: 'var(--muted)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
             {forgotMode
@@ -296,7 +303,7 @@ export default function LoginPage() {
               style={{
                 width: '100%', padding: '0.85rem',
                 background: loading ? 'var(--accent-dim)' : 'var(--accent)',
-                color: '#0a0f0a', fontWeight: 600,
+                color: '#ffffff', fontWeight: 600,
                 border: 'none', borderRadius: '8px',
                 fontSize: '0.95rem', cursor: loading ? 'not-allowed' : 'pointer',
                 fontFamily: 'DM Sans, sans-serif',
