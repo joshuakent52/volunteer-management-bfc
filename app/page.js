@@ -140,7 +140,7 @@ export default function LoginPage() {
               src="/logo3.png"
               alt="Logo"
               style={{
-                height: '70px',
+                height: '110px',
                 width: 'auto',
                 objectFit: 'contain',
               }}
