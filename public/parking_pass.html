@@ -289,7 +289,7 @@
   <div class="submit-row no-print">
     <span class="submit-status" id="submit-status"></span>
     <button class="submit-btn" id="submit-btn" onclick="handleSubmit()">
-      Save &amp; Generate PDF
+      Submit
     </button>
   </div>
 
@@ -312,7 +312,8 @@
     const name = p.get('name')
     const num  = p.get('pass_number')
     const date = p.get('date') || new Date().toISOString().slice(0, 10)
-    if (name) document.getElementById('volunteer-name').value = name
+    // intentionally disabled.
+    // if (name) document.getElementById('volunteer-name').value = name
     if (num)  document.getElementById('pass-number').value    = num
     if (date) document.getElementById('date-issued').value    = date
   })()
