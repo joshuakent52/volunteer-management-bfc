@@ -765,7 +765,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   function step1Valid() {
     const a = onboardForm.affiliation
     if (!a) return false
-    if (a === 'student') return !!(onboardForm.school && onboardForm.major)
+    if (a === 'student') return !!(onboardForm.school)
     if (a === 'intern')  return !!(onboardForm.intern_school && onboardForm.intern_department && onboardForm.advisor_name && onboardForm.advisor_contact)
     return true
   }
