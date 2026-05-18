@@ -889,7 +889,7 @@ export default function VolunteerPage() {
       </div>
 
       <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>
-        Loading your workspace
+        Loading your page
       </p>
 
       {/* inject animation keyframes */}
@@ -1044,68 +1044,90 @@ export default function VolunteerPage() {
               )}
             </div>
 
-            {/* ── Your approved call-outs ── */}
             {approvedCallouts.length > 0 && (
-              <div style={{
-                borderRadius: '12px',
-                border: '1px solid rgba(239,68,68,0.35)',
-                background: 'rgba(239,68,68,0.04)',
-                overflow: 'hidden',
-              }}>
-                <div style={{
-                  padding: '0.75rem 1.25rem',
-                  borderBottom: '1px solid rgba(239,68,68,0.2)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.6rem',
-                }}>
-                  <span style={{
-                    fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.07em',
-                    textTransform: 'uppercase', padding: '0.2rem 0.6rem',
-                    borderRadius: '100px', background: 'rgba(239,68,68,0.12)',
-                    color: '#ef4444', border: '1px solid rgba(239,68,68,0.35)',
-                  }}>
-                    Approved Call-Outs
-                  </span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
-                  {approvedCallouts.map((c, i) => (
+              <div style={S.card}>
+                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>
+                  Approved Call-Outs
+                </h2>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {approvedCallouts.map(c => (
                     <div
                       key={c.id}
                       style={{
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        padding: '0.65rem 1.25rem',
-                        borderBottom: i < approvedCallouts.length - 1 ? '1px solid rgba(239,68,68,0.12)' : 'none',
+                        padding: '0.75rem 1rem',
+                        background: 'var(--bg)',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(239,68,68,0.25)',
                         gap: '0.75rem',
                         flexWrap: 'wrap',
                       }}
                     >
+                      {/* LEFT SIDE (like schedule role + tags) */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                        
                         <span style={{
-                          fontFamily: 'DM Mono, monospace', fontSize: '0.85rem',
-                          fontWeight: 600, color: 'var(--text)',
+                          fontFamily: 'DM Mono, monospace',
+                          fontSize: '0.85rem',
+                          fontWeight: 600,
+                          color: 'var(--text)',
                         }}>
-                          {new Date(c.callout_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                          {new Date(c.callout_date + 'T12:00:00').toLocaleDateString(
+                            'en-US',
+                            { weekday: 'short', month: 'short', day: 'numeric' }
+                          )}
                         </span>
+
                         <span style={{
-                          fontFamily: 'DM Mono, monospace', fontSize: '0.78rem',
-                          background: 'rgba(239,68,68,0.1)', color: '#ef4444',
-                          padding: '0.15rem 0.5rem', borderRadius: '6px',
+                          fontFamily: 'DM Mono, monospace',
+                          fontSize: '0.78rem',
+                          background: 'rgba(239,68,68,0.12)',
+                          color: '#ef4444',
+                          padding: '0.15rem 0.5rem',
+                          borderRadius: '6px',
                           border: '1px solid rgba(239,68,68,0.25)',
+                          whiteSpace: 'nowrap',
                         }}>
                           {c.shift_time}
                         </span>
+
                         {c.role && (
-                          <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{c.role}</span>
+                          <span style={{
+                            fontSize: '0.78rem',
+                            color: 'var(--muted)'
+                          }}>
+                            {c.role}
+                          </span>
+                        )}
+
+                        {c.reason && (
+                          <span style={{
+                            fontSize: '0.72rem',
+                            background: 'rgba(96,165,250,0.12)',
+                            color: '#60a5fa',
+                            borderRadius: '4px',
+                            padding: '0.1rem 0.35rem',
+                          }}>
+                            {c.reason}
+                          </span>
                         )}
                       </div>
-                      {c.reason && (
-                        <span style={{ fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic' }}>
-                          {c.reason}
-                        </span>
-                      )}
+
+                      {/* RIGHT SIDE (status-style like schedule shift time) */}
+                      <span style={{
+                        fontFamily: 'DM Mono, monospace',
+                        fontSize: '0.8rem',
+                        color: '#ef4444',
+                        background: 'rgba(239,68,68,0.06)',
+                        padding: '0.2rem 0.6rem',
+                        borderRadius: '6px',
+                        whiteSpace: 'nowrap',
+                      }}>
+                        Call-out
+                      </span>
                     </div>
                   ))}
                 </div>
