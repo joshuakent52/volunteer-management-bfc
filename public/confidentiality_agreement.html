@@ -384,7 +384,7 @@
   // ── Pre-fill from URL params passed by the pipeline ───────────────────────
   (function prefill() {
     const p    = new URLSearchParams(window.location.search)
-    const name = p.get('name')
+    // const name = p.get('name')
     const date = p.get('date') || new Date().toISOString().slice(0, 10)
     if (name) document.getElementById('printed-name').value = name
     if (date) document.getElementById('date-signed').value  = date
