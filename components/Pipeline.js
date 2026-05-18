@@ -1139,7 +1139,9 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                   </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                  {CHECKLIST_ITEMS.map(item => {
+                  {CHECKLIST_ITEMS
+                    .filter(item => item.key !== 'parking_pass')
+                    .map(item => {
                     const checked = checklist[item.key]
                     return (
                       <div key={item.key} style={{ padding: '0.85rem 1rem', borderRadius: '10px', border: `1px solid ${checked ? C.blue + '55' : item.mandatory ? C.danger + '33' : 'var(--border)'}`, background: checked ? C.blue + '08' : item.mandatory ? C.danger + '04' : 'var(--bg)', transition: 'all 0.15s' }}>
