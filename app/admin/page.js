@@ -330,6 +330,8 @@ export default function AdminPage() {
   const affiliationColor = { missionary: '#818cf8', intern: '#150d5a', student: '#38bdf8', volunteer: '#02416B', provider: '#7dd3fc' }
   const badgeStyle  = (color) => ({ display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: '100px', fontSize: '0.75rem', fontWeight: 500, background: color + '22', color: color, border: `1px solid ${color}55` })
   const pillBtn     = (active, mono) => ({ padding: '0.45rem 0.85rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: mono ? 'DM Mono, monospace' : 'DM Sans, sans-serif', background: active ? (mono ? '#1e40af' : 'var(--accent)') : 'var(--surface)', color: active ? (mono ? '#bfdbfe' : '#0a0f0a') : 'var(--muted)', border: active ? 'none' : '1px solid var(--border)' })
+  // Bi-weekly schedule badges (odd = 1st&3rd, even = 2nd&4th) — was low-contrast sky blue on pale blue
+  const biweeklyBadge = { fontWeight: 600, background: '#dbeafe', color: '#1e3a8a', border: '1px solid #2563eb' }
   const tzLabel     = getMountainLabel()
   const DAY_ORDER   = { monday: 0, tuesday: 1, wednesday: 2, thursday: 3, friday: 4, saturday: 5, sunday: 6 }
 
@@ -995,7 +997,7 @@ export default function AdminPage() {
                                   <span style={{ textDecoration: approvedCallout ? 'line-through' : 'none', opacity: approvedCallout ? 0.6 : 1 }}>{entry.profiles?.full_name}</span>
                                   {entry.notes && <span style={{ fontSize: '0.65rem', color: 'var(--muted)', fontStyle: 'italic' }}>({entry.notes})</span>}
                                   {(entry.start_date || entry.end_date) && <span style={{ fontSize: '0.65rem', color: 'var(--muted)', fontStyle: 'italic' }}>({entry.start_date ?? '...'} → {entry.end_date ?? '...'})</span>}
-                                  {entry.week_pattern && entry.week_pattern !== 'every' && <span style={{ fontSize: '0.65rem', background: 'rgba(96,165,250,0.15)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>{entry.week_pattern === 'odd' ? '1st&3rd' : '2nd&4th'}</span>}
+                                  {entry.week_pattern && entry.week_pattern !== 'every' && <span style={{ ...biweeklyBadge, fontSize: '0.65rem', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>{entry.week_pattern === 'odd' ? '1st&3rd' : '2nd&4th'}</span>}
                                   <button onClick={() => handleRemoveEntry(entry.id)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.75rem', padding: '0 2px' }}>✕</button>
                                 </div>
                                 {coverName && <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.25rem 0.6rem 0.25rem 0.75rem', borderRadius: '100px', fontSize: '0.82rem', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.35)', color: '#60a5fa', marginLeft: '0.5rem' }}><span style={{ fontSize: '0.7rem' }}>cover</span><span>{coverName}</span></div>}
@@ -1164,7 +1166,7 @@ export default function AdminPage() {
                               <div><p style={{ fontWeight: 500, fontSize: '0.88rem', textTransform: 'capitalize' }}>{s.day_of_week}</p><p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.1rem' }}>{s.role || 'No role'}</p></div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                                 <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.82rem', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', padding: '0.2rem 0.55rem', borderRadius: '6px', border: '1px solid rgba(2,65,107,0.3)' }}>{s.shift_time}</span>
-                                {s.week_pattern && s.week_pattern !== 'every' && <span style={{ fontSize: '0.72rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', padding: '0.15rem 0.45rem', borderRadius: '5px', border: '1px solid rgba(96,165,250,0.3)' }}>{s.week_pattern === 'odd' ? '1st & 3rd' : '2nd & 4th'}</span>}
+                                {s.week_pattern && s.week_pattern !== 'every' && <span style={{ ...biweeklyBadge, fontSize: '0.72rem', padding: '0.15rem 0.45rem', borderRadius: '5px' }}>{s.week_pattern === 'odd' ? '1st & 3rd' : '2nd & 4th'}</span>}
                                 {s.notes && <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontStyle: 'italic' }}>({s.notes})</span>}
                               </div>
                             </div>
