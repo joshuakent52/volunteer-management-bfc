@@ -1441,69 +1441,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                       )
                     })
                   }
-
-                  {/* ── Confidentiality Agreement row — opens the HTML form modal ──
-                      Mirrors the Parking Pass row exactly below it. */}
-                  {(() => {
-                    const hasPdf = !!(checklist.confidentiality_url)
-                    return (
-                      <div style={{ padding: '0.85rem 1rem', borderRadius: '10px', border: `1px solid ${hasPdf ? C.blue + '55' : 'var(--border)'}`, background: hasPdf ? C.blue + '08' : 'var(--bg)', transition: 'all 0.15s' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-                          <div style={{ width: 20, height: 20, borderRadius: '5px', flexShrink: 0, border: `2px solid ${hasPdf ? C.blue : 'var(--border)'}`, background: hasPdf ? C.blue : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            {hasPdf && <svg width="11" height="9" viewBox="0 0 11 9" fill="none"><path d="M1 4L4 7L10 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-                          </div>
-                          <span style={{ fontSize: '0.9rem', fontWeight: hasPdf ? 600 : 400, color: hasPdf ? 'var(--text)' : 'var(--muted)', flex: 1 }}>
-                            Confidentiality Agreement
-                          </span>
-                          {hasPdf && <span style={{ fontSize: '0.72rem', color: C.blue, fontWeight: 600 }}>Complete</span>}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.4rem' }}>
-                          {hasPdf && (
-                            <button
-                              onClick={() => openFile('onboarding-confidentiality', checklist.confidentiality_url)}
-                              style={{ padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}44` }}
-                            >View PDF</button>
-                          )}
-                          <button
-                            onClick={() => openConfidentialityModal(applicant.id, applicant.full_name, false)}
-                            style={{ padding: '0.2rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}
-                          >{hasPdf ? 'Re-sign Agreement' : '+ Fill Out Agreement'}</button>
-                          <span style={{ fontSize: '0.67rem', color: 'var(--muted)', opacity: 0.6, fontFamily: 'DM Mono, monospace' }}>Generates &amp; saves PDF</span>
-                        </div>
-                      </div>
-                    )
-                  })()}
-
-                  {/* ── Parking Pass row — opens the HTML form modal ── */}
-                  {(() => {
-                    const hasPdf = !!(checklist.parking_pass_url)
-                    return (
-                      <div style={{ padding: '0.85rem 1rem', borderRadius: '10px', border: `1px solid ${hasPdf ? C.blue + '55' : 'var(--border)'}`, background: hasPdf ? C.blue + '08' : 'var(--bg)', transition: 'all 0.15s' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-                          <div style={{ width: 20, height: 20, borderRadius: '5px', flexShrink: 0, border: `2px solid ${hasPdf ? C.blue : 'var(--border)'}`, background: hasPdf ? C.blue : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            {hasPdf && <svg width="11" height="9" viewBox="0 0 11 9" fill="none"><path d="M1 4L4 7L10 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-                          </div>
-                          <span style={{ fontSize: '0.9rem', fontWeight: hasPdf ? 600 : 400, color: hasPdf ? 'var(--text)' : 'var(--muted)', flex: 1 }}>
-                            Parking Pass
-                          </span>
-                          {hasPdf && <span style={{ fontSize: '0.72rem', color: C.blue, fontWeight: 600 }}>Complete</span>}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.4rem' }}>
-                          {hasPdf && (
-                            <button
-                              onClick={() => openFile('onboarding-parking-passes', checklist.parking_pass_url)}
-                              style={{ padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}44` }}
-                            >View PDF</button>
-                          )}
-                          <button
-                            onClick={() => openParkingPassModal(applicant.id, applicant.full_name, false)}
-                            style={{ padding: '0.2rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}
-                          >{hasPdf ? 'Re-issue Pass' : '+ Fill Out Pass'}</button>
-                          <span style={{ fontSize: '0.67rem', color: 'var(--muted)', opacity: 0.6, fontFamily: 'DM Mono, monospace' }}>Generates &amp; saves PDF</span>
-                        </div>
-                      </div>
-                    )
-                  })()}
                 </div>
 
                 <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
