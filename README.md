@@ -95,7 +95,6 @@ The BFC Volunteer Portal replaces manual spreadsheets and group-chat coordinatio
 ├── public/
 │   ├── manifest.json            # PWA manifest
 │   ├── logo3.png                # App icon (192×512)
-│   ├── logo.png                
 │   └── sw.js                    # Service worker (push notifications)
 └── next.config.js
 ```
