@@ -9,6 +9,7 @@ import Pipeline from '../../components/Pipeline'
 import Waitlist from '../../components/Waitlist'
 import LunchScheduler from '../../components/LunchScheduler'
 import Providers from '../../components/Providers'
+import Live, { computeExpectedNotClockedIn } from './Live'
 
 
 export const dynamic = 'force-dynamic'
@@ -16,11 +17,10 @@ export const dynamic = 'force-dynamic'
 const DAYS = ['monday','tuesday','wednesday','thursday','friday']
 
 // ── Pagination page sizes ────────────────────────────────────────────────────
-// Reduced from 200/100/500 to small pages loaded on demand.
-const SHIFTS_PAGE   = 25   // was 200 flat fetch
-const HOURS_PAGE    = 20   // was 100 flat fetch
-const AUDIT_PAGE    = 30   // was 500 flat fetch
-const CALLOUTS_LIMIT = 60  // was 100 flat fetch
+const SHIFTS_PAGE   = 25
+const HOURS_PAGE    = 20
+const AUDIT_PAGE    = 30
+const CALLOUTS_LIMIT = 60
 
 const PROVIDER_CRED_FIELDS = [
   { key: 'license_exp', label: 'License' },
@@ -218,10 +218,6 @@ function LoadMoreButton({ onClick, loading, hasMore, label = 'Load more' }) {
 export default function AdminPage() {
   const [profile, setProfile] = useState(null)
 
-  // ── Core data — loaded once on init ────────────────────────────────────────
-  // CHANGE: volunteers query no longer joins shifts(*). Previously that join
-  // pulled every shift row for every volunteer on every page load — by far the
-  // largest single egress source on this page.
   const [volunteers, setVolunteers]   = useState([])
   const [activeShifts, setActiveShifts] = useState([])
   const [callouts, setCallouts]       = useState([])
@@ -231,7 +227,6 @@ export default function AdminPage() {
   const [toast, setToast]             = useState(null)
   const [currentTime, setCurrentTime] = useState(getMountainNow())
 
-  // Tab loaded guard — prevents re-fetching on revisit
   const loadedTabs = useRef(new Set(['dashboard']))
 
   // ── Schedule tab state ──────────────────────────────────────────────────────
@@ -271,7 +266,6 @@ export default function AdminPage() {
   const [scheduledShifts, setScheduledShifts]     = useState([])
   const [loadingRecentShifts, setLoadingRecentShifts]       = useState(false)
   const [loadingScheduledShifts, setLoadingScheduledShifts] = useState(false)
-  // CHANGE: volunteer total hours now fetched on demand instead of via shifts(*) join
   const [volunteerTotalHours, setVolunteerTotalHours] = useState(null)
   const [loadingVolHours, setLoadingVolHours]     = useState(false)
 
@@ -293,13 +287,12 @@ export default function AdminPage() {
   const [pendingCalloutsOpen, setPendingCalloutsOpen] = useState(true)
   const [openShiftsOpen, setOpenShiftsOpen] = useState(true)
 
-  // ── Shifts tab — paginated ──────────────────────────────────────────────────
-  // CHANGE: was a single fetch of 200 rows. Now loads SHIFTS_PAGE (25) at a time.
+  // ── Shifts tab ──────────────────────────────────────────────────────────────
   const [allShifts, setAllShifts]           = useState([])
   const [shiftsLoading, setShiftsLoading]   = useState(false)
   const [shiftsLoadingMore, setShiftsLoadingMore] = useState(false)
   const [shiftsHasMore, setShiftsHasMore]   = useState(false)
-  const [shiftsCursor, setShiftsCursor]     = useState(null) // oldest clock_in fetched
+  const [shiftsCursor, setShiftsCursor]     = useState(null)
   const [editingShiftId, setEditingShiftId] = useState(null)
   const [shiftEditForm, setShiftEditForm]   = useState({ clock_in: '', clock_out: '', role: '', clock_in_utc: '', clock_out_utc: '' })
   const [savingShift, setSavingShift]       = useState(false)
@@ -308,9 +301,7 @@ export default function AdminPage() {
   const [creatingShift, setCreatingShift]   = useState(false)
   const [shiftFilterVolId, setShiftFilterVolId] = useState('')
 
-  // ── Hours tab — paginated, split pending/reviewed ───────────────────────────
-  // CHANGE: was a single 100-row fetch. Now pending loads first (usually tiny);
-  // reviewed history is paginated separately and only loads when scrolled to.
+  // ── Hours tab ───────────────────────────────────────────────────────────────
   const [pendingHours, setPendingHours]             = useState([])
   const [reviewedHours, setReviewedHours]           = useState([])
   const [hoursLoading, setHoursLoading]             = useState(false)
@@ -319,13 +310,12 @@ export default function AdminPage() {
   const [reviewedHoursCursor, setReviewedHoursCursor]   = useState(null)
   const [approvingHoursId, setApprovingHoursId]     = useState(null)
 
-  // ── Audit tab — paginated ───────────────────────────────────────────────────
-  // CHANGE: was a single 500-row fetch. Now loads AUDIT_PAGE (30) at a time.
+  // ── Audit tab ───────────────────────────────────────────────────────────────
   const [auditLogs, setAuditLogs]           = useState([])
   const [auditLoading, setAuditLoading]     = useState(false)
   const [auditLoadingMore, setAuditLoadingMore] = useState(false)
   const [auditHasMore, setAuditHasMore]     = useState(false)
-  const [auditCursor, setAuditCursor]       = useState(null) // oldest created_at fetched
+  const [auditCursor, setAuditCursor]       = useState(null)
   const [auditFilterAdmin, setAuditFilterAdmin]   = useState('')
   const [auditFilterAction, setAuditFilterAction] = useState('')
   const [auditFilterFrom, setAuditFilterFrom]     = useState('')
@@ -344,8 +334,6 @@ export default function AdminPage() {
   const DAY_ORDER   = { monday: 0, tuesday: 1, wednesday: 2, thursday: 3, friday: 4, saturday: 5, sunday: 6 }
 
   // ── Data loaders ────────────────────────────────────────────────────────────
-
-  // CHANGE: removed all columns not rendered in the list view. No joins to shifts.
   async function loadVolunteers() {
     const { data } = await supabase
       .from('profiles')
@@ -389,9 +377,6 @@ export default function AdminPage() {
     setCoverRequests(data || [])
   }
 
-  // ── Shifts tab — first page ─────────────────────────────────────────────────
-  // CHANGE: was loadAllShifts() fetching 200 rows unconditionally. Now fetches
-  // only SHIFTS_PAGE rows and exposes a "load more" button.
   async function loadShiftsFirstPage(volId = '') {
     setShiftsLoading(true)
     let q = supabase
@@ -426,10 +411,6 @@ export default function AdminPage() {
     setShiftsLoadingMore(false)
   }
 
-  // ── Hours tab — pending only on init, reviewed paginated on demand ──────────
-  // CHANGE: previously fetched 100 rows (all statuses) in one query. Now:
-  //   1. loadPendingHours() fetches only pending — usually < 10 rows.
-  //   2. loadReviewedHours() is called lazily when admin clicks "View history".
   async function loadPendingHours() {
     setHoursLoading(true)
     const { data } = await supabase
@@ -473,10 +454,6 @@ export default function AdminPage() {
     setReviewedHoursLoading(false)
   }
 
-  // ── Audit tab — first page ──────────────────────────────────────────────────
-  // CHANGE: was a single 500-row fetch every time filters change. Now loads
-  // AUDIT_PAGE (30) rows and offers "load more". 500 audit log rows × ~1 KB each
-  // = ~500 KB per filter apply. This cuts that to ~30 KB.
   async function loadAuditFirstPage() {
     setAuditLoading(true)
     setAuditLogs([])
@@ -520,7 +497,6 @@ export default function AdminPage() {
     return q
   }
 
-  // ── Volunteer detail — lazy loaders ────────────────────────────────────────
   async function loadRecentShiftsForVolunteer(volunteerId) {
     setLoadingRecentShifts(true)
     const { data } = await supabase
@@ -545,8 +521,6 @@ export default function AdminPage() {
     setLoadingScheduledShifts(false)
   }
 
-  // CHANGE: volunteer total hours now fetched on-demand when detail opens,
-  // not pre-joined into every profiles row on the list load.
   async function loadVolunteerTotalHours(volunteerId) {
     setLoadingVolHours(true)
     const { data } = await supabase
@@ -582,8 +556,6 @@ export default function AdminPage() {
   }
 
   // ── Init ────────────────────────────────────────────────────────────────────
-  // CHANGE: uses getSession() instead of getUser() — reads localStorage,
-  // no network round-trip when token is fresh.
   useEffect(() => {
     async function init() {
       const { data: { session } } = await supabase.auth.getSession()
@@ -638,26 +610,8 @@ export default function AdminPage() {
     })
   }
 
-  const expectedVolunteers = (() => {
-    const todayMtnStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
-    const mtnNow = getMountainNow(); const dayIndex = mtnNow.getDay()
-    const isWeekday = dayIndex >= 1 && dayIndex <= 5
-    const h = mtnNow.getHours() + mtnNow.getMinutes() / 60
-    const currentShift = h >= 10 && h < 14 ? '10-2' : h >= 14 && h < 18 ? '2-6' : null
-    const currentDay = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
-    if (!isWeekday || !currentShift) return []
-    const calledOutIds = new Set(callouts.filter(c => c.callout_date === todayMtnStr && c.shift_time === currentShift && c.status === 'approved').map(c => c.volunteer_id))
-    const coverIds = new Set(callouts.filter(c => c.callout_date === todayMtnStr && c.shift_time === currentShift && c.covered_by).map(c => c.covered_by))
-    const scheduled = schedule.filter(s => s.day_of_week === currentDay && s.shift_time === currentShift && (!s.start_date || s.start_date <= todayMtnStr) && (!s.end_date || s.end_date >= todayMtnStr))
-    const expectedIds = new Set([...scheduled.filter(s => !calledOutIds.has(s.volunteer_id)).map(s => s.volunteer_id), ...coverIds])
-    const clockedInIds = new Set(activeShifts.map(s => s.profiles?.id).filter(Boolean))
-    return [...expectedIds].filter(id => !clockedInIds.has(id)).map(id => {
-      const vol = volunteers.find(v => v.id === id)
-      const entry = scheduled.find(s => s.volunteer_id === id)
-      if (!vol) return null
-      return { ...vol, role: entry?.role || '—', notes: entry?.notes || null }
-    }).filter(Boolean)
-  })()
+  // ── Stats banner: use the same helper as the Live tab ──────────────────────
+  const { list: expectedVolunteers } = computeExpectedNotClockedIn({ schedule, callouts, activeShifts, volunteers })
 
   function openVolunteer(v) {
     setTab('volunteers')
@@ -678,8 +632,6 @@ export default function AdminPage() {
     setShowRecentShifts(false); setShowScheduledShifts(false)
     setRecentShifts([]); setScheduledShifts([])
     setVolunteerTotalHours(null)
-    // CHANGE: fetch total hours immediately when opening a volunteer detail
-    // (replaces the old shifts(*) join that ran for every volunteer in the list)
     loadVolunteerTotalHours(v.id)
     setEndDateInput(v.end_date || '')
   }
@@ -737,7 +689,6 @@ export default function AdminPage() {
       showMessage('Shift updated!', 'success')
       await audit('edited_shift', 'shift', shiftId, shift?.profiles?.full_name, `${formatDateTime(clockIn)} → ${clockOut ? formatDateTime(clockOut) : 'active'}`)
       setEditingShiftId(null)
-      // Refresh just the first page — don't reload entire list
       await loadShiftsFirstPage(shiftFilterVolId)
       await loadActiveShifts()
     }
@@ -764,7 +715,6 @@ export default function AdminPage() {
     await supabase.from('hours_submissions').update({ status: 'approved', reviewed_at: new Date().toISOString() }).eq('id', sub.id)
     showMessage('Hours approved and shift created!', 'success')
     await audit('approved_hours', 'hours', sub.id, sub.profiles?.full_name, `${sub.hours}h on ${sub.work_date} (${sub.role})`)
-    // Move item from pending to top of reviewed list locally — no extra query
     setPendingHours(prev => prev.filter(h => h.id !== sub.id))
     setReviewedHours(prev => [{ ...sub, status: 'approved', reviewed_at: new Date().toISOString() }, ...prev])
     setApprovingHoursId(null)
@@ -775,7 +725,6 @@ export default function AdminPage() {
     await supabase.from('hours_submissions').update({ status: 'rejected', reviewed_at: new Date().toISOString() }).eq('id', id)
     showMessage('Submission rejected.', 'success')
     await audit('rejected_hours', 'hours', id, sub?.profiles?.full_name, `${sub?.hours}h on ${sub?.work_date}`)
-    // Move locally — no extra query
     setPendingHours(prev => prev.filter(h => h.id !== id))
     setReviewedHours(prev => [{ ...sub, status: 'rejected', reviewed_at: new Date().toISOString() }, ...prev])
     setApprovingHoursId(null)
@@ -933,41 +882,14 @@ export default function AdminPage() {
     .sort((a, b) => { const ln = n => (n?.full_name?.split(' ').slice(-1)[0] || '').toLowerCase(); return ln(a).localeCompare(ln(b)) })
 
   if (loading) return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: 'var(--bg)',
-      gap: '1rem',
-    }}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', gap: '1rem' }}>
       <div style={{ display: 'flex', gap: '6px' }}>
         {[0, 1, 2].map(i => (
-          <span
-            key={i}
-            style={{
-              width: 10,
-              height: 10,
-              borderRadius: '50%',
-              background: 'var(--muted)',
-              animation: `bounce 1s infinite ${i * 0.15}s`,
-            }}
-          />
+          <span key={i} style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--muted)', animation: `bounce 1s infinite ${i * 0.15}s` }} />
         ))}
       </div>
-
-      <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>
-        Loading your page
-      </p>
-
-      {/* inject animation keyframes */}
-      <style>{`
-        @keyframes bounce {
-          0%, 100% { transform: translateY(0); opacity: 0.4; }
-          50% { transform: translateY(-6px); opacity: 1; }
-        }
-      `}</style>
+      <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading your page</p>
+      <style>{`@keyframes bounce { 0%, 100% { transform: translateY(0); opacity: 0.4; } 50% { transform: translateY(-6px); opacity: 1; } }`}</style>
     </div>
   )
 
@@ -988,12 +910,12 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* Stats */}
+        {/* Stats — use computeExpectedNotClockedIn so they match the Live tab */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
           {[
-            { label: 'Not Clocked In',  value: expectedVolunteers.length, warn: expectedVolunteers.length > 0 },
+            { label: 'Not Clocked In',    value: expectedVolunteers.length, warn: expectedVolunteers.length > 0 },
             { label: 'Pending Call-Outs', value: callouts.filter(c => !c.status || c.status === 'pending').length, warn: callouts.filter(c => !c.status || c.status === 'pending').length > 0 },
-            { label: 'Pending Hours',   value: pendingHours.filter(h => !h.status || h.status === 'pending').length, warn: pendingHours.some(h => !h.status || h.status === 'pending') },
+            { label: 'Pending Hours',     value: pendingHours.filter(h => !h.status || h.status === 'pending').length, warn: pendingHours.some(h => !h.status || h.status === 'pending') },
           ].map(s => (
             <div key={s.label} style={{ ...card, textAlign: 'center', borderColor: s.warn ? 'var(--warn)' : 'var(--border)' }}>
               <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: s.warn ? 'var(--warn)' : 'var(--text)' }}>{s.value}</p>
@@ -1015,103 +937,16 @@ export default function AdminPage() {
           ))}
         </div>
 
-        {/* ── LIVE TAB ──────────────────────────────────────────────────────── */}
-        {tab === 'dashboard' && (() => {
-          const todayMtnStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
-          const mtnNow = getMountainNow(); const dayIndex = mtnNow.getDay(); const isWeekday = dayIndex >= 1 && dayIndex <= 5
-          const h = mtnNow.getHours() + mtnNow.getMinutes() / 60
-          const currentShift = h >= 10 && h < 14 ? '10-2' : h >= 14 && h < 18 ? '2-6' : null
-          const currentDay = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayIndex]
-          const expectedVols = isWeekday && currentShift ? (() => {
-            const calledOutIds = new Set(callouts.filter(c => c.callout_date === todayMtnStr && c.shift_time === currentShift && c.status === 'approved').map(c => c.volunteer_id))
-            const coverIds = new Set(callouts.filter(c => c.callout_date === todayMtnStr && c.shift_time === currentShift && c.covered_by).map(c => c.covered_by))
-            const scheduled = schedule.filter(s => s.day_of_week === currentDay && s.shift_time === currentShift && (!s.start_date || s.start_date <= todayMtnStr) && (!s.end_date || s.end_date >= todayMtnStr))
-            const expectedIds = new Set([...scheduled.filter(s => !calledOutIds.has(s.volunteer_id)).map(s => s.volunteer_id), ...coverIds])
-            const clockedInIds = new Set(activeShifts.map(s => s.profiles?.id).filter(Boolean))
-            return [...expectedIds].filter(id => !clockedInIds.has(id)).map(id => { const vol = volunteers.find(v => v.id === id); const entry = scheduled.find(s => s.volunteer_id === id); if (!vol) return null; return { ...vol, role: entry?.role || '—', notes: entry?.notes || null } }).filter(Boolean)
-          })() : []
-          return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {isWeekday && currentShift && (
-                <div style={{ ...card, borderColor: expectedVols.length > 0 ? 'var(--danger)' : 'rgba(2,65,107,0.4)', background: expectedVols.length > 0 ? 'rgba(239,68,68,0.03)' : 'rgba(2,65,107,0.03)' }}>
-                  <h2 style={{ fontWeight: 600, marginBottom: expectedVols.length > 0 ? '1rem' : 0, fontSize: '1rem' }}>{expectedVols.length > 0 ? `${expectedVols.length} volunteer${expectedVols.length !== 1 ? 's' : ''} not yet clocked in — ${currentDay} ${currentShift}` : `All expected volunteers clocked in — ${currentDay} ${currentShift}`}</h2>
-                  {expectedVols.length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {expectedVols.map(v => (
-                        <div key={v.id} onClick={() => openVolunteer(v)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'rgba(239,68,68,0.06)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer' }} onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'} onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(239,68,68,0.2)'}>
-                          <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{v.full_name}</span>
-                          {v.notes && <span style={{ fontSize: '0.78rem', color: '#60a5fa', fontStyle: 'italic' }}>({v.notes})</span>}
-                          <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{v.role}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              <div style={card}>
-                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Currently Clocked In</h2>
-                {activeShifts.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No one is currently clocked in.</p> : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {activeShifts.map(s => (
-                      <div key={s.id} onClick={() => { const full = volunteers.find(v => v.id === s.profiles?.id); if (full) openVolunteer(full) }} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(2,65,107,0.05)', borderRadius: '8px', border: '1px solid var(--accent)', cursor: 'pointer' }} onMouseEnter={e => e.currentTarget.style.opacity = '0.85'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 6px var(--accent)' }} />
-                          <span style={{ fontWeight: 500 }}>{s.profiles?.full_name}</span>
-                        </div>
-                        <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Since {formatMountain(s.clock_in)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {(() => {
-                const todayMtn = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
-                const todaysCallouts = callouts.filter(c => c.callout_date === todayMtn && c.status !== 'denied')
-                return todaysCallouts.length > 0 && (
-                  <div style={card}>
-                    <h2 style={{ fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span>Today's Call-Outs</span>
-                      <span style={{ padding: '0.15rem 0.55rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid rgba(96,165,250,0.3)' }}>{todaysCallouts.length}</span>
-                    </h2>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {todaysCallouts.map(c => {
-                        const isCovered = c.status === 'approved' && c.covered_by
-                        const isOpen = c.status === 'approved' && !c.covered_by
-                        return (
-                          <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.9rem', background: isCovered ? 'rgba(2,65,107,0.04)' : isOpen ? 'rgba(239,68,68,0.04)' : 'rgba(96,165,250,0.05)', borderRadius: '8px', border: `1px solid ${isCovered ? 'rgba(2,65,107,0.25)' : isOpen ? 'rgba(239,68,68,0.25)' : 'rgba(96,165,250,0.3)'}`, flexWrap: 'wrap', gap: '0.5rem' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-                              <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{c.profiles?.full_name}</span>
-                              {c.shift_time && <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(96,165,250,0.3)' }}>{c.day_of_week ? c.day_of_week.charAt(0).toUpperCase() + c.day_of_week.slice(1,3) + ' ' : ''}{c.shift_time}</span>}
-                              <span style={{ fontSize: '0.72rem', padding: '0.1rem 0.45rem', borderRadius: '100px', fontWeight: 600, background: isCovered ? 'rgba(2,65,107,0.1)' : isOpen ? 'rgba(239,68,68,0.08)' : 'rgba(96,165,250,0.1)', color: isCovered ? 'var(--accent)' : isOpen ? '#ef4444' : '#60a5fa', border: `1px solid ${isCovered ? 'rgba(2,65,107,0.3)' : isOpen ? 'rgba(239,68,68,0.25)' : 'rgba(96,165,250,0.3)'}` }}>{isCovered ? 'covered' : isOpen ? 'open' : 'pending'}</span>
-                              {c.reason && <span style={{ fontSize: '0.82rem', color: 'var(--muted)', fontStyle: 'italic' }}>{c.reason}</span>}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )
-              })()}
-              {(() => {
-                const today   = getMountainNow()
-                const todayMD = `${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
-                const bdays   = volunteers.filter(v => v.birthday && v.birthday.slice(5) === todayMD)
-                return bdays.length > 0 && (
-                  <div style={{ ...card, borderColor: 'rgba(129,140,248,0.5)', background: 'rgba(129,140,248,0.04)' }}>
-                    <h2 style={{ fontWeight: 600, marginBottom: '0.75rem', fontSize: '1rem' }}>Birthdays Today</h2>
-                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      {bdays.map(v => (
-                        <span key={v.id} style={{ padding: '0.3rem 0.75rem', borderRadius: '100px', background: 'rgba(129,140,248,0.12)', color: '#818cf8', border: '1px solid rgba(129,140,248,0.35)', fontSize: '0.875rem', fontWeight: 500 }}>
-                          {v.full_name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )
-              })()}              
-            </div>
-          )
-        })()}
+        {/* ── LIVE TAB — now a separate component ───────────────────────────── */}
+        {tab === 'dashboard' && (
+          <Live
+            schedule={schedule}
+            callouts={callouts}
+            activeShifts={activeShifts}
+            volunteers={volunteers}
+            onOpenVolunteer={openVolunteer}
+          />
+        )}
 
         {/* ── SCHEDULE TAB ──────────────────────────────────────────────────── */}
         {tab === 'schedule' && (
@@ -1250,7 +1085,6 @@ export default function AdminPage() {
                 <div>
                   <h2 style={{ fontWeight: 600, fontSize: '1.2rem' }}>{selectedVolunteer.full_name}</h2>
                   <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{selectedVolunteer.email}</p>
-                  {/* CHANGE: total hours now shown here, loaded on demand */}
                   <p style={{ fontSize: '0.8rem', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', marginTop: '0.2rem' }}>
                     {loadingVolHours ? 'Loading hours…' : volunteerTotalHours !== null ? `${volunteerTotalHours}h total` : ''}
                   </p>
@@ -1381,36 +1215,14 @@ export default function AdminPage() {
                   <div><label style={labelStyle}>Default Position</label><select value={editForm.default_role} onChange={e => setEditForm({...editForm, default_role: e.target.value})} style={inputStyle}><option value="">— None —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                   <div><label style={labelStyle}>Birthday</label><input type="date" value={editForm.birthday || ''} onChange={e => setEditForm({ ...editForm, birthday: e.target.value })} style={inputStyle} /></div>
                   <div>
-                    <label style={labelStyle}>
-                      End Date{' '}
-                      <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>
-                        (auto-deactivates on this date)
-                      </span>
-                    </label>
-                    <input
-                      type="date"
-                      value={editForm.end_date || ''}
-                      onChange={e => setEditForm({ ...editForm, end_date: e.target.value })}
-                      style={inputStyle}
-                    />
-                    {editForm.end_date && (
-                      <p style={{ fontSize: '0.75rem', color: '#f97316', marginTop: '0.3rem' }}>
-                        ⚠ A deactivation reason is required below.
-                      </p>
-                    )}
+                    <label style={labelStyle}>End Date <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(auto-deactivates on this date)</span></label>
+                    <input type="date" value={editForm.end_date || ''} onChange={e => setEditForm({ ...editForm, end_date: e.target.value })} style={inputStyle} />
+                    {editForm.end_date && <p style={{ fontSize: '0.75rem', color: '#f97316', marginTop: '0.3rem' }}>⚠ A deactivation reason is required below.</p>}
                   </div>
-
                   {editForm.end_date && (
                     <div style={{ gridColumn: '1 / -1' }}>
-                      <label style={labelStyle}>
-                        Reason for deactivation{' '}
-                        <span style={{ color: '#ef4444' }}>*</span>
-                      </label>
-                      <select
-                        value={editForm.status_reason || ''}
-                        onChange={e => setEditForm({ ...editForm, status_reason: e.target.value })}
-                        style={inputStyle}
-                      >
+                      <label style={labelStyle}>Reason for deactivation <span style={{ color: '#ef4444' }}>*</span></label>
+                      <select value={editForm.status_reason || ''} onChange={e => setEditForm({ ...editForm, status_reason: e.target.value })} style={inputStyle}>
                         <option value="">— Select reason —</option>
                         <option value="Graduated">Graduated</option>
                         <option value="Mission / Service Term Ended">Mission / Service Term Ended</option>
@@ -1443,7 +1255,7 @@ export default function AdminPage() {
         {/* ── PIPELINE ──────────────────────────────────────────────────────── */}
         {tab === 'pipeline' && <Pipeline supabase={supabase} profile={profile} onVolunteerCreated={() => loadVolunteers()} />}
 
-        {/* ── SHIFTS TAB — paginated ─────────────────────────────────────────── */}
+        {/* ── SHIFTS TAB ────────────────────────────────────────────────────── */}
         {tab === 'shifts' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {showNewShiftForm && (
@@ -1522,6 +1334,7 @@ export default function AdminPage() {
           </div>
         )}
 
+        {/* ── CALLOUTS TAB ──────────────────────────────────────────────────── */}
         {tab === 'callouts' && (() => {
           const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
           const pendingCallouts  = callouts.filter(c => (!c.status || c.status === 'pending') && c.callout_date >= todayStr)
@@ -1531,31 +1344,18 @@ export default function AdminPage() {
               const bPending = coverRequests.filter(r => r.callout_id === b.id && r.status === 'pending').length
               return bPending - aPending
             })
-          const closedCallouts   = callouts.filter(c => c.status === 'denied' || (c.status === 'approved' && c.covered_by))
-          const pendingCovers    = coverRequests.filter(r => r.status === 'pending')
-        
-          // Sort pending callouts: those with a pending cover request float to top
           const sortedPendingCallouts = [...pendingCallouts].sort((a, b) => {
             const aHasCover = coverRequests.some(r => r.callout_id === a.id && r.status === 'pending') ? 0 : 1
             const bHasCover = coverRequests.some(r => r.callout_id === b.id && r.status === 'pending') ? 0 : 1
             return aHasCover - bHasCover
           })
-        
           return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        
-              {/* ── Pending Call-Outs (collapsible) ── */}
               <div style={card}>
-                <button
-                  onClick={() => setPendingCalloutsOpen(o => !o)}
-                  style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', padding: 0, marginBottom: pendingCalloutsOpen ? '1.25rem' : 0 }}
-                >
-                  <h2 style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-                    Pending Call-Outs
-                  </h2>
+                <button onClick={() => setPendingCalloutsOpen(o => !o)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', padding: 0, marginBottom: pendingCalloutsOpen ? '1.25rem' : 0 }}>
+                  <h2 style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>Pending Call-Outs</h2>
                   <span style={{ color: 'var(--muted)', fontSize: '0.85rem', transform: pendingCalloutsOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', flexShrink: 0 }}>▾</span>
                 </button>
-        
                 {pendingCalloutsOpen && (
                   pendingCallouts.length === 0
                     ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No pending call-outs.</p>
@@ -1565,49 +1365,23 @@ export default function AdminPage() {
                           const hasCoverRequest  = pendingCoverReqs.length > 0
                           return (
                             <div key={c.id} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: `1px solid ${hasCoverRequest ? 'rgba(34,197,94,0.4)' : 'rgba(96,165,250,0.35)'}` }}>
-                              {hasCoverRequest && (
-                                <p style={{ fontSize: '0.7rem', fontWeight: 700, color: '#22c55e', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>
-                                  ✦ Volunteer ready to cover
-                                </p>
-                              )}
+                              {hasCoverRequest && <p style={{ fontSize: '0.7rem', fontWeight: 700, color: '#22c55e', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>✦ Volunteer ready to cover</p>}
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
                                 <div>
                                   <span style={{ fontWeight: 600 }}>{c.profiles?.full_name}</span>
-                                  <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'capitalize' }}>
-                                    {c.callout_date} · {c.day_of_week} {c.shift_time}
-                                  </span>
-                                  {c.role && (
-                                    <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)' }}>
-                                      {c.role}
-                                    </span>
-                                  )}
-                                  {c.reason && (
-                                    <p style={{ color: 'var(--muted)', fontSize: '0.82rem', marginTop: '0.25rem', fontStyle: 'italic' }}>{c.reason}</p>
-                                  )}
-                                  {/* Show who wants to cover, right here for quick approval */}
+                                  <span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'capitalize' }}>{c.callout_date} · {c.day_of_week} {c.shift_time}</span>
+                                  {c.role && <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: 'rgba(2,65,107,0.1)', color: 'var(--accent)', border: '1px solid rgba(2,65,107,0.35)' }}>{c.role}</span>}
+                                  {c.reason && <p style={{ color: 'var(--muted)', fontSize: '0.82rem', marginTop: '0.25rem', fontStyle: 'italic' }}>{c.reason}</p>}
                                   {hasCoverRequest && (
                                     <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                                       {pendingCoverReqs.map(r => {
-                                        const vol = coverRequests.find(cr => cr.id === r.id)
                                         const name = r.profiles?.full_name || volunteers.find(v => v.id === r.volunteer_id)?.full_name
                                         return (
                                           <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                                             <span style={{ fontSize: '0.82rem', color: '#22c55e', fontWeight: 500 }}>{name} wants to cover</span>
                                             <div style={{ display: 'flex', gap: '0.35rem' }}>
-                                              <button
-                                                onClick={() => approveCover(r)}
-                                                disabled={approvingCoverId === r.id}
-                                                style={{ padding: '0.2rem 0.65rem', background: 'rgba(34,197,94,0.12)', color: '#16a34a', border: '1px solid rgba(34,197,94,0.35)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}
-                                              >
-                                                {approvingCoverId === r.id ? '...' : '✓ Assign'}
-                                              </button>
-                                              <button
-                                                onClick={() => denyCover(r.id)}
-                                                disabled={approvingCoverId === r.id}
-                                                style={{ padding: '0.2rem 0.65rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}
-                                              >
-                                                ✕
-                                              </button>
+                                              <button onClick={() => approveCover(r)} disabled={approvingCoverId === r.id} style={{ padding: '0.2rem 0.65rem', background: 'rgba(34,197,94,0.12)', color: '#16a34a', border: '1px solid rgba(34,197,94,0.35)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{approvingCoverId === r.id ? '...' : '✓ Assign'}</button>
+                                              <button onClick={() => denyCover(r.id)} disabled={approvingCoverId === r.id} style={{ padding: '0.2rem 0.65rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>✕</button>
                                             </div>
                                           </div>
                                         )
@@ -1626,20 +1400,12 @@ export default function AdminPage() {
                       </div>
                 )}
               </div>
-        
-              {/* ── Open Shifts — Awaiting Coverage (collapsible) ── */}
-              {(approvedCallouts.length > 0 ) && (
+              {approvedCallouts.length > 0 && (
                 <div style={card}>
-                  <button
-                    onClick={() => setOpenShiftsOpen(o => !o)}
-                    style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', padding: 0, marginBottom: openShiftsOpen ? '1.25rem' : 0 }}
-                  >
-                    <h2 style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-                      Open Shifts — Awaiting Coverage
-                    </h2>
+                  <button onClick={() => setOpenShiftsOpen(o => !o)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', padding: 0, marginBottom: openShiftsOpen ? '1.25rem' : 0 }}>
+                    <h2 style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>Open Shifts — Awaiting Coverage</h2>
                     <span style={{ color: 'var(--muted)', fontSize: '0.85rem', transform: openShiftsOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', flexShrink: 0 }}>▾</span>
                   </button>
-        
                   {openShiftsOpen && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                       {approvedCallouts.map(c => {
@@ -1676,19 +1442,17 @@ export default function AdminPage() {
                   )}
                 </div>
               )}
-        
             </div>
           )
         })()}
 
-        {/* ── HOURS TAB — split pending / reviewed history ───────────────────── */}
+        {/* ── HOURS TAB ─────────────────────────────────────────────────────── */}
         {tab === 'hours' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {hoursLoading ? (
               <p style={{ color: 'var(--muted)', padding: '1rem' }}>Loading...</p>
             ) : (
               <>
-                {/* Pending — always shown first */}
                 <div style={card}>
                   <h2 style={{ fontWeight: 600, marginBottom: '1rem' }}>
                     Pending Approval
@@ -1714,22 +1478,11 @@ export default function AdminPage() {
                     </div>
                   )}
                 </div>
-
-                {/* Reviewed history — loaded lazily on demand */}
-                {/* CHANGE: previously all 100 rows loaded together. Now reviewed
-                    history only loads when admin clicks the button, saving the
-                    majority of the hours tab egress for admins who only care about
-                    pending items (the common case). */}
                 <div style={card}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <h2 style={{ fontWeight: 600, color: 'var(--muted)' }}>Previously Reviewed</h2>
                     {reviewedHours.length === 0 && !reviewedHoursLoading && (
-                      <button
-                        onClick={loadReviewedHoursFirstPage}
-                        style={{ padding: '0.4rem 0.9rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.82rem', fontFamily: 'DM Sans, sans-serif' }}
-                      >
-                        Load history
-                      </button>
+                      <button onClick={loadReviewedHoursFirstPage} style={{ padding: '0.4rem 0.9rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.82rem', fontFamily: 'DM Sans, sans-serif' }}>Load history</button>
                     )}
                   </div>
                   {reviewedHoursLoading && reviewedHours.length === 0 && <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginTop: '0.75rem' }}>Loading…</p>}
@@ -1751,7 +1504,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ── AUDIT TAB — paginated ──────────────────────────────────────────── */}
+        {/* ── AUDIT TAB ─────────────────────────────────────────────────────── */}
         {tab === 'audit' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={card}><p style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.5, maxWidth: '600px' }}>Tracks administrative actions for the last 2 weeks. Use filters to narrow results.</p></div>
@@ -1820,18 +1573,8 @@ export default function AdminPage() {
                 <div><label style={labelStyle}>Default Position</label><select value={newDefaultRole} onChange={e => setNewDefaultRole(e.target.value)} style={inputStyle}><option value="">— None —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                 <div><label style={labelStyle}>Birthday</label><input type="date" value={newBirthday} onChange={e => setNewBirthday(e.target.value)} style={inputStyle} /></div>
                 <div>
-                  <label style={labelStyle}>
-                    End Date{' '}
-                    <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>
-                      (optional — auto-deactivates on this date)
-                    </span>
-                  </label>
-                  <input
-                    type="date"
-                    value={newEndDate}
-                    onChange={e => setNewEndDate(e.target.value)}
-                    style={inputStyle}
-                  />
+                  <label style={labelStyle}>End Date <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional — auto-deactivates on this date)</span></label>
+                  <input type="date" value={newEndDate} onChange={e => setNewEndDate(e.target.value)} style={inputStyle} />
                 </div>          
                 {newAffiliation === 'missionary' && (<><div><label style={labelStyle}>SMA Name</label><input value={newSmaName} onChange={e => setNewSmaName(e.target.value)} placeholder="SMA full name" style={inputStyle} /></div><div><label style={labelStyle}>SMA Contact</label><input value={newSmaContact} onChange={e => setNewSmaContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div></>)}
                 {newAffiliation === 'student' && (<><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>School</label><select value={newSchool} onChange={e => setNewSchool(e.target.value)} style={inputStyle}><option value="">— Select school —</option>{SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}</select></div><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Major</label><select value={newMajor} onChange={e => setNewMajor(e.target.value)} style={inputStyle}><option value="">— Select major —</option>{MAJORS.map(m => <option key={m} value={m}>{m}</option>)}</select></div></>)}
@@ -1853,12 +1596,9 @@ export default function AdminPage() {
         )}
 
         {tab === 'providers' && <Providers supabase={supabase} />}
-        
-        {/* ── DATA TAB ──────────────────────────────────────────────────────── */}
-        {tab === 'data' && <DataDashboard supabase={supabase} />}
-        {tab === 'lunch' && (
-          <LunchScheduler supabase={supabase} profile={profile} />
-        )}
+        {tab === 'data'      && <DataDashboard supabase={supabase} />}
+        {tab === 'lunch'     && <LunchScheduler supabase={supabase} profile={profile} />}
+
         {/* Toast */}
         {toast && (
           <div style={{ position: 'fixed', bottom: '1.5rem', left: '50%', transform: 'translateX(-50%)', background: toast.type === 'success' ? 'var(--accent)' : 'var(--danger)', color: toast.type === 'success' ? '#0a0f0a' : '#fff', padding: '0.75rem 1.5rem', borderRadius: '100px', fontWeight: 500, fontSize: '0.9rem', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', zIndex: 100 }}>
