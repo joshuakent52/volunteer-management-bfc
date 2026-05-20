@@ -20,11 +20,6 @@ export default function ClinicOpenings({ onClose }) {
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(null)
   const [filter,  setFilter]  = useState('all') // 'all' | day name | shift string
-const counts = {}
-for (const row of (rows || [])) {
-  const key = `${row.day_of_week?.toLowerCase().trim()}|${row.shift_time?.toLowerCase().trim()}|${row.role}`
-  if (!counts[key]) counts[key] = new Set()
-  useEffect(() => { fetchOpenings() }, [])
 
   async function fetchOpenings() {
     setLoading(true); setError(null)
