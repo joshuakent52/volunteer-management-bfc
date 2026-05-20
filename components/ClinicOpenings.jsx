@@ -20,7 +20,10 @@ export default function ClinicOpenings({ onClose }) {
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(null)
   const [filter,  setFilter]  = useState('all') // 'all' | day name | shift string
-
+const counts = {}
+for (const row of (rows || [])) {
+  const key = `${row.day_of_week?.toLowerCase().trim()}|${row.shift_time?.toLowerCase().trim()}|${row.role}`
+  if (!counts[key]) counts[key] = new Set()
   useEffect(() => { fetchOpenings() }, [])
 
   async function fetchOpenings() {
@@ -28,22 +31,26 @@ export default function ClinicOpenings({ onClose }) {
     try {
       const { data: rows, error: err } = await supabase
         .from('schedule')
-        .select('day_of_week, shift_time, role, volunteer_id')
+        .select('day_of_week, shift_time, role, volunteer_id, end_date, week_pattern')
       if (err) throw err
 
-      const counts = {}
-      for (const row of (rows || [])) {
-        const key = `${row.day_of_week?.toLowerCase().trim()}|${row.shift_time?.toLowerCase().trim()}|${row.role}`
-        if (!counts[key]) counts[key] = new Set()
-        counts[key].add(row.volunteer_id)
-      }
-
+      const today = new Date().toISOString().split('T')[0]
+      const activeRows = (rows || []).filter(r =>
+        (r.end_date == null || r.end_date > today)
+      )
+      
       const results = []
       for (const day of DAYS) {
         for (const shift of SHIFTS) {
           for (const [role, required] of Object.entries(ROLE_SUGGESTIONS)) {
-            const key   = `${day}|${shift}|${role}`
-            const filled = Math.min((counts[key]?.size || 0), required)
+            const slotRows = activeRows.filter(r =>
+              r.day_of_week?.toLowerCase().trim() === day &&
+              r.shift_time?.toLowerCase().trim()  === shift &&
+              r.role                               === role
+            )
+            const filled   = slotRows.reduce((sum, r) =>
+              sum + (r.week_pattern === 'every' ? 1 : 0.5), 0
+            )
             const openings = required - filled
             if (openings > 0) {
               results.push({ day, shift, role, capacity: required, filled, openings })
