@@ -25,41 +25,52 @@ export function parseSlotKey(key) {
 const C = { blue: '#3b82f6', yellow: '#f59e0b', red: '#ef4444', green: '#22c55e', purple: '#a78bfa' }
 
 // ─── Compute available slots ──────────────────────────────────────────────────
-// Pure, synchronous. Roles with no ROLE_SUGGESTIONS entry are unlimited (always open).
+// A slot is truly open when its effective fill (counting active entries,
+// where every-week = 1 and bi-weekly = 0.5, so two bi-weeklies = one full slot)
+// is below the role limit. "Active" means end_date is null or in the future —
+// future start_dates still count since that's a committed slot.
 export function computeAvailableSlots(entry, currentSchedule) {
-  const slotKeys = (entry.preferred_slots && entry.preferred_slots.length > 0)
+  const today = new Date().toISOString().split('T')[0]
+
+  const slotKeys = (entry.preferred_slots?.length > 0)
     ? entry.preferred_slots
     : ALL_SLOTS.map(s => s.key)
-  const roles = (entry.preferred_roles && entry.preferred_roles.length > 0)
+  const roles = (entry.preferred_roles?.length > 0)
     ? entry.preferred_roles
     : ROLES
 
   const result = []
+
   for (const key of slotKeys) {
     const { day, shift } = parseSlotKey(key)
     for (const role of roles) {
       const limit = ROLE_SUGGESTIONS[role]
+      if (limit === 0) continue
+
       if (limit !== undefined && limit !== null && limit > 0) {
-        const entries = (currentSchedule || []).filter(s =>
-          s.day_of_week === day && s.shift_time === shift && s.role === role
+        const activeEntries = (currentSchedule || []).filter(s =>
+          s.day_of_week === day && s.shift_time === shift && s.role === role &&
+          (s.end_date == null || s.end_date > today)
         )
-        const effectiveCount = entries.reduce((sum, e) =>
-          sum + (e.week_pattern === 'every' ? 1 : 0.5), 0
+
+        const filled = activeEntries.reduce((sum, s) =>
+          sum + (s.week_pattern === 'every' ? 1 : 0.5), 0
         )
-        if (effectiveCount >= limit) continue
-        result.push({ key, day, shift, role, filled: effectiveCount })
-      } else if (limit === 0) {
-        continue
+
+        if (filled >= limit) continue
+
+        result.push({ key, day, shift, role, filled })
       } else {
         // Unlimited role — always available
         result.push({ key, day, shift, role, filled: 0 })
       }
     }
   }
+
   return result
 }
 
-// ─── Shared style helpers (module-level so Waitlist and its sub-components share them) ──
+// ─── Shared style helpers ─────────────────────────────────────────────────────
 
 const card       = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }
 const inputStyle = { width: '100%', padding: '0.75rem 1rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '0.95rem', outline: 'none', fontFamily: 'DM Sans, sans-serif', boxSizing: 'border-box', colorScheme: 'dark' }
@@ -259,6 +270,7 @@ export default function Waitlist({ supabase, profile, onAssigned }) {
   async function handleAssignSlot() {
     if (!assignModal || !assignSlotKey || !assignRole) return
     setAssigningSlot(true)
+    const today = new Date().toISOString().split('T')[0]
     const { day, shift } = parseSlotKey(assignSlotKey)
     const volId = assignModal.volunteer_id
 
@@ -267,10 +279,15 @@ export default function Waitlist({ supabase, profile, onAssigned }) {
     const limit = ROLE_SUGGESTIONS[assignRole]
 
     if (limit !== undefined && limit !== null && limit > 0) {
-      const entries        = (freshSchedule || []).filter(s => s.day_of_week === day && s.shift_time === shift && s.role === assignRole)
-      const effectiveCount = entries.reduce((sum, e) => sum + (e.week_pattern === 'every' ? 1 : 0.5), 0)
-      if (effectiveCount >= limit) {
-        msg(`${assignRole} is full for ${day} ${shift} (${effectiveCount}/${limit})`, 'error')
+      const activeEntries = (freshSchedule || []).filter(s =>
+        s.day_of_week === day && s.shift_time === shift && s.role === assignRole &&
+        (s.end_date == null || s.end_date > today)
+      )
+      const filled = activeEntries.reduce((sum, s) =>
+        sum + (s.week_pattern === 'every' ? 1 : 0.5), 0
+      )
+      if (filled >= limit) {
+        msg(`${assignRole} is full for ${day} ${shift} (${filled}/${limit})`, 'error')
         setAssigningSlot(false)
         return
       }
@@ -405,7 +422,7 @@ export default function Waitlist({ supabase, profile, onAssigned }) {
               </div>
             )}
 
-            {/* Role picker — all roles, unlimited marked with ∞ */}
+            {/* Role picker */}
             <div>
               <label style={labelStyle}>Role</label>
               <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
