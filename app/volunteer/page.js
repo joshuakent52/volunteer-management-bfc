@@ -257,6 +257,9 @@ export default function VolunteerPage() {
   const [msgImagePreview, setMsgImagePreview] = useState(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const fileInputRef = useRef(null)
+  const [comboQuery, setComboQuery]   = useState('')
+  const [comboOpen, setComboOpen]     = useState(false)
+  const comboRef                      = useRef(null)
 
   // ── Account tab state (lazy) ──────────────────────────────────────────────
   const [allShifts, setAllShifts]               = useState([])
@@ -292,12 +295,30 @@ export default function VolunteerPage() {
   // re-fetch on every re-render or tab revisit.
   const fetchedTabs = useRef(new Set())
 
+  const [isMobile, setIsMobile] = useState(true)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
   const isIntern   = profile?.affiliation === 'intern'
   const isProvider = profile?.affiliation === 'provider'
 
   // ── CRITICAL PATH INIT — only profile + active shift ─────────────────────
   useEffect(() => {
     initCriticalPath()
+  }, [])
+
+  useEffect(() => {
+    function handleMouseDown(e) {
+      if (comboRef.current && !comboRef.current.contains(e.target)) {
+        setComboOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleMouseDown)
+    return () => document.removeEventListener('mousedown', handleMouseDown)
   }, [])
 
   async function initCriticalPath() {
@@ -580,6 +601,12 @@ export default function VolunteerPage() {
     setMsgImagePreview(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
+  
+  function selectRecipient(vol) {
+    setMsgRecipientVolId(vol.id)
+    setComboQuery(vol.full_name)
+    setComboOpen(false)
+  }
 
   async function uploadImage(userId) {
     if (!msgImageFile) return null
@@ -627,7 +654,8 @@ export default function VolunteerPage() {
       showToast('Message sent!', 'success')
       setMsgBody(''); clearImage()
       setMsgRecipientType('admin'); setMsgSelectedShift(null); setMsgSelectedRole(null); setMsgRecipientVolId('')
-      // Reset messages tab so next open re-fetches fresh
+      setComboQuery('')
+      setComboOpen(false) 
       fetchedTabs.current.delete('messages')
       setMessages([]); setMsgCursor(null); setHasMoreMsgs(false)
       await fetchMessagesTab()
@@ -849,6 +877,30 @@ export default function VolunteerPage() {
   const inboxMessages = user && profile ? getInboxMessages(messages, user, profile) : []
   const sentMessages  = messages.filter(m => m.sender_id === user?.id)
   const unreadCount   = inboxMessages.filter(m => !readMessageIds.has(m.id)).length
+
+  const recentRecipients = sentMessages
+    .filter(m => m.recipient_type === 'volunteer' && m.recipient_volunteer_id)
+    .map(m => m.recipient_volunteer_id)
+    .filter((id, i, arr) => arr.indexOf(id) === i)
+    .slice(0, 4)
+    .map(id => allUsers.find(u => u.id === id))
+    .filter(Boolean)
+
+  const comboResults = (() => {
+    const q = comboQuery.trim().toLowerCase()
+    const baseList = allUsers.filter(u => u.id !== user?.id)
+    if (q.length === 0) {
+      const recentIds = new Set(recentRecipients.map(u => u.id))
+      const rest = baseList.filter(u => !recentIds.has(u.id))
+      return [...recentRecipients, ...rest].slice(0, 20)
+    }
+    const startsWith = baseList.filter(u => u.full_name.toLowerCase().startsWith(q))
+    const midString  = baseList.filter(u =>
+      !u.full_name.toLowerCase().startsWith(q) &&
+      u.full_name.toLowerCase().includes(q)
+    )
+    return [...startsWith, ...midString].slice(0, 20)
+  })()
 
   const myShiftCombos = schedule.reduce((acc, s) => {
     const key = `${s.day_of_week}|${s.shift_time}`
@@ -1378,7 +1430,14 @@ export default function VolunteerPage() {
                         { value: 'user', label: 'Individual' },
                       ].map(opt => (
                         <button key={opt.value} type="button"
-                          onClick={() => { setMsgRecipientType(opt.value); setMsgSelectedShift(null); setMsgSelectedRole(null); setMsgRecipientVolId('') }}
+                          onClick={() => {
+                            setMsgRecipientType(opt.value)
+                            setMsgSelectedShift(null)
+                            setMsgSelectedRole(null)
+                            setMsgRecipientVolId('')
+                            setComboQuery('')
+                            setComboOpen(false)
+                          }}                          
                           style={{ padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: msgRecipientType === opt.value ? 'var(--accent)' : 'var(--surface)', color: msgRecipientType === opt.value ? '#fff' : 'var(--muted)', border: msgRecipientType === opt.value ? 'none' : '1px solid var(--border)' }}>
                           {opt.label}
                         </button>
@@ -1387,12 +1446,216 @@ export default function VolunteerPage() {
                     {msgRecipientType === 'user' && (
                       <div style={{ marginTop: '0.75rem' }}>
                         <label style={S.label}>Select user</label>
-                        <select value={msgRecipientVolId} onChange={e => setMsgRecipientVolId(e.target.value)} style={S.input}>
-                          <option value="">— Select user —</option>
-                          {allUsers.filter(u => u.id !== user?.id).map(v => (
-                            <option key={v.id} value={v.id}>{v.full_name}</option>
-                          ))}
-                        </select>
+
+                        {isMobile ? (
+                          <>
+                            {/* ── Mobile: trigger button + bottom sheet ── */}
+                            <button
+                              type="button"
+                              onClick={() => { setComboOpen(true); setComboQuery('') }}
+                              style={{
+                                ...S.input,
+                                textAlign: 'left',
+                                cursor: 'pointer',
+                                color: msgRecipientVolId ? 'var(--text)' : 'var(--muted)',
+                              }}
+                            >
+                              {msgRecipientVolId
+                                ? allUsers.find(u => u.id === msgRecipientVolId)?.full_name
+                                : 'Tap to select recipient…'}
+                            </button>
+
+                            {comboOpen && (
+                              <div style={{
+                                position: 'fixed', inset: 0,
+                                background: 'rgba(0,0,0,0.5)',
+                                zIndex: 200,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'flex-end',
+                              }}>
+                                <div style={{
+                                  background: 'var(--surface)',
+                                  borderRadius: '16px 16px 0 0',
+                                  maxHeight: '60vh',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                }}>
+                                  {/* Sheet header */}
+                                  <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    padding: '1rem 1.25rem 0.75rem',
+                                    borderBottom: '1px solid var(--border)',
+                                  }}>
+                                    <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>Select Recipient</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setComboOpen(false)}
+                                      style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '1.1rem' }}
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+
+                                  {/* Search input */}
+                                  <div style={{ padding: '0.75rem 1.25rem', borderBottom: '1px solid var(--border)' }}>
+                                    <input
+                                      autoFocus
+                                      type="text"
+                                      placeholder="Search by name…"
+                                      value={comboQuery}
+                                      onChange={e => setComboQuery(e.target.value)}
+                                      style={{ ...S.input }}
+                                    />
+                                  </div>
+
+                                  {/* Results */}
+                                  <div style={{ overflowY: 'auto', flex: 1 }}>
+                                    {comboResults.length === 0 ? (
+                                      <p style={{ padding: '1rem 1.25rem', color: 'var(--muted)', fontSize: '0.9rem' }}>No results</p>
+                                    ) : (
+                                      comboResults.map((u, i) => {
+                                        const isRecent     = recentRecipients.some(r => r.id === u.id)
+                                        const prevWasRecent = i > 0 && recentRecipients.some(r => r.id === comboResults[i - 1].id)
+                                        const showDivider  = i > 0 && prevWasRecent && !isRecent && comboQuery.trim().length === 0
+                                        return (
+                                          <div key={u.id}>
+                                            {i === 0 && isRecent && comboQuery.trim().length === 0 && (
+                                              <div style={{ padding: '0.35rem 1.25rem', fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', background: 'var(--bg)' }}>
+                                                Recent
+                                              </div>
+                                            )}
+                                            {showDivider && (
+                                              <div style={{ padding: '0.35rem 1.25rem', fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', background: 'var(--bg)' }}>
+                                                All volunteers
+                                              </div>
+                                            )}
+                                            <button
+                                              type="button"
+                                              onClick={() => selectRecipient(u)}
+                                              style={{
+                                                width: '100%',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '0.75rem',
+                                                padding: '0.75rem 1.25rem',
+                                                background: msgRecipientVolId === u.id ? 'rgba(2,65,107,0.08)' : 'none',
+                                                border: 'none',
+                                                borderBottom: '1px solid var(--border)',
+                                                cursor: 'pointer',
+                                                fontFamily: 'DM Sans, sans-serif',
+                                                textAlign: 'left',
+                                                minHeight: '52px',
+                                              }}
+                                            >
+                                              <div style={{
+                                                width: '32px', height: '32px', borderRadius: '50%',
+                                                background: 'var(--surface)', flexShrink: 0,
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                fontWeight: 600, fontSize: '0.85rem', color: 'var(--accent)',
+                                              }}>
+                                                {u.full_name?.charAt(0)}
+                                              </div>
+                                              <div>
+                                                <p style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text)' }}>{u.full_name}</p>
+                                                {isRecent && comboQuery.trim().length === 0 && (
+                                                  <p style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>Recent</p>
+                                                )}
+                                              </div>
+                                            </button>
+                                          </div>
+                                        )
+                                      })
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          /* ── Desktop: inline combobox ── */
+                          <div ref={comboRef} style={{ position: 'relative' }}>
+                            <input
+                              type="text"
+                              placeholder="Search by name…"
+                              value={comboQuery}
+                              onChange={e => { setComboQuery(e.target.value); setComboOpen(true); setMsgRecipientVolId('') }}
+                              onFocus={() => setComboOpen(true)}
+                              style={{ ...S.input }}
+                            />
+
+                            {comboOpen && (
+                              <div style={{
+                                position: 'absolute',
+                                top: 'calc(100% + 4px)',
+                                left: 0, right: 0,
+                                background: 'var(--surface)',
+                                border: '1px solid var(--border)',
+                                borderRadius: '8px',
+                                boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                                zIndex: 100,
+                                maxHeight: '260px',
+                                overflowY: 'auto',
+                              }}>
+                                {comboResults.length === 0 ? (
+                                  <p style={{ padding: '0.75rem 1rem', color: 'var(--muted)', fontSize: '0.85rem' }}>
+                                    {comboQuery.trim().length === 0 ? 'Start typing to search…' : 'No results'}
+                                  </p>
+                                ) : (
+                                  comboResults.map((u, i) => {
+                                    const isRecent      = recentRecipients.some(r => r.id === u.id)
+                                    const prevWasRecent = i > 0 && recentRecipients.some(r => r.id === comboResults[i - 1].id)
+                                    const showDivider   = i > 0 && prevWasRecent && !isRecent && comboQuery.trim().length === 0
+                                    return (
+                                      <div key={u.id}>
+                                        {i === 0 && isRecent && comboQuery.trim().length === 0 && (
+                                          <div style={{ padding: '0.35rem 1rem', fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                                            Recent
+                                          </div>
+                                        )}
+                                        {showDivider && (
+                                          <div style={{ padding: '0.35rem 1rem', fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', borderTop: '1px solid var(--border)', marginTop: '0.25rem' }}>
+                                            All volunteers
+                                          </div>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onMouseDown={e => { e.preventDefault(); selectRecipient(u) }}
+                                          style={{
+                                            width: '100%',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.6rem',
+                                            padding: '0.55rem 1rem',
+                                            background: msgRecipientVolId === u.id ? 'rgba(2,65,107,0.08)' : 'none',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            fontFamily: 'DM Sans, sans-serif',
+                                            textAlign: 'left',
+                                            fontSize: '0.875rem',
+                                            color: 'var(--text)',
+                                          }}
+                                        >
+                                          <div style={{
+                                            width: '26px', height: '26px', borderRadius: '50%',
+                                            background: 'var(--bg)', flexShrink: 0,
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            fontWeight: 600, fontSize: '0.75rem', color: 'var(--accent)',
+                                          }}>
+                                            {u.full_name?.charAt(0)}
+                                          </div>
+                                          <span>{u.full_name}</span>
+                                        </button>
+                                      </div>
+                                    )
+                                  })
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                     {msgRecipientType === 'shift' && myShiftCombos.length > 0 && (
