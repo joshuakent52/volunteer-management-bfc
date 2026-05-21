@@ -1,5 +1,5 @@
 This repository is publicly visible for portfolio and review purposes only.
-Commercial or other use requires written permission.
+Commercial or other use requires written permission. At this stage of development, this PWA is not intended for broader use. Future work will focus on evolving it into a more flexible, installable platform with improved performance and more professional engineering standards.
 
 # BFC Volunteer Portal
 

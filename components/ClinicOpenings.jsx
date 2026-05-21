@@ -22,28 +22,32 @@ export default function ClinicOpenings({ onClose }) {
   const [filter,  setFilter]  = useState('all') // 'all' | day name | shift string
 
   useEffect(() => { fetchOpenings() }, [])
-
+  
   async function fetchOpenings() {
     setLoading(true); setError(null)
     try {
       const { data: rows, error: err } = await supabase
         .from('schedule')
-        .select('day_of_week, shift_time, role, volunteer_id')
+        .select('day_of_week, shift_time, role, volunteer_id, end_date, week_pattern')
       if (err) throw err
 
-      const counts = {}
-      for (const row of (rows || [])) {
-        const key = `${row.day_of_week?.toLowerCase().trim()}|${row.shift_time?.toLowerCase().trim()}|${row.role}`
-        if (!counts[key]) counts[key] = new Set()
-        counts[key].add(row.volunteer_id)
-      }
-
+      const today = new Date().toISOString().split('T')[0]
+      const activeRows = (rows || []).filter(r =>
+        (r.end_date == null || r.end_date > today)
+      )
+      
       const results = []
       for (const day of DAYS) {
         for (const shift of SHIFTS) {
           for (const [role, required] of Object.entries(ROLE_SUGGESTIONS)) {
-            const key   = `${day}|${shift}|${role}`
-            const filled = Math.min((counts[key]?.size || 0), required)
+            const slotRows = activeRows.filter(r =>
+              r.day_of_week?.toLowerCase().trim() === day &&
+              r.shift_time?.toLowerCase().trim()  === shift &&
+              r.role                               === role
+            )
+            const filled   = slotRows.reduce((sum, r) =>
+              sum + (r.week_pattern === 'every' ? 1 : 0.5), 0
+            )
             const openings = required - filled
             if (openings > 0) {
               results.push({ day, shift, role, capacity: required, filled, openings })
@@ -77,7 +81,7 @@ export default function ClinicOpenings({ onClose }) {
   const totalOpenings = filtered.reduce((s, r) => s + r.openings, 0)
 
   const card    = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }
-  const pill    = (active) => ({ padding: '0.3rem 0.75rem', borderRadius: '100px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', border: active ? 'none' : '1px solid var(--border)', background: active ? 'var(--accent)' : 'var(--surface)', color: active ? '#0a0f0a' : 'var(--muted)', transition: 'all 0.15s' })
+  const pill    = (active) => ({ padding: '0.3rem 0.75rem', borderRadius: '100px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', border: active ? 'none' : '1px solid var(--border)', background: active ? 'var(--accent)' : 'var(--surface)', color: active ? '#fff' : 'var(--muted)', transition: 'all 0.15s' })
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
