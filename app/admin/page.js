@@ -329,7 +329,7 @@ export default function AdminPage() {
   const labelStyle  = { display: 'block', fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
   const affiliationColor = { missionary: '#818cf8', intern: '#150d5a', student: '#38bdf8', volunteer: '#02416B', provider: '#7dd3fc' }
   const badgeStyle  = (color) => ({ display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: '100px', fontSize: '0.75rem', fontWeight: 500, background: color + '22', color: color, border: `1px solid ${color}55` })
-  const pillBtn     = (active, mono) => ({ padding: '0.45rem 0.85rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: mono ? 'DM Mono, monospace' : 'DM Sans, sans-serif', background: active ? (mono ? '#1e40af' : 'var(--accent)') : 'var(--surface)', color: active ? (mono ? '#bfdbfe' : '#0a0f0a') : 'var(--muted)', border: active ? 'none' : '1px solid var(--border)' })
+  const pillBtn     = (active, mono) => ({ padding: '0.45rem 0.85rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: mono ? 'DM Mono, monospace' : 'DM Sans, sans-serif', background: active ? (mono ? '#1e40af' : 'var(--accent)') : 'var(--surface)', color: active ? (mono ? '#bfdbfe' : '#fff') : 'var(--muted)', border: active ? 'none' : '1px solid var(--border)' })
   // Bi-weekly schedule badges (odd = 1st&3rd, even = 2nd&4th) — was low-contrast sky blue on pale blue
   const biweeklyBadge = { fontWeight: 600, background: '#dbeafe', color: '#1e3a8a', border: '1px solid #2563eb' }
   const tzLabel     = getMountainLabel()
@@ -1017,7 +1017,7 @@ export default function AdminPage() {
                             <div><label style={labelStyle}>End date <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional)</span></label><input type="date" value={addEndDate} onChange={e => setAddEndDate(e.target.value)} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} /></div>
                           </div>
                           <div><label style={labelStyle}>Schedule note <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional)</span></label><input type="text" value={addNotes} onChange={e => setAddNotes(e.target.value)} placeholder="e.g. arriving late" style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }} /></div>
-                          <button onClick={handleAddEntry} disabled={!addVolId || addingEntry} style={{ padding: '0.75rem 1.25rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{addingEntry ? '...' : 'Assign'}</button>
+                          <button onClick={handleAddEntry} disabled={!addVolId || addingEntry} style={{ padding: '0.75rem 1.25rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{addingEntry ? '...' : 'Assign'}</button>
                         </div>
                       )}
                     </div>
@@ -1092,7 +1092,7 @@ export default function AdminPage() {
                   </p>
                 </div>
               </div>
-              <button onClick={() => setEditing(!editing)} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: editing ? 'var(--surface)' : 'var(--accent)', color: editing ? 'var(--muted)' : '#0a0f0a', border: editing ? '1px solid var(--border)' : 'none' }}>{editing ? 'Cancel' : 'Edit'}</button>
+              <button onClick={() => setEditing(!editing)} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: editing ? 'var(--surface)' : 'var(--accent)', color: editing ? 'var(--muted)' : '#fff', border: editing ? '1px solid var(--border)' : 'none' }}>{editing ? 'Cancel' : 'Edit'}</button>
             </div>
 
             {!editing ? (
@@ -1190,7 +1190,7 @@ export default function AdminPage() {
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minWidth: '200px' }}>
                           {!isInactive && <select value={statusForm.status_reason} onChange={e => setStatusForm({ ...statusForm, status_reason: e.target.value })} style={{ ...inputStyle, fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}><option value="">— Reason for deactivating —</option><option value="Graduated">Graduated</option><option value="Mission / Service Term Ended">Mission / Service Term Ended</option><option value="Schedule Conflict">Schedule Conflict</option><option value="Moved Away">Moved Away</option><option value="Personal / Unknown">Personal / Unknown</option></select>}
-                          <button onClick={() => handleStatusChange(isInactive ? 'active' : 'inactive', statusForm.status_reason)} disabled={changingStatus || (!isInactive && !statusForm.status_reason)} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600, cursor: (changingStatus || (!isInactive && !statusForm.status_reason)) ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', border: 'none', background: isInactive ? 'var(--accent)' : '#dc2626', color: isInactive ? '#0a0f0a' : '#fff', opacity: (!isInactive && !statusForm.status_reason) ? 0.5 : 1 }}>{changingStatus ? 'Saving...' : isInactive ? 'Reactivate' : 'Deactivate'}</button>
+                          <button onClick={() => handleStatusChange(isInactive ? 'active' : 'inactive', statusForm.status_reason)} disabled={changingStatus || (!isInactive && !statusForm.status_reason)} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600, cursor: (changingStatus || (!isInactive && !statusForm.status_reason)) ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', border: 'none', background: isInactive ? 'var(--accent)' : '#dc2626', color: '#fff', opacity: (!isInactive && !statusForm.status_reason) ? 0.5 : 1 }}>{changingStatus ? 'Saving...' : isInactive ? 'Reactivate' : 'Deactivate'}</button>
                         </div>
                       </div>
                     </div>
@@ -1248,7 +1248,7 @@ export default function AdminPage() {
                     </div>
                   )}
                 </div>
-                <button onClick={handleSaveEdit} disabled={saving} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{saving ? 'Saving...' : 'Save Changes'}</button>
+                <button onClick={handleSaveEdit} disabled={saving} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{saving ? 'Saving...' : 'Save Changes'}</button>
               </div>
             )}
           </div>
@@ -1271,7 +1271,7 @@ export default function AdminPage() {
                   </div>
                   <div><label style={labelStyle}>Position</label><select value={newShiftForm.role} onChange={e => setNewShiftForm({ ...newShiftForm, role: e.target.value })} style={inputStyle}><option value="">— No role —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                   <div style={{ display: 'flex', gap: '0.75rem' }}>
-                    <button type="submit" disabled={creatingShift} style={{ flex: 1, padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: creatingShift ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{creatingShift ? 'Creating...' : 'Create Entry'}</button>
+                    <button type="submit" disabled={creatingShift} style={{ flex: 1, padding: '0.85rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: creatingShift ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{creatingShift ? 'Creating...' : 'Create Entry'}</button>
                     <button type="button" onClick={() => { setShowNewShiftForm(false); setNewShiftForm({ volunteer_id: '', clock_in: '', clock_out: '', role: '' }) }} style={{ padding: '0.85rem 1.25rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '8px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>Cancel</button>
                   </div>
                 </form>
@@ -1321,7 +1321,7 @@ export default function AdminPage() {
                             </div>
                             <div style={{ marginBottom: '0.75rem' }}><label style={labelStyle}>Position</label><select value={shiftEditForm.role} onChange={e => setShiftEditForm({ ...shiftEditForm, role: e.target.value })} style={inputStyle}><option value="">— No role —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                             <div style={{ display: 'flex', gap: '0.5rem' }}>
-                              <button onClick={() => handleShiftEditSave(s.id)} disabled={savingShift} style={{ padding: '0.55rem 1.1rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '7px', fontWeight: 600, cursor: savingShift ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}>{savingShift ? 'Saving...' : 'Save'}</button>
+                              <button onClick={() => handleShiftEditSave(s.id)} disabled={savingShift} style={{ padding: '0.55rem 1.1rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '7px', fontWeight: 600, cursor: savingShift ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}>{savingShift ? 'Saving...' : 'Save'}</button>
                               <button onClick={() => setEditingShiftId(null)} style={{ padding: '0.55rem 1rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '7px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.875rem' }}>Cancel</button>
                             </div>
                           </div>
@@ -1519,7 +1519,7 @@ export default function AdminPage() {
                 <div><label style={labelStyle}>To date</label><input type="date" value={auditFilterTo} onChange={e => setAuditFilterTo(e.target.value)} style={inputStyle} /></div>
               </div>
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
-                <button onClick={loadAuditFirstPage} disabled={auditLoading} style={{ padding: '0.75rem 1.5rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: auditLoading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{auditLoading ? 'Loading...' : 'Apply Filters'}</button>
+                <button onClick={loadAuditFirstPage} disabled={auditLoading} style={{ padding: '0.75rem 1.5rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: auditLoading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{auditLoading ? 'Loading...' : 'Apply Filters'}</button>
                 <button onClick={() => { setAuditFilterAdmin(''); setAuditFilterAction(''); setAuditFilterFrom(''); setAuditFilterTo(''); setTimeout(loadAuditFirstPage, 50) }} style={{ padding: '0.75rem 1rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '8px', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>Reset</button>
               </div>
             </div>
@@ -1592,7 +1592,7 @@ export default function AdminPage() {
                   </div>
                 )}
               </div>
-              <button type="submit" disabled={creating} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#0a0f0a', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: creating ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{creating ? 'Creating...' : 'Create Account'}</button>
+              <button type="submit" disabled={creating} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: creating ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{creating ? 'Creating...' : 'Create Account'}</button>
             </form>
           </div>
         )}
@@ -1603,7 +1603,7 @@ export default function AdminPage() {
 
         {/* Toast */}
         {toast && (
-          <div style={{ position: 'fixed', bottom: '1.5rem', left: '50%', transform: 'translateX(-50%)', background: toast.type === 'success' ? 'var(--accent)' : 'var(--danger)', color: toast.type === 'success' ? '#0a0f0a' : '#fff', padding: '0.75rem 1.5rem', borderRadius: '100px', fontWeight: 500, fontSize: '0.9rem', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', zIndex: 100 }}>
+          <div style={{ position: 'fixed', bottom: '1.5rem', left: '50%', transform: 'translateX(-50%)', background: toast.type === 'success' ? 'var(--accent)' : 'var(--danger)', color: '#fff', padding: '0.75rem 1.5rem', borderRadius: '100px', fontWeight: 500, fontSize: '0.9rem', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', zIndex: 100 }}>
             {toast.text}
           </div>
         )}
