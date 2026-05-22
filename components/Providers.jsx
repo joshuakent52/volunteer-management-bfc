@@ -197,7 +197,7 @@ function ProviderScheduleView({ supabase, providers }) {
     const [{ data: oneTime }, { data: callouts }] = await Promise.all([
       supabase
         .from('provider_shifts')
-        .select('shift_date, shift_time, provider_id, profiles(id, full_name)')
+        .select('id, shift_date, shift_time, provider_id, profiles(id, full_name)')
         .gte('shift_date', from)
         .lte('shift_date', to),
       supabase
@@ -232,7 +232,7 @@ function ProviderScheduleView({ supabase, providers }) {
     const [{ data: oneTime }, { data: callouts }] = await Promise.all([
       supabase
         .from('provider_shifts')
-        .select('shift_date, shift_time, provider_id, profiles(id, full_name)')
+        .select('id, shift_date, shift_time, provider_id, profiles(id, full_name)')
         .gte('shift_date', from)
         .lte('shift_date', to),
       supabase
@@ -268,11 +268,19 @@ function ProviderScheduleView({ supabase, providers }) {
     if (!panelCell || !assigningId) return
     const [date, shift] = panelCell.split('|')
     setAssigning(true)
+
+    const [date, shift] = panelCell.split('|')
+    const d = new Date(date + 'T12:00:00')
+    const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
+    const dayOfWeek = dayNames[d.getDay()]
+
     const { error } = await supabase.from('provider_shifts').insert({
       provider_id: assigningId,
       shift_date:  date,
       shift_time:  shift,
+      day_of_week: dayOfWeek,
     })
+
     if (error) {
       // Unique constraint means already assigned
       alert(error.message.includes('unique') ? 'Provider is already scheduled for this shift.' : error.message)
