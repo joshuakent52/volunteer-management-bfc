@@ -266,7 +266,6 @@ function ProviderScheduleView({ supabase, providers }) {
 
   async function handleAssignShift() {
     if (!panelCell || !assigningId) return
-    const [date, shift] = panelCell.split('|')
     setAssigning(true)
 
     const [date, shift] = panelCell.split('|')
@@ -282,11 +281,9 @@ function ProviderScheduleView({ supabase, providers }) {
     })
 
     if (error) {
-      // Unique constraint means already assigned
       alert(error.message.includes('unique') ? 'Provider is already scheduled for this shift.' : error.message)
     } else {
       setAssigningId('')
-      // Refresh the current view
       if (viewMode === 'week') await fetchWeekData()
       else await fetchMonthData()
     }
