@@ -146,12 +146,14 @@ export default function ProviderPage() {
 
       const { data: p } = await supabase
         .from('profiles')
-        .select('id, full_name, email, affiliation, default_role, license_exp, bls_exp, dea_exp, tb_exp')
+        .select('id, full_name, email, role, affiliation, default_role, license_exp, bls_exp, dea_exp, tb_exp')
         .eq('id', u.id)
         .single()
 
       if (!p || p.default_role !== 'Provider') { window.location.href = '/volunteer'; return }
       setProfile(p)
+
+      const isAdmin = p?.role === 'admin'
 
       await Promise.all([
         fetchUpcomingShifts(u.id),
@@ -407,6 +409,8 @@ export default function ProviderPage() {
   const weeks       = groupIntoWeeks(allWeekdays)
   const visibleWeek = weeks[scheduleWeekOffset] || []
 
+  const isAdmin = profile?.role === 'admin'
+
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
@@ -428,12 +432,22 @@ export default function ProviderPage() {
               {new Date().toLocaleDateString('en-US', { timeZone: 'America/Denver', weekday: 'long', month: 'long', day: 'numeric' })}
             </p>
           </div>
-          <button
-            onClick={async () => { await supabase.auth.signOut(); window.location.href = '/' }}
-            style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}
-          >
-            Sign out
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            {isAdmin && (
+              <button
+                onClick={() => window.location.href = '/admin'}
+                style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}
+              >
+                Admin View
+              </button>
+            )}
+            <button
+              onClick={async () => { await supabase.auth.signOut(); window.location.href = '/' }}
+              style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}
+            >
+              Sign out
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
