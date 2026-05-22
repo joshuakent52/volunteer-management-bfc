@@ -305,10 +305,13 @@ function ProviderScheduleView({ supabase, providers }) {
       await supabase.from('provider_shifts').delete().eq('id', oneTimeRow.id)
     } else {
       // They're here via recurring — insert a callout to block them for this date
+      const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
+      const dayOfWeek = dayNames[new Date(date + 'T12:00:00').getDay()]
+
       const { error } = await supabase
         .from('provider_callouts')
         .upsert(
-          { provider_id: providerId, shift_date: date, shift_time: shift },
+          { provider_id: providerId, shift_date: date, shift_time: shift, day_of_week: dayOfWeek },
           { onConflict: 'provider_id,shift_date,shift_time', ignoreDuplicates: true }
         )
       if (error) {
@@ -409,221 +412,223 @@ function ProviderScheduleView({ supabase, providers }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-      {/* View mode + navigation controls */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button onClick={() => setViewMode('week')}  style={pillBtn(viewMode === 'week')}>Week</button>
-          <button onClick={() => setViewMode('month')} style={pillBtn(viewMode === 'month')}>Month</button>
-        </div>
-
-        {viewMode === 'week' ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <button onClick={() => { setWeekOffset(o => o - 1); setPanelCell(null) }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.85rem' }}>←</button>
-            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)', minWidth: '160px', textAlign: 'center' }}>
-              {weekDates[0]?.display} – {weekDates[4]?.display}
-              {weekOffset === 0 && <span style={{ marginLeft: '0.4rem', fontSize: '0.72rem', color: 'var(--accent)', fontWeight: 500 }}>This week</span>}
-            </span>
-            <button onClick={() => { setWeekOffset(o => o + 1); setPanelCell(null) }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.85rem' }}>→</button>
+        {/* View mode + navigation controls */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button onClick={() => setViewMode('week')}  style={pillBtn(viewMode === 'week')}>Week</button>
+            <button onClick={() => setViewMode('month')} style={pillBtn(viewMode === 'month')}>Month</button>
           </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <button onClick={() => { setMonthOffset(o => o - 1); setPanelCell(null) }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.85rem' }}>←</button>
-            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)', minWidth: '140px', textAlign: 'center' }}>{getMonthCalendarDays().label}</span>
-            <button onClick={() => { setMonthOffset(o => o + 1); setPanelCell(null) }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.85rem' }}>→</button>
-          </div>
-        )}
-      </div>
 
-      {/* Week grid */}
-      {viewMode === 'week' && (
-        <div>
-          {loading ? (
-            <p style={{ color: 'var(--muted)', fontSize: '0.88rem' }}>Loading schedule…</p>
+          {viewMode === 'week' ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <button onClick={() => { setWeekOffset(o => o - 1); setPanelCell(null) }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.85rem' }}>←</button>
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)', minWidth: '160px', textAlign: 'center' }}>
+                {weekDates[0]?.display} – {weekDates[4]?.display}
+                {weekOffset === 0 && <span style={{ marginLeft: '0.4rem', fontSize: '0.72rem', color: 'var(--accent)', fontWeight: 500 }}>This week</span>}
+              </span>
+              <button onClick={() => { setWeekOffset(o => o + 1); setPanelCell(null) }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.85rem' }}>→</button>
+            </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {/* Header */}
-              <div style={{ display: 'grid', gridTemplateColumns: '70px repeat(5, 1fr)', gap: '0.4rem', marginBottom: '0.25rem' }}>
-                <div />
-                {weekDates.map(d => (
-                  <div key={d.date} style={{ textAlign: 'center' }}>
-                    <p style={{ fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{DAY_LABEL[d.day]}</p>
-                    <p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', fontWeight: 700, color: d.date === today ? 'var(--accent)' : 'var(--text)' }}>{d.dayNum}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* Shift rows */}
-              {SHIFTS.map(shift => (
-                <div key={shift} style={{ display: 'grid', gridTemplateColumns: '70px repeat(5, 1fr)', gap: '0.4rem', alignItems: 'center' }}>
-                  <p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.72rem', color: 'var(--muted)', fontWeight: 600 }}>{shift}</p>
-                  {weekDates.map(d => <CoverageCell key={d.date} cellKey={`${d.date}|${shift}`} />)}
-                </div>
-              ))}
-
-              {/* Legend */}
-              <div style={{ display: 'flex', gap: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)', flexWrap: 'wrap', marginTop: '0.25rem' }}>
-                {[{ label: 'No coverage', dots: 0 }, { label: 'Partial', dots: 1 }, { label: 'Full (3/3)', dots: 3 }].map(item => (
-                  <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <div style={{ display: 'flex', gap: '2px' }}>
-                      {[0,1,2].map(i => <div key={i} style={{ width: '6px', height: '6px', borderRadius: '50%', background: i < item.dots ? 'var(--accent)' : 'var(--border)' }} />)}
-                    </div>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>{item.label}</span>
-                  </div>
-                ))}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <span style={{ fontSize: '0.72rem', padding: '0.05rem 0.3rem', borderRadius: '4px', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)' }}>↻</span>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>Recurring provider (hover to see names)</span>
-                </div>
-              </div>
-
-              {/* ── Assignment panel ── */}
-              {panelCell && (() => {
-                const [panelDate, panelShift] = panelCell.split('|')
-                const currentProviders = (slotData[panelCell] || [])
-                const assignedIds = new Set(currentProviders.map(p => p.id))
-                const availableProviders = (providers || []).filter(p => !assignedIds.has(p.id))
-                const dateLabel = new Date(panelDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
-
-                return (
-                  <div style={{ marginTop: '0.75rem', padding: '1rem 1.25rem', borderRadius: '10px', border: '1px solid var(--accent)', background: 'rgba(2,65,107,0.04)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
-                      <div>
-                        <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{dateLabel} · {panelShift}</p>
-                        <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.1rem' }}>
-                          {currentProviders.length}/3 providers scheduled
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => setPanelCell(null)}
-                        style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '1rem' }}
-                      >✕</button>
-                    </div>
-
-                    {/* Currently scheduled */}
-                    {currentProviders.length > 0 && (
-                      <div style={{ marginBottom: '0.85rem' }}>
-                        <p style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem' }}>Scheduled</p>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                          {currentProviders.map(p => (
-                            <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.45rem 0.75rem', borderRadius: '8px', background: 'var(--bg)', border: '1px solid var(--border)' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                <span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{p.full_name}</span>
-                                {p.source === 'recurring' && (
-                                  <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.35rem', borderRadius: '4px', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)' }}>↻ recurring</span>
-                                )}
-                              </div>
-                              <button
-                                onClick={() => handleRemoveProvider(p.id)}
-                                disabled={removing === p.id}
-                                style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: removing === p.id ? 'not-allowed' : 'pointer', fontSize: '0.82rem', padding: '0.2rem 0.4rem', fontFamily: 'DM Sans, sans-serif' }}
-                                onMouseEnter={e => { if (removing !== p.id) e.currentTarget.style.color = '#ef4444' }}
-                                onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}
-                                title={p.source === 'recurring' ? 'Will add a one-day callout to block this provider' : 'Remove from this shift'}
-                              >
-                                {removing === p.id ? '…' : '✕'}
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Assign new provider */}
-                    {availableProviders.length > 0 && currentProviders.length < 3 && (
-                      <div>
-                        <p style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem' }}>Add provider</p>
-                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                          <select
-                            value={assigningId}
-                            onChange={e => setAssigningId(e.target.value)}
-                            style={{ flex: 1, padding: '0.55rem 0.75rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: assigningId ? 'var(--text)' : 'var(--muted)', fontSize: '0.88rem', outline: 'none', fontFamily: 'DM Sans, sans-serif' }}
-                          >
-                            <option value="">— Select provider —</option>
-                            {availableProviders.map(p => (
-                              <option key={p.id} value={p.id}>{p.full_name}</option>
-                            ))}
-                          </select>
-                          <button
-                            onClick={handleAssignShift}
-                            disabled={!assigningId || assigning}
-                            style={{ padding: '0.55rem 1rem', background: assigningId ? 'var(--accent)' : 'var(--surface)', color: assigningId ? '#fff' : 'var(--muted)', border: assigningId ? 'none' : '1px solid var(--border)', borderRadius: '8px', fontWeight: 600, cursor: (!assigningId || assigning) ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.88rem', whiteSpace: 'nowrap' }}
-                          >
-                            {assigning ? '…' : '+ Assign'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {currentProviders.length >= 3 && (
-                      <p style={{ fontSize: '0.82rem', color: 'var(--muted)', fontStyle: 'italic' }}>Shift is fully staffed (3/3).</p>
-                    )}
-                    {availableProviders.length === 0 && currentProviders.length < 3 && (
-                      <p style={{ fontSize: '0.82rem', color: 'var(--muted)', fontStyle: 'italic' }}>All providers are already scheduled for this shift.</p>
-                    )}
-
-                    {/* Callout note for recurring removals */}
-                    <p style={{ fontSize: '0.7rem', color: 'var(--muted)', marginTop: '0.75rem', paddingTop: '0.6rem', borderTop: '1px solid var(--border)', fontStyle: 'italic' }}>
-                      Removing a recurring provider adds a one-day callout for this date only. Their standing schedule is unchanged.
-                    </p>
-                  </div>
-                )
-              })()}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <button onClick={() => { setMonthOffset(o => o - 1); setPanelCell(null) }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.85rem' }}>←</button>
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)', minWidth: '140px', textAlign: 'center' }}>{getMonthCalendarDays().label}</span>
+              <button onClick={() => { setMonthOffset(o => o + 1); setPanelCell(null) }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.85rem' }}>→</button>
             </div>
           )}
         </div>
-      )}
 
-      {/* Month grid */}
-      {viewMode === 'month' && (() => {
-        const { cells } = getMonthCalendarDays()
-        return (
+        {/* ── Week grid ── */}
+        {viewMode === 'week' && (
           <div>
             {loading ? (
               <p style={{ color: 'var(--muted)', fontSize: '0.88rem' }}>Loading schedule…</p>
             ) : (
-              <div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.35rem', marginBottom: '0.5rem' }}>
-                  {['Mon','Tue','Wed','Thu','Fri'].map(d => (
-                    <p key={d} style={{ textAlign: 'center', fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{d}</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {/* Header row */}
+                <div style={{ display: 'grid', gridTemplateColumns: '70px repeat(5, 1fr)', gap: '0.4rem', marginBottom: '0.25rem' }}>
+                  <div />
+                  {weekDates.map(d => (
+                    <div key={d.date} style={{ textAlign: 'center' }}>
+                      <p style={{ fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{DAY_LABEL[d.day]}</p>
+                      <p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', fontWeight: 700, color: d.date === today ? 'var(--accent)' : 'var(--text)' }}>{d.dayNum}</p>
+                    </div>
                   ))}
                 </div>
-                {(() => {
-                  const weekdayCells = cells.filter(c => !c?.isWeekend)
-                  const byWeek = {}
-                  weekdayCells.forEach(c => {
-                    if (!c) return
-                    const d   = new Date(c.date + 'T12:00:00')
-                    const mon = new Date(d); mon.setDate(d.getDate() - (d.getDay() - 1))
-                    const key = mon.toLocaleDateString('en-CA')
-                    if (!byWeek[key]) byWeek[key] = []
-                    byWeek[key].push(c)
-                  })
-                  return Object.entries(byWeek).map(([weekKey, dayCells]) => (
-                    <div key={weekKey} style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.35rem', marginBottom: '0.35rem' }}>
-                      {DAYS.map(day => {
-                        const cell = dayCells.find(c => c.day === day)
-                        if (!cell) return <div key={day} />
-                        const isToday = cell.date === today
-                        return (
-                          <div key={day} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                            <p style={{ fontSize: '0.72rem', fontFamily: 'DM Mono, monospace', fontWeight: isToday ? 700 : 400, color: isToday ? 'var(--accent)' : 'var(--muted)', textAlign: 'center' }}>{cell.num}</p>
-                            {SHIFTS.map(shift => <CoverageCell key={shift} cellKey={`${cell.date}|${shift}`} slim />)}
-                          </div>
-                        )
-                      })}
+
+                {/* Shift rows */}
+                {SHIFTS.map(shift => (
+                  <div key={shift} style={{ display: 'grid', gridTemplateColumns: '70px repeat(5, 1fr)', gap: '0.4rem', alignItems: 'center' }}>
+                    <p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.72rem', color: 'var(--muted)', fontWeight: 600 }}>{shift}</p>
+                    {weekDates.map(d => <CoverageCell key={d.date} cellKey={`${d.date}|${shift}`} />)}
+                  </div>
+                ))}
+
+                {/* Legend */}
+                <div style={{ display: 'flex', gap: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+                  {[{ label: 'No coverage', dots: 0 }, { label: 'Partial', dots: 1 }, { label: 'Full (3/3)', dots: 3 }].map(item => (
+                    <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <div style={{ display: 'flex', gap: '2px' }}>
+                        {[0,1,2].map(i => <div key={i} style={{ width: '6px', height: '6px', borderRadius: '50%', background: i < item.dots ? 'var(--accent)' : 'var(--border)' }} />)}
+                      </div>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>{item.label}</span>
                     </div>
-                  ))
-                })()}
+                  ))}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '0.72rem', padding: '0.05rem 0.3rem', borderRadius: '4px', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)' }}>↻</span>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>Recurring provider (hover to see names)</span>
+                  </div>
+                </div>
               </div>
             )}
           </div>
-        )
-      })()}
-    </div>
-  )
-}
+        )}
+
+        {/* ── Month grid ── */}
+        {viewMode === 'month' && (() => {
+          const { cells } = getMonthCalendarDays()
+          return (
+            <div>
+              {loading ? (
+                <p style={{ color: 'var(--muted)', fontSize: '0.88rem' }}>Loading schedule…</p>
+              ) : (
+                <div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.35rem', marginBottom: '0.5rem' }}>
+                    {['Mon','Tue','Wed','Thu','Fri'].map(d => (
+                      <p key={d} style={{ textAlign: 'center', fontSize: '0.7rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{d}</p>
+                    ))}
+                  </div>
+                  {(() => {
+                    const weekdayCells = cells.filter(c => !c?.isWeekend)
+                    const byWeek = {}
+                    weekdayCells.forEach(c => {
+                      if (!c) return
+                      const d   = new Date(c.date + 'T12:00:00')
+                      const mon = new Date(d); mon.setDate(d.getDate() - (d.getDay() - 1))
+                      const key = mon.toLocaleDateString('en-CA')
+                      if (!byWeek[key]) byWeek[key] = []
+                      byWeek[key].push(c)
+                    })
+                    return Object.entries(byWeek).map(([weekKey, dayCells]) => (
+                      <div key={weekKey} style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.35rem', marginBottom: '0.35rem' }}>
+                        {DAYS.map(day => {
+                          const cell = dayCells.find(c => c.day === day)
+                          if (!cell) return <div key={day} />
+                          const isToday = cell.date === today
+                          return (
+                            <div key={day} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                              <p style={{ fontSize: '0.72rem', fontFamily: 'DM Mono, monospace', fontWeight: isToday ? 700 : 400, color: isToday ? 'var(--accent)' : 'var(--muted)', textAlign: 'center' }}>{cell.num}</p>
+                              {SHIFTS.map(shift => <CoverageCell key={shift} cellKey={`${cell.date}|${shift}`} slim />)}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ))
+                  })()}
+                </div>
+              )}
+            </div>
+          )
+        })()}
+
+        {/* ── Assignment panel — shared by week and month views ── */}
+        {panelCell && (() => {
+          const [panelDate, panelShift] = panelCell.split('|')
+          // Pull from whichever dataset is active
+          const currentProviders = ((viewMode === 'week' ? slotData : monthData)[panelCell] || [])
+          const assignedIds = new Set(currentProviders.map(p => p.id))
+          const availableProviders = (providers || []).filter(p => !assignedIds.has(p.id))
+          const dateLabel = new Date(panelDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
+
+          return (
+            <div style={{ padding: '1rem 1.25rem', borderRadius: '10px', border: '1px solid var(--accent)', background: 'rgba(2,65,107,0.04)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
+                <div>
+                  <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{dateLabel} · {panelShift}</p>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.1rem' }}>
+                    {currentProviders.length}/3 providers scheduled
+                  </p>
+                </div>
+                <button
+                  onClick={() => setPanelCell(null)}
+                  style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '1rem' }}
+                >✕</button>
+              </div>
+
+              {/* Currently scheduled */}
+              {currentProviders.length > 0 && (
+                <div style={{ marginBottom: '0.85rem' }}>
+                  <p style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem' }}>Scheduled</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                    {currentProviders.map(p => (
+                      <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.45rem 0.75rem', borderRadius: '8px', background: 'var(--bg)', border: '1px solid var(--border)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ fontWeight: 500, fontSize: '0.88rem' }}>{p.full_name}</span>
+                          {p.source === 'recurring' && (
+                            <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.35rem', borderRadius: '4px', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)' }}>↻ recurring</span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => handleRemoveProvider(p.id)}
+                          disabled={removing === p.id}
+                          style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: removing === p.id ? 'not-allowed' : 'pointer', fontSize: '0.82rem', padding: '0.2rem 0.4rem', fontFamily: 'DM Sans, sans-serif' }}
+                          onMouseEnter={e => { if (removing !== p.id) e.currentTarget.style.color = '#ef4444' }}
+                          onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}
+                          title={p.source === 'recurring' ? 'Will add a one-day callout to block this provider' : 'Remove from this shift'}
+                        >
+                          {removing === p.id ? '…' : '✕'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Assign new provider */}
+              {availableProviders.length > 0 && currentProviders.length < 3 && (
+                <div>
+                  <p style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem' }}>Add provider</p>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <select
+                      value={assigningId}
+                      onChange={e => setAssigningId(e.target.value)}
+                      style={{ flex: 1, padding: '0.55rem 0.75rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: assigningId ? 'var(--text)' : 'var(--muted)', fontSize: '0.88rem', outline: 'none', fontFamily: 'DM Sans, sans-serif' }}
+                    >
+                      <option value="">— Select provider —</option>
+                      {availableProviders.map(p => (
+                        <option key={p.id} value={p.id}>{p.full_name}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={handleAssignShift}
+                      disabled={!assigningId || assigning}
+                      style={{ padding: '0.55rem 1rem', background: assigningId ? 'var(--accent)' : 'var(--surface)', color: assigningId ? '#fff' : 'var(--muted)', border: assigningId ? 'none' : '1px solid var(--border)', borderRadius: '8px', fontWeight: 600, cursor: (!assigningId || assigning) ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: '0.88rem', whiteSpace: 'nowrap' }}
+                    >
+                      {assigning ? '…' : '+ Assign'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {currentProviders.length >= 3 && (
+                <p style={{ fontSize: '0.82rem', color: 'var(--muted)', fontStyle: 'italic' }}>Shift is fully staffed (3/3).</p>
+              )}
+              {availableProviders.length === 0 && currentProviders.length < 3 && (
+                <p style={{ fontSize: '0.82rem', color: 'var(--muted)', fontStyle: 'italic' }}>All providers are already scheduled for this shift.</p>
+              )}
+
+              {/* Callout note for recurring removals */}
+              <p style={{ fontSize: '0.7rem', color: 'var(--muted)', marginTop: '0.75rem', paddingTop: '0.6rem', borderTop: '1px solid var(--border)', fontStyle: 'italic' }}>
+                Removing a recurring provider adds a one-day callout for this date only. Their standing schedule is unchanged.
+              </p>
+            </div>
+          )
+        })()}
+
+      </div>
+    )
+  }
 
 // ── Credential Banner ─────────────────────────────────────────────────────────
 function CredentialBanner({ providers, onSelect }) {
