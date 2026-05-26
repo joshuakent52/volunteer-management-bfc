@@ -72,6 +72,7 @@ const CHECKLIST_ITEMS = [
 ]
 
 const FILE_CHECKLIST_ITEMS = CHECKLIST_ITEMS.filter(i => i.bucket && i.urlKey)
+const NON_MISSIONARY_REQUIRED = ['background_check', 'id_check', 'immunization', 'welcome_packet']
 
 const TOTAL_STEPS = 5
 
@@ -637,6 +638,13 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     if (!onboardForm.birthday)     { msg('Birthday is required',  'error'); setOnboardStep(2); return }
     if (!onboardForm.default_role) { msg('Select a default position', 'error'); setOnboardStep(3); return }
 
+    const _missingDocs = getMissingRequiredDocs()
+    if (_missingDocs.length > 0) {
+      msg(`Missing required docs: ${_missingDocs.join(', ')}`, 'error')
+      setOnboardStep(5)
+      return
+    }
+
     setCreatingProfile(true)
 
     const { data: fnData, error: fnErr } = await supabase.functions.invoke('create-volunteer', {
@@ -746,6 +754,26 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   const filteredApplicants = applicants.filter(a => a.stage === stageFilter)
   const stageCounts        = STAGES.reduce((acc, s) => { acc[s] = applicants.filter(a => a.stage === s).length; return acc }, {})
 
+  // ─── Non-missionary document validation ───────────────────────────────────────
+
+  function getMissingRequiredDocs() {
+    // Missionaries are exempt from this requirement entirely.
+    if (onboardForm.affiliation === 'missionary') return []
+
+    return NON_MISSIONARY_REQUIRED.filter(key => {
+      // Checkbox must be checked.
+      if (!checklist[key]) return true
+
+      // If the item has a file slot (urlKey), that file must also be uploaded.
+      const item = CHECKLIST_ITEMS.find(i => i.key === key)
+      if (item?.urlKey && !checklist[item.urlKey]) return true
+
+      return false
+    }).map(key => CHECKLIST_ITEMS.find(i => i.key === key)?.label ?? key)
+  }
+
+  const missingRequiredDocs = getMissingRequiredDocs()
+  const docsComplete        = missingRequiredDocs.length === 0
   // ─── Shared styles ────────────────────────────────────────────────────────
 
   const card       = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }
@@ -900,7 +928,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   }
   const step2Valid    = !!onboardForm.birthday
   const step3Valid    = !!onboardForm.default_role
-  const allStepsValid = step1Valid() && step2Valid && step3Valid
+  const allStepsValid = step1Valid() && step2Valid && step3Valid && docsComplete
 
   function profileSummary() {
     const base = [
@@ -1316,8 +1344,35 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
               </div>
             </div>
             <p style={{ ...secLabel, marginBottom: '0.65rem' }}>Decision</p>
+
+            {/* Block advancement until an interview has actually been saved */}
+            {!applicant.interview_scheduled_at && (
+              <div style={{
+                marginBottom: '0.85rem',
+                padding: '0.65rem 0.9rem',
+                borderRadius: '8px',
+                background: C.danger + '08',
+                border: `1px solid ${C.danger}44`,
+                fontSize: '0.82rem',
+                color: C.danger,
+                fontWeight: 500,
+                lineHeight: 1.5,
+              }}>
+                An interview must be scheduled and saved before this applicant can be
+                moved to onboarding. Use the Schedule section above to set a date and
+                click <strong>Save</strong>.
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-              <button onClick={() => moveToStage(applicant, 'onboarding')} disabled={movingStage} style={outlineBtn(C.blue)}>Accept — Move to Onboarding</button>
+              <button
+                onClick={() => moveToStage(applicant, 'onboarding')}
+                disabled={movingStage || !applicant.interview_scheduled_at}
+                style={outlineBtn(applicant.interview_scheduled_at ? C.blue : C.muted)}
+                title={!applicant.interview_scheduled_at ? 'Schedule and save an interview date first' : undefined}
+              >
+                Accept — Move to Onboarding
+              </button>
               <button onClick={() => moveToStage(applicant, 'rejected')} disabled={movingStage} style={outlineBtn(C.danger)}>Reject Application</button>
             </div>
           </div>
@@ -1457,6 +1512,29 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                     })
                   }
                 </div>
+                
+                {/* Non-missionary document requirement error — shown above the submit button */}
+                {onboardForm.affiliation && onboardForm.affiliation !== 'missionary' && missingRequiredDocs.length > 0 && (
+                  <div style={{
+                    padding: '0.75rem 1rem',
+                    borderRadius: '8px',
+                    background: C.danger + '08',
+                    border: `1px solid ${C.danger}44`,
+                    fontSize: '0.83rem',
+                    color: C.danger,
+                    fontWeight: 500,
+                    lineHeight: 1.6,
+                  }}>
+                    <span style={{ fontWeight: 700 }}>Cannot create profile yet.</span>{' '}
+                    The following items must be uploaded and checked off before a
+                    non-missionary volunteer profile can be created:{' '}
+                    <span style={{ fontWeight: 700 }}>{missingRequiredDocs.join(', ')}</span>.
+                    <span style={{ display: 'block', marginTop: '0.3rem', fontWeight: 400, opacity: 0.85 }}>
+                      Background Check, ID, and Immunization each require a file attachment.
+                      Welcome Packet only requires the checkbox to be marked.
+                    </span>
+                  </div>
+                )}
 
                 <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                   <button onClick={() => setOnboardStep(4)} style={ghostBtn()}>Back</button>
