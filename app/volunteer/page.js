@@ -362,17 +362,12 @@ export default function VolunteerPage() {
 
     await fetchScheduleTab(user.id)
 
-    const [{ data: allMsgs }, { data: myReads }] = await Promise.all([
-      supabase.from('messages').select('id, sender_id, recipient_type'),
-      supabase.from('message_reads').select('message_id').eq('user_id', user.id),
-    ])
+    const { data: myReads } = await supabase
+      .from('message_reads')
+      .select('message_id')
+      .eq('user_id', user.id)
     const readSet = new Set((myReads || []).map(r => r.message_id))
     setReadMessageIds(readSet)
-    // Only count messages not sent by this user and not yet read
-    const earlyCount = (allMsgs || []).filter(m =>
-      m.sender_id !== user.id && !readSet.has(m.id)
-    ).length
-    setUnreadCount(earlyCount)
 
     setLoading(false)
   }
