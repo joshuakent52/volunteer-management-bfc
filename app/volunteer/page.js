@@ -476,6 +476,8 @@ export default function VolunteerPage() {
       const { error: upsertError } = await supabase
         .from('message_reads')
         .upsert(rows, { onConflict: 'user_id,message_id' })
+      console.log('upsert result:', upsertError ?? 'success', 'rows:', rows.length)
+      if (!upsertError) {
       if (!upsertError) {
         setReadMessageIds(prev => {
           const next = new Set(prev)
