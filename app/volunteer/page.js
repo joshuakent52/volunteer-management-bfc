@@ -464,10 +464,21 @@ export default function VolunteerPage() {
     }
     const readSet = new Set((reads || []).map(r => r.message_id))
     setReadMessageIds(readSet)
-    const inboxUnread = (fetched).filter(m => m.sender_id !== user.id && !readSet.has(m.id))
+    const inboxUnread = fetched.filter(m => m.sender_id !== user.id && !readSet.has(m.id))
     setUnreadCount(inboxUnread.length)
     setAllUsers(usersData || [])
     await loadBroadcastReadCounts(fetched)
+
+    // Persist reads to DB so badge stays clear after refresh
+    if (inboxUnread.length > 0) {
+      const rows = inboxUnread.map(m => ({ user_id: user.id, message_id: m.id }))
+      await supabase.from('message_reads').upsert(rows, { onConflict: 'user_id,message_id' })
+      setReadMessageIds(prev => {
+        const next = new Set(prev)
+        inboxUnread.forEach(m => next.add(m.id))
+        return next
+      })
+    }
   }, [user])
 
   async function loadMoreMessages() {
