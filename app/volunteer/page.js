@@ -362,13 +362,16 @@ export default function VolunteerPage() {
 
     await fetchScheduleTab(user.id)
 
-    const [{ data: unreadMsgs }, { data: myReads }] = await Promise.all([
-      supabase.from('messages').select('id').neq('sender_id', user.id),
+    const [{ data: allMsgs }, { data: myReads }] = await Promise.all([
+      supabase.from('messages').select('id, sender_id, recipient_type'),
       supabase.from('message_reads').select('message_id').eq('user_id', user.id),
     ])
     const readSet = new Set((myReads || []).map(r => r.message_id))
     setReadMessageIds(readSet)
-    const earlyCount = (unreadMsgs || []).filter(m => !readSet.has(m.id)).length
+    // Only count messages not sent by this user and not yet read
+    const earlyCount = (allMsgs || []).filter(m =>
+      m.sender_id !== user.id && !readSet.has(m.id)
+    ).length
     setUnreadCount(earlyCount)
 
     setLoading(false)
@@ -437,8 +440,7 @@ export default function VolunteerPage() {
   }, [user])
 
   const fetchMessagesTab = useCallback(async () => {
-    if (!user || fetchedTabs.current.has('messages')) return
-    fetchedTabs.current.add('messages')
+    if (!user) return
 
     const [{ data: msgs }, { data: reads }, { data: usersData }] = await Promise.all([
       supabase
@@ -469,15 +471,19 @@ export default function VolunteerPage() {
     setAllUsers(usersData || [])
     await loadBroadcastReadCounts(fetched)
 
-    // Persist reads to DB so badge stays clear after refresh
     if (inboxUnread.length > 0) {
       const rows = inboxUnread.map(m => ({ user_id: user.id, message_id: m.id }))
-      await supabase.from('message_reads').upsert(rows, { onConflict: 'user_id,message_id' })
-      setReadMessageIds(prev => {
-        const next = new Set(prev)
-        inboxUnread.forEach(m => next.add(m.id))
-        return next
-      })
+      const { error: upsertError } = await supabase
+        .from('message_reads')
+        .upsert(rows, { onConflict: 'user_id,message_id' })
+      if (!upsertError) {
+        setReadMessageIds(prev => {
+          const next = new Set(prev)
+          inboxUnread.forEach(m => next.add(m.id))
+          return next
+        })
+        setUnreadCount(0)
+      }
     }
   }, [user])
 
@@ -579,26 +585,6 @@ export default function VolunteerPage() {
     const map = {}
     ;(data || []).forEach(r => { map[r.message_id] = Number(r.read_count) })
     setBroadcastReadCounts(prev => ({ ...prev, ...map }))
-  }
-
-  async function markInboxAsRead() {
-    if (!user || messages.length === 0) return
-    const inbox = messages.filter(m => {
-      if (m.sender_id === user.id) return false
-      if (m.recipient_type === 'affiliation_missionary' && profile?.affiliation !== 'missionary') return false
-      return true
-    })
-    const unread = inbox.filter(m => !readMessageIds.has(m.id))
-    if (unread.length === 0) return
-    const rows = unread.map(m => ({ user_id: user.id, message_id: m.id }))
-    await supabase.from('message_reads').upsert(rows, { onConflict: 'user_id,message_id' })
-    setReadMessageIds(prev => {
-      const next = new Set(prev)
-      unread.forEach(m => next.add(m.id))
-      return next
-    })
-    setUnreadCount(0)
-    setInitUnreadCount(0)
   }
 
   function handleImageSelect(e) {
