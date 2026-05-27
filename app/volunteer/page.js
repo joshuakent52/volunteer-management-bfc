@@ -538,9 +538,8 @@ export default function VolunteerPage() {
     if (newTab === 'schedule')    await fetchScheduleTab()
     if (newTab === 'callout')     await fetchCalloutTab()
     if (newTab === 'messages') {
+      setUnreadCount(0)
       await fetchMessagesTab()
-      await markInboxAsRead()
-      setInitUnreadCount(0)
     }
     if (newTab === 'account')     await fetchAccountTab()
     if (newTab === 'internreport') {
