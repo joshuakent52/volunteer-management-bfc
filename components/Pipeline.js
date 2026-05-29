@@ -44,6 +44,14 @@ const STAGE_COLORS = {
   rejected:   C.danger,
 }
 
+const EMAIL_STAGES = ['interview', 'onboarding', 'rejected']
+
+const TEMPLATE_LABELS = {
+  interview:  'Interview Invitation',
+  onboarding: 'Onboarding Welcome',
+  rejected:   'Rejection Notice',
+}
+
 const AFFILIATION_OPTIONS = [
   { value: 'missionary', label: 'Missionary' },
   { value: 'student',    label: 'Student'    },
@@ -170,14 +178,20 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   const [savingInterview, setSavingInterview] = useState(false)
   const [creatingProfile, setCreatingProfile] = useState(false)
 
+  // templates shape: { interview: { subject, body }, onboarding: { ... }, rejected: { ... } }
+  const [templates,        setTemplates]        = useState({})
+  const [templatesLoading, setTemplatesLoading] = useState(false)
+  const [activeTemplate,   setActiveTemplate]   = useState('interview')
+  const [savingTemplate,   setSavingTemplate]   = useState(false)
+  // local edits per stage before saving
+  const [templateDrafts,   setTemplateDrafts]   = useState({})
+
   // ── Parking pass modal state ───────────────────────────────────────────────
-  // context: { applicantId, applicantName, isRecent } — isRecent=true when opened from Recently Added
   const [parkingPassModal,  setParkingPassModal]  = useState(null)
   const [parkingPassSaving, setParkingPassSaving] = useState(false)
   const parkingPassIframeRef = useRef(null)
 
   // ── Confidentiality agreement modal state ─────────────────────────────────
-  // Mirrors parking pass exactly: same context shape, same lifecycle
   const [confidentialityModal,  setConfidentialityModal]  = useState(null)
   const [confidentialitySaving, setConfidentialitySaving] = useState(false)
   const confidentialityIframeRef = useRef(null)
@@ -227,6 +241,12 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   const [toast, setToast] = useState(null)
 
   useEffect(() => { loadAll() }, [])
+
+  useEffect(() => {
+    if (activeTab === 'templates' && Object.keys(templates).length === 0) {
+      loadTemplates()
+    }
+  }, [activeTab])
 
   // ── Parking pass PDF message listener ─────────────────────────────────────
   useEffect(() => {
@@ -290,8 +310,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   }, [parkingPassModal, checklist, recentChecklist])
 
   // ── Confidentiality agreement PDF message listener ────────────────────────
-  // Mirrors the parking pass listener exactly — only message types and storage
-  // bucket differ; all state update, audit, and error patterns are identical.
   useEffect(() => {
     async function onMessage(e) {
       if (!e.data || e.data.type !== 'confidentiality_agreement_pdf') return
@@ -437,6 +455,23 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     } : EMPTY_CHECKLIST)
   }
 
+  async function loadTemplates() {
+    setTemplatesLoading(true)
+    const { data, error } = await supabase
+      .from('email_templates')
+      .select('stage, subject, body')
+      .in('stage', EMAIL_STAGES)
+
+    if (!error && data) {
+      const map = {}
+      data.forEach(row => { map[row.stage] = { subject: row.subject, body: row.body } })
+      setTemplates(map)
+      // Initialise drafts from DB values so inputs are populated immediately
+      setTemplateDrafts(map)
+    }
+    setTemplatesLoading(false)
+  }
+
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
   function msg(text, type = 'success') { setToast({ text, type }); setTimeout(() => setToast(null), 3500) }
@@ -467,18 +502,44 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     return hasTime ? `${date} at ${time}` : date
   }
 
+  // Fire-and-forget: errors are surfaced as toasts but never block the pipeline move.
+  async function sendStageEmail(applicant, stage) {
+    if (!EMAIL_STAGES.includes(stage)) return
+    try {
+      const { error } = await supabase.functions.invoke('send-stage-email', {
+        body: {
+          applicantEmail: applicant.email,
+          applicantName:  applicant.full_name,
+          stage,
+        },
+      })
+      if (error) {
+        console.error('Email send error:', error)
+        msg(`Stage moved, but email failed: ${error.message}`, 'error')
+      } else {
+        msg(`Moved to ${STAGE_LABELS[stage]} — email sent to ${applicant.email}`)
+      }
+    } catch (e) {
+      console.error('Email send exception:', e)
+      msg(`Stage moved, but email failed: ${e.message}`, 'error')
+    }
+  }
+
   // ─── Pipeline actions ─────────────────────────────────────────────────────
 
+  // ── MODIFIED: moveToStage now fires sendStageEmail after a successful move ─
   async function moveToStage(applicant, stage) {
     setMovingStage(true)
     const { error } = await supabase.from('volunteer_applications')
       .update({ stage, stage_updated_at: new Date().toISOString() }).eq('id', applicant.id)
-    if (error) msg(error.message, 'error')
-    else {
-      msg(`Moved to ${STAGE_LABELS[stage]}`)
+    if (error) {
+      msg(error.message, 'error')
+    } else {
       await audit(`pipeline_${stage}`, 'applicant', applicant.id, applicant.full_name, stage)
       await loadApplicants()
       setSelected(prev => prev?.id === applicant.id ? { ...prev, stage } : prev)
+
+      await sendStageEmail(applicant, stage)
     }
     setMovingStage(false)
   }
@@ -754,26 +815,21 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   const filteredApplicants = applicants.filter(a => a.stage === stageFilter)
   const stageCounts        = STAGES.reduce((acc, s) => { acc[s] = applicants.filter(a => a.stage === s).length; return acc }, {})
 
-  // ─── Non-missionary document validation ───────────────────────────────────────
+  // ─── Non-missionary document validation ────────────────────────────────────
 
   function getMissingRequiredDocs() {
-    // Missionaries are exempt from this requirement entirely.
     if (onboardForm.affiliation === 'missionary') return []
-
     return NON_MISSIONARY_REQUIRED.filter(key => {
-      // Checkbox must be checked.
       if (!checklist[key]) return true
-
-      // If the item has a file slot (urlKey), that file must also be uploaded.
       const item = CHECKLIST_ITEMS.find(i => i.key === key)
       if (item?.urlKey && !checklist[item.urlKey]) return true
-
       return false
     }).map(key => CHECKLIST_ITEMS.find(i => i.key === key)?.label ?? key)
   }
 
   const missingRequiredDocs = getMissingRequiredDocs()
   const docsComplete        = missingRequiredDocs.length === 0
+
   // ─── Shared styles ────────────────────────────────────────────────────────
 
   const card       = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }
@@ -999,7 +1055,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   }
 
   // ─── Confidentiality agreement modal helpers ──────────────────────────────
-  // Mirrors ParkingPassModal exactly — title, iframe src, and message types differ only.
 
   function openConfidentialityModal(applicantId, applicantName, isRecent = false) {
     setConfidentialityModal({ applicantId, applicantName, isRecent })
@@ -1036,6 +1091,157 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
             style={{ flex: 1, border: 'none', minHeight: 680, background: '#f9fafb' }}
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
           />
+        </div>
+      </div>
+    )
+  }
+
+  async function saveTemplate(stage) {
+    const draft = templateDrafts[stage]
+    if (!draft?.subject || !draft?.body) {
+      msg('Subject and body are required', 'error')
+      return
+    }
+    setSavingTemplate(true)
+    const { error } = await supabase
+      .from('email_templates')
+      .upsert({ stage, subject: draft.subject, body: draft.body, updated_at: new Date().toISOString() }, { onConflict: 'stage' })
+    if (error) {
+      msg(`Save failed: ${error.message}`, 'error')
+    } else {
+      setTemplates(prev => ({ ...prev, [stage]: { subject: draft.subject, body: draft.body } }))
+      msg(`${TEMPLATE_LABELS[stage]} template saved`)
+    }
+    setSavingTemplate(false)
+  }
+
+  function updateDraft(stage, field, value) {
+    setTemplateDrafts(prev => ({
+      ...prev,
+      [stage]: { ...(prev[stage] || {}), [field]: value },
+    }))
+  }
+
+  function EmailTemplatesTab() {
+    if (templatesLoading) return <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading templates...</p>
+
+    const draft   = templateDrafts[activeTemplate] || templates[activeTemplate] || { subject: '', body: '' }
+    const isDirty = JSON.stringify(draft) !== JSON.stringify(templates[activeTemplate] || {})
+
+    // Preview: replace placeholders with sample values
+    const previewSubject = (draft.subject || '').replace(/\{\{name\}\}/g, 'Jane Doe').replace(/\{\{email\}\}/g, 'jane@example.com')
+    const previewBody    = (draft.body    || '').replace(/\{\{name\}\}/g, 'Jane Doe').replace(/\{\{email\}\}/g, 'jane@example.com')
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+        {/* Stage selector pills */}
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {EMAIL_STAGES.map(stage => {
+            const color   = STAGE_COLORS[stage]
+            const active  = activeTemplate === stage
+            const hasDiff = JSON.stringify(templateDrafts[stage]) !== JSON.stringify(templates[stage] || {})
+            return (
+              <button
+                key={stage}
+                onClick={() => setActiveTemplate(stage)}
+                style={{
+                  padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.82rem',
+                  fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                  background: active ? color + '18' : 'var(--surface)',
+                  color: active ? color : 'var(--muted)',
+                  border: active ? `1px solid ${color}55` : '1px solid var(--border)',
+                  display: 'flex', alignItems: 'center', gap: '0.4rem',
+                }}
+              >
+                {TEMPLATE_LABELS[stage]}
+                {hasDiff && <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, display: 'inline-block' }} />}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Editor + Preview side by side */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'start' }}>
+
+          {/* Left: editor */}
+          <div style={{ ...card, padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <p style={{ ...secLabel, color: STAGE_COLORS[activeTemplate], marginBottom: 0 }}>
+                {TEMPLATE_LABELS[activeTemplate]}
+              </p>
+              <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>
+                Use {'{{name}}'} and {'{{email}}'}
+              </span>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Subject line</label>
+              <input
+                value={draft.subject}
+                onChange={e => updateDraft(activeTemplate, 'subject', e.target.value)}
+                placeholder="Subject…"
+                style={inputStyle}
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Body</label>
+              <textarea
+                value={draft.body}
+                onChange={e => updateDraft(activeTemplate, 'body', e.target.value)}
+                placeholder="Email body…"
+                rows={14}
+                style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+              {isDirty && (
+                <button
+                  onClick={() => setTemplateDrafts(prev => ({ ...prev, [activeTemplate]: templates[activeTemplate] || { subject: '', body: '' } }))}
+                  style={ghostBtn()}
+                >
+                  Discard
+                </button>
+              )}
+              <button
+                onClick={() => saveTemplate(activeTemplate)}
+                disabled={savingTemplate || !isDirty}
+                style={solidBtn(STAGE_COLORS[activeTemplate], savingTemplate || !isDirty)}
+              >
+                {savingTemplate ? 'Saving...' : 'Save Template'}
+              </button>
+            </div>
+          </div>
+
+          {/* Right: preview */}
+          <div style={{ ...card, padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'var(--bg)' }}>
+            <p style={{ ...secLabel, marginBottom: 0 }}>Preview — sample applicant</p>
+
+            {/* Email chrome mockup */}
+            <div style={{ border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden', fontSize: '0.85rem' }}>
+              {/* Header */}
+              <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.3rem' }}>
+                  <span style={{ color: 'var(--muted)', fontSize: '0.78rem', minWidth: 50 }}>To</span>
+                  <span style={{ fontSize: '0.78rem' }}>Jane Doe &lt;jane@example.com&gt;</span>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <span style={{ color: 'var(--muted)', fontSize: '0.78rem', minWidth: 50 }}>Subject</span>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600 }}>{previewSubject || <em style={{ opacity: 0.5 }}>No subject</em>}</span>
+                </div>
+              </div>
+              {/* Body */}
+              <div style={{ padding: '1rem', background: 'var(--surface)', whiteSpace: 'pre-wrap', lineHeight: 1.7, fontSize: '0.85rem', color: 'var(--text)', minHeight: 200 }}>
+                {previewBody || <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>No body yet</span>}
+              </div>
+            </div>
+
+            <p style={{ fontSize: '0.75rem', color: 'var(--muted)', lineHeight: 1.5 }}>
+              This email is sent automatically when an applicant is moved to <strong>{STAGE_LABELS[activeTemplate]}</strong>.
+            </p>
+          </div>
         </div>
       </div>
     )
@@ -1104,7 +1310,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
 
-                    {/* ── Resume (submitted with application) ── */}
+                    {/* Resume */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.65rem 0.9rem', borderRadius: '8px', background: a.resume_url ? C.blue + '0a' : 'var(--bg)', border: `1px solid ${a.resume_url ? C.blue + '44' : 'var(--border)'}`, gap: '0.75rem', flexWrap: 'wrap' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flex: 1, minWidth: 0 }}>
                         <div style={{ width: 18, height: 18, borderRadius: '4px', flexShrink: 0, background: a.resume_url ? C.blue : 'transparent', border: `2px solid ${a.resume_url ? C.blue : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1126,8 +1332,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
                     {FILE_CHECKLIST_ITEMS.map(item => {
 
-                      // ── Confidentiality Agreement: open the HTML form modal ──
-                      // Mirrors the parking_pass special case exactly.
                       if (item.key === 'confidentiality_agreement') {
                         const hasPdf = !!(cl[item.urlKey])
                         return (
@@ -1136,28 +1340,17 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                               <div style={{ width: 18, height: 18, borderRadius: '4px', flexShrink: 0, background: hasPdf ? C.blue : 'transparent', border: `2px solid ${hasPdf ? C.blue : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                 {hasPdf && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
                               </div>
-                              <span style={{ fontSize: '0.85rem', fontWeight: hasPdf ? 600 : 400, color: hasPdf ? 'var(--text)' : 'var(--muted)' }}>
-                                Confidentiality Agreement
-                              </span>
+                              <span style={{ fontSize: '0.85rem', fontWeight: hasPdf ? 600 : 400, color: hasPdf ? 'var(--text)' : 'var(--muted)' }}>Confidentiality Agreement</span>
                               {hasPdf && <span style={{ fontSize: '0.7rem', color: C.light, fontWeight: 600, flexShrink: 0 }}>PDF saved</span>}
                             </div>
                             <div style={{ display: 'flex', gap: '0.35rem', flexShrink: 0 }}>
-                              {hasPdf && (
-                                <button
-                                  onClick={() => openFile('onboarding-confidentiality', cl[item.urlKey])}
-                                  style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}44` }}
-                                >View ↗</button>
-                              )}
-                              <button
-                                onClick={() => openConfidentialityModal(a.id, a.full_name, true)}
-                                style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}
-                              >{hasPdf ? 'Re-sign' : '+ Fill Out Agreement'}</button>
+                              {hasPdf && <button onClick={() => openFile('onboarding-confidentiality', cl[item.urlKey])} style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}44` }}>View ↗</button>}
+                              <button onClick={() => openConfidentialityModal(a.id, a.full_name, true)} style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>{hasPdf ? 'Re-sign' : '+ Fill Out Agreement'}</button>
                             </div>
                           </div>
                         )
                       }
 
-                      // ── Parking Pass: open the HTML form modal ──
                       if (item.key === 'parking_pass') {
                         const hasPdf = !!(cl[item.urlKey])
                         return (
@@ -1166,28 +1359,17 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                               <div style={{ width: 18, height: 18, borderRadius: '4px', flexShrink: 0, background: hasPdf ? C.blue : 'transparent', border: `2px solid ${hasPdf ? C.blue : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                 {hasPdf && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
                               </div>
-                              <span style={{ fontSize: '0.85rem', fontWeight: hasPdf ? 600 : 400, color: hasPdf ? 'var(--text)' : 'var(--muted)' }}>
-                                Parking Pass
-                              </span>
+                              <span style={{ fontSize: '0.85rem', fontWeight: hasPdf ? 600 : 400, color: hasPdf ? 'var(--text)' : 'var(--muted)' }}>Parking Pass</span>
                               {hasPdf && <span style={{ fontSize: '0.7rem', color: C.light, fontWeight: 600, flexShrink: 0 }}>PDF saved</span>}
                             </div>
                             <div style={{ display: 'flex', gap: '0.35rem', flexShrink: 0 }}>
-                              {hasPdf && (
-                                <button
-                                  onClick={() => openFile('onboarding-parking-passes', cl[item.urlKey])}
-                                  style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}44` }}
-                                >View ↗</button>
-                              )}
-                              <button
-                                onClick={() => openParkingPassModal(a.id, a.full_name, true)}
-                                style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}
-                              >{hasPdf ? 'Re-issue' : '+ Fill Out Pass'}</button>
+                              {hasPdf && <button onClick={() => openFile('onboarding-parking-passes', cl[item.urlKey])} style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}44` }}>View ↗</button>}
+                              <button onClick={() => openParkingPassModal(a.id, a.full_name, true)} style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>{hasPdf ? 'Re-issue' : '+ Fill Out Pass'}</button>
                             </div>
                           </div>
                         )
                       }
 
-                      // ── Standard file upload ──
                       const hasFile     = !!(cl[item.urlKey])
                       const uploadKey   = `${a.id}-${item.key}`
                       const isUploading = recentUploadingKey === uploadKey
@@ -1205,25 +1387,10 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                             </span>
                             {hasFile && <span style={{ fontSize: '0.7rem', color: C.light, fontWeight: 600, flexShrink: 0 }}>Uploaded</span>}
                           </div>
-                          <input
-                            ref={ref}
-                            type="file"
-                            accept=".pdf,.jpg,.jpeg,.png,.webp,image/*"
-                            style={{ display: 'none' }}
-                            onChange={e => { const f = e.target.files?.[0]; if (f) handleRecentFileUpload(a.id, item, f); e.target.value = '' }}
-                          />
+                          <input ref={ref} type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,image/*" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleRecentFileUpload(a.id, item, f); e.target.value = '' }} />
                           <div style={{ display: 'flex', gap: '0.35rem', flexShrink: 0 }}>
-                            {hasFile && (
-                              <button
-                                onClick={() => openFile(item.bucket, cl[item.urlKey])}
-                                style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}44` }}
-                              >View ↗</button>
-                            )}
-                            <button
-                              onClick={() => ref.current?.click()}
-                              disabled={isUploading}
-                              style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: isUploading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', opacity: isUploading ? 0.5 : 1 }}
-                            >
+                            {hasFile && <button onClick={() => openFile(item.bucket, cl[item.urlKey])} style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}44` }}>View ↗</button>}
+                            <button onClick={() => ref.current?.click()} disabled={isUploading} style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: isUploading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', opacity: isUploading ? 0.5 : 1 }}>
                               {isUploading ? 'Uploading...' : hasFile ? 'Replace' : '+ Upload'}
                             </button>
                           </div>
@@ -1232,7 +1399,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                     })}
                   </div>
 
-                  {/* Missing mandatory warning */}
                   {(() => {
                     const missing = FILE_CHECKLIST_ITEMS.filter(i => i.mandatory && !cl[i.urlKey])
                     if (missing.length === 0) return (
@@ -1345,32 +1511,14 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
             </div>
             <p style={{ ...secLabel, marginBottom: '0.65rem' }}>Decision</p>
 
-            {/* Block advancement until an interview has actually been saved */}
             {!applicant.interview_scheduled_at && (
-              <div style={{
-                marginBottom: '0.85rem',
-                padding: '0.65rem 0.9rem',
-                borderRadius: '8px',
-                background: C.danger + '08',
-                border: `1px solid ${C.danger}44`,
-                fontSize: '0.82rem',
-                color: C.danger,
-                fontWeight: 500,
-                lineHeight: 1.5,
-              }}>
-                An interview must be scheduled and saved before this applicant can be
-                moved to onboarding. Use the Schedule section above to set a date and
-                click <strong>Save</strong>.
+              <div style={{ marginBottom: '0.85rem', padding: '0.65rem 0.9rem', borderRadius: '8px', background: C.danger + '08', border: `1px solid ${C.danger}44`, fontSize: '0.82rem', color: C.danger, fontWeight: 500, lineHeight: 1.5 }}>
+                An interview must be scheduled and saved before this applicant can be moved to onboarding.
               </div>
             )}
 
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-              <button
-                onClick={() => moveToStage(applicant, 'onboarding')}
-                disabled={movingStage || !applicant.interview_scheduled_at}
-                style={outlineBtn(applicant.interview_scheduled_at ? C.blue : C.muted)}
-                title={!applicant.interview_scheduled_at ? 'Schedule and save an interview date first' : undefined}
-              >
+              <button onClick={() => moveToStage(applicant, 'onboarding')} disabled={movingStage || !applicant.interview_scheduled_at} style={outlineBtn(applicant.interview_scheduled_at ? C.blue : C.muted)}>
                 Accept — Move to Onboarding
               </button>
               <button onClick={() => moveToStage(applicant, 'rejected')} disabled={movingStage} style={outlineBtn(C.danger)}>Reject Application</button>
@@ -1449,7 +1597,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                 <div>
                   <p style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: '0.35rem' }}>Availability &amp; Waitlist Preferences</p>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.6 }}>Select which specific shifts this volunteer can cover. Leave everything unchecked to mark them as fully flexible.</p>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.6 }}>Select which specific shifts this volunteer can cover.</p>
                 </div>
                 <div style={{ padding: '1.1rem 1.25rem', borderRadius: '10px', background: 'var(--bg)', border: `1px solid ${C.blue}2a`, overflowX: 'auto' }}>
                   <p style={{ ...secLabel, color: C.blue, marginBottom: '0.85rem' }}>Shift Grid</p>
@@ -1475,7 +1623,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
               </div>
             )}
 
-            {/* Step 5 — Onboarding Checklist */}
+            {/* Step 5 */}
             {onboardStep === 5 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1487,9 +1635,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-
-                  {/* Standard checklist items — parking_pass and confidentiality_agreement
-                      are excluded here and rendered as dedicated rows below. */}
                   {CHECKLIST_ITEMS
                     .filter(item => item.key !== 'parking_pass' && item.key !== 'confidentiality_agreement')
                     .map(item => {
@@ -1512,27 +1657,11 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                     })
                   }
                 </div>
-                
-                {/* Non-missionary document requirement error — shown above the submit button */}
+
                 {onboardForm.affiliation && onboardForm.affiliation !== 'missionary' && missingRequiredDocs.length > 0 && (
-                  <div style={{
-                    padding: '0.75rem 1rem',
-                    borderRadius: '8px',
-                    background: C.danger + '08',
-                    border: `1px solid ${C.danger}44`,
-                    fontSize: '0.83rem',
-                    color: C.danger,
-                    fontWeight: 500,
-                    lineHeight: 1.6,
-                  }}>
+                  <div style={{ padding: '0.75rem 1rem', borderRadius: '8px', background: C.danger + '08', border: `1px solid ${C.danger}44`, fontSize: '0.83rem', color: C.danger, fontWeight: 500, lineHeight: 1.6 }}>
                     <span style={{ fontWeight: 700 }}>Cannot create profile yet.</span>{' '}
-                    The following items must be uploaded and checked off before a
-                    non-missionary volunteer profile can be created:{' '}
-                    <span style={{ fontWeight: 700 }}>{missingRequiredDocs.join(', ')}</span>.
-                    <span style={{ display: 'block', marginTop: '0.3rem', fontWeight: 400, opacity: 0.85 }}>
-                      Background Check, ID, and Immunization each require a file attachment.
-                      Welcome Packet only requires the checkbox to be marked.
-                    </span>
+                    Missing: <span style={{ fontWeight: 700 }}>{missingRequiredDocs.join(', ')}</span>.
                   </div>
                 )}
 
@@ -1592,11 +1721,12 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-      {/* Tab switcher */}
+      {/* ── Tab switcher — now includes Email Templates ── */}
       <div style={{ display: 'flex', gap: '0.4rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
         {[
-          { id: 'pipeline', label: 'Pipeline' },
-          { id: 'recent',   label: `Recently Added${completed.length > 0 ? ` (${completed.length})` : ''}` },
+          { id: 'pipeline',  label: 'Pipeline' },
+          { id: 'recent',    label: `Recently Added${completed.length > 0 ? ` (${completed.length})` : ''}` },
+          { id: 'templates', label: 'Email Templates' },  
         ].map(tab => (
           <button
             key={tab.id}
@@ -1681,6 +1811,8 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
       {/* Recently Added tab */}
       {activeTab === 'recent' && <RecentlyAdded />}
+
+      {activeTab === 'templates' && <EmailTemplatesTab />}
 
       {toast && <Toast toast={toast} />}
 
