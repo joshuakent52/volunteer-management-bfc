@@ -1,6 +1,5 @@
 'use client'
 
-
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { SHIFTS, ROLES, ROLE_SUGGESTIONS, SCHOOLS, MAJORS, ACTION_LABELS, ACTION_COLORS, AFFILIATION_LABELS } from '../../lib/constants'
@@ -13,16 +12,22 @@ import LunchScheduler from '../../components/LunchScheduler'
 import Providers from '../../components/Providers'
 import Live, { computeExpectedNotClockedIn } from '../../components/Live'
 
-
 export const dynamic = 'force-dynamic'
 
 const DAYS = ['monday','tuesday','wednesday','thursday','friday']
 
 // ── Pagination page sizes ────────────────────────────────────────────────────
-const SHIFTS_PAGE   = 25
-const HOURS_PAGE    = 20
-const AUDIT_PAGE    = 30
+const SHIFTS_PAGE    = 25
+const HOURS_PAGE     = 20
+const AUDIT_PAGE     = 30
 const CALLOUTS_LIMIT = 60
+
+// ── Shared column lists (define once, reuse everywhere) ──────────────────────
+// Full profile — used when we need to display/edit all volunteer fields
+const PROFILE_COLS = 'id,full_name,email,phone,role,affiliation,status,status_reason,credentials,languages,default_role,school,major,sma_name,sma_contact,advisor_name,advisor_contact,intern_school,intern_department,license_exp,bls_exp,dea_exp,ftca_exp,tb_exp,birthday,end_date'
+
+// Slim profile — list views only need identity + filter fields
+const PROFILE_LIST_COLS = 'id,full_name,email,phone,role,affiliation,status,status_reason,credentials,languages,default_role,school,major,sma_name,sma_contact,advisor_name,advisor_contact,intern_school,intern_department,license_exp,bls_exp,dea_exp,ftca_exp,tb_exp,birthday,end_date'
 
 const PROVIDER_CRED_FIELDS = [
   { key: 'license_exp', label: 'License' },
@@ -220,108 +225,108 @@ function LoadMoreButton({ onClick, loading, hasMore, label = 'Load more' }) {
 export default function AdminPage() {
   const [profile, setProfile] = useState(null)
 
-  const [volunteers, setVolunteers]   = useState([])
+  const [volunteers, setVolunteers]     = useState([])
   const [activeShifts, setActiveShifts] = useState([])
-  const [callouts, setCallouts]       = useState([])
-  const [schedule, setSchedule]       = useState([])
-  const [tab, setTab]                 = useState('dashboard')
-  const [loading, setLoading]         = useState(true)
-  const [toast, setToast]             = useState(null)
-  const [currentTime, setCurrentTime] = useState(getMountainNow())
+  const [callouts, setCallouts]         = useState([])
+  const [schedule, setSchedule]         = useState([])
+  const [tab, setTab]                   = useState('dashboard')
+  const [loading, setLoading]           = useState(true)
+  const [toast, setToast]               = useState(null)
+  const [currentTime, setCurrentTime]   = useState(getMountainNow())
 
   const loadedTabs = useRef(new Set(['dashboard']))
 
   // ── Schedule tab state ──────────────────────────────────────────────────────
-  const [showReadCallouts, setShowReadCallouts]   = useState(false)
-  const [scheduleDay, setScheduleDay]             = useState('monday')
-  const [scheduleShift, setScheduleShift]         = useState('10-2')
-  const [addingRole, setAddingRole]               = useState(null)
-  const [addVolId, setAddVolId]                   = useState('')
-  const [addingEntry, setAddingEntry]             = useState(false)
-  const [addStartDate, setAddStartDate]           = useState('')
-  const [addEndDate, setAddEndDate]               = useState('')
-  const [addWeekPattern, setAddWeekPattern]       = useState('every')
-  const [addNotes, setAddNotes]                   = useState('')
+  const [showReadCallouts, setShowReadCallouts]     = useState(false)
+  const [scheduleDay, setScheduleDay]               = useState('monday')
+  const [scheduleShift, setScheduleShift]           = useState('10-2')
+  const [addingRole, setAddingRole]                 = useState(null)
+  const [addVolId, setAddVolId]                     = useState('')
+  const [addingEntry, setAddingEntry]               = useState(false)
+  const [addStartDate, setAddStartDate]             = useState('')
+  const [addEndDate, setAddEndDate]                 = useState('')
+  const [addWeekPattern, setAddWeekPattern]         = useState('every')
+  const [addNotes, setAddNotes]                     = useState('')
   const [showClinicOpenings, setShowClinicOpenings] = useState(false)
-  const [showWaitlist, setShowWaitlist]           = useState(false)
-  const [scheduleDate, setScheduleDate]           = useState('')
-  const [dateCoverShifts, setDateCoverShifts]     = useState([])
+  const [showWaitlist, setShowWaitlist]             = useState(false)
+  const [scheduleDate, setScheduleDate]             = useState('')
+  const [dateCoverShifts, setDateCoverShifts]       = useState([])
 
   // ── Volunteer tab state ─────────────────────────────────────────────────────
-  const [selectedVolunteer, setSelectedVolunteer] = useState(null)
-  const [editing, setEditing]                     = useState(false)
-  const [showInactive, setShowInactive]           = useState(false)
-  const [statusForm, setStatusForm]               = useState({ status: 'active', status_reason: '' })
-  const [changingStatus, setChangingStatus]       = useState(false)
-  const [editForm, setEditForm]                   = useState({})
-  const [saving, setSaving]                       = useState(false)
-  const [filterAffiliation, setFilterAffiliation] = useState('all')
-  const [filterSchool, setFilterSchool]           = useState('all')
-  const [filterRole, setFilterRole]               = useState('all')
-  const [filterDefaultRole, setFilterDefaultRole] = useState('all')
-  const [filterSearch, setFilterSearch]           = useState('')
-  const [filtersOpen, setFiltersOpen]             = useState(true)
-  const [volunteersOpen, setVolunteersOpen]       = useState(true)
-  const [showRecentShifts, setShowRecentShifts]   = useState(false)
-  const [showScheduledShifts, setShowScheduledShifts] = useState(false)
-  const [recentShifts, setRecentShifts]           = useState([])
-  const [scheduledShifts, setScheduledShifts]     = useState([])
-  const [loadingRecentShifts, setLoadingRecentShifts]       = useState(false)
+  const [selectedVolunteer, setSelectedVolunteer]       = useState(null)
+  const [editing, setEditing]                           = useState(false)
+  const [showInactive, setShowInactive]                 = useState(false)
+  const [statusForm, setStatusForm]                     = useState({ status: 'active', status_reason: '' })
+  const [changingStatus, setChangingStatus]             = useState(false)
+  const [editForm, setEditForm]                         = useState({})
+  const [saving, setSaving]                             = useState(false)
+  const [filterAffiliation, setFilterAffiliation]       = useState('all')
+  const [filterSchool, setFilterSchool]                 = useState('all')
+  const [filterRole, setFilterRole]                     = useState('all')
+  const [filterDefaultRole, setFilterDefaultRole]       = useState('all')
+  const [filterSearch, setFilterSearch]                 = useState('')
+  const [filtersOpen, setFiltersOpen]                   = useState(true)
+  const [volunteersOpen, setVolunteersOpen]             = useState(true)
+  const [showRecentShifts, setShowRecentShifts]         = useState(false)
+  const [showScheduledShifts, setShowScheduledShifts]   = useState(false)
+  const [recentShifts, setRecentShifts]                 = useState([])
+  const [scheduledShifts, setScheduledShifts]           = useState([])
+  const [loadingRecentShifts, setLoadingRecentShifts]   = useState(false)
   const [loadingScheduledShifts, setLoadingScheduledShifts] = useState(false)
-  const [volunteerTotalHours, setVolunteerTotalHours] = useState(null)
-  const [loadingVolHours, setLoadingVolHours]     = useState(false)
+  const [volunteerTotalHours, setVolunteerTotalHours]   = useState(null)
+  const [loadingVolHours, setLoadingVolHours]           = useState(false)
 
   // ── Create volunteer state ──────────────────────────────────────────────────
-  const [newName, setNewName]         = useState(''); const [newEmail, setNewEmail]       = useState(''); const [newPassword, setNewPassword]   = useState('')
-  const [newRole, setNewRole]         = useState('volunteer'); const [newAffiliation, setNewAffiliation] = useState(''); const [newCredentials, setNewCredentials] = useState('')
-  const [newPhone, setNewPhone]       = useState(''); const [newLanguages, setNewLanguages] = useState(''); const [newSmaName, setNewSmaName]     = useState('')
-  const [newSmaContact, setNewSmaContact] = useState(''); const [newSchool, setNewSchool] = useState(''); const [newMajor, setNewMajor]         = useState('')
-  const [newBirthday, setNewBirthday] = useState(''); const [newDefaultRole, setNewDefaultRole] = useState(''); const [creating, setCreating]         = useState(false)
-  const [newAdvisorName, setNewAdvisorName]       = useState(''); const [newAdvisorContact, setNewAdvisorContact] = useState('')
-  const [newInternSchool, setNewInternSchool]     = useState(''); const [newInternDepartment, setNewInternDepartment] = useState('')
-  const [newProviderCreds, setNewProviderCreds]   = useState({ license_exp: '', bls_exp: '', dea_exp: '', ftca_exp: '', tb_exp: '' })
-  const [endDateInput, setEndDateInput] = useState('')
-  const [newEndDate, setNewEndDate] = useState('')
+  const [newName, setNewName]               = useState(''); const [newEmail, setNewEmail]             = useState(''); const [newPassword, setNewPassword]         = useState('')
+  const [newRole, setNewRole]               = useState('volunteer'); const [newAffiliation, setNewAffiliation] = useState(''); const [newCredentials, setNewCredentials]   = useState('')
+  const [newPhone, setNewPhone]             = useState(''); const [newLanguages, setNewLanguages]     = useState(''); const [newSmaName, setNewSmaName]           = useState('')
+  const [newSmaContact, setNewSmaContact]   = useState(''); const [newSchool, setNewSchool]           = useState(''); const [newMajor, setNewMajor]               = useState('')
+  const [newBirthday, setNewBirthday]       = useState(''); const [newDefaultRole, setNewDefaultRole] = useState(''); const [creating, setCreating]               = useState(false)
+  const [newAdvisorName, setNewAdvisorName] = useState(''); const [newAdvisorContact, setNewAdvisorContact] = useState('')
+  const [newInternSchool, setNewInternSchool]   = useState(''); const [newInternDepartment, setNewInternDepartment] = useState('')
+  const [newProviderCreds, setNewProviderCreds] = useState({ license_exp: '', bls_exp: '', dea_exp: '', ftca_exp: '', tb_exp: '' })
+  const [endDateInput, setEndDateInput]     = useState('')
+  const [newEndDate, setNewEndDate]         = useState('')
 
   // ── Cover requests state ────────────────────────────────────────────────────
-  const [coverRequests, setCoverRequests]   = useState([])
+  const [coverRequests, setCoverRequests]       = useState([])
   const [approvingCoverId, setApprovingCoverId] = useState(null)
   const [pendingCalloutsOpen, setPendingCalloutsOpen] = useState(true)
-  const [openShiftsOpen, setOpenShiftsOpen] = useState(true)
+  const [openShiftsOpen, setOpenShiftsOpen]     = useState(true)
 
   // ── Shifts tab ──────────────────────────────────────────────────────────────
-  const [allShifts, setAllShifts]           = useState([])
-  const [shiftsLoading, setShiftsLoading]   = useState(false)
+  const [allShifts, setAllShifts]               = useState([])
+  const [shiftsLoading, setShiftsLoading]       = useState(false)
   const [shiftsLoadingMore, setShiftsLoadingMore] = useState(false)
-  const [shiftsHasMore, setShiftsHasMore]   = useState(false)
-  const [shiftsCursor, setShiftsCursor]     = useState(null)
-  const [editingShiftId, setEditingShiftId] = useState(null)
-  const [shiftEditForm, setShiftEditForm]   = useState({ clock_in: '', clock_out: '', role: '', clock_in_utc: '', clock_out_utc: '' })
-  const [savingShift, setSavingShift]       = useState(false)
+  const [shiftsHasMore, setShiftsHasMore]       = useState(false)
+  const [shiftsCursor, setShiftsCursor]         = useState(null)
+  const [editingShiftId, setEditingShiftId]     = useState(null)
+  const [shiftEditForm, setShiftEditForm]       = useState({ clock_in: '', clock_out: '', role: '', clock_in_utc: '', clock_out_utc: '' })
+  const [savingShift, setSavingShift]           = useState(false)
   const [showNewShiftForm, setShowNewShiftForm] = useState(false)
-  const [newShiftForm, setNewShiftForm]     = useState({ volunteer_id: '', clock_in: '', clock_out: '', role: '' })
-  const [creatingShift, setCreatingShift]   = useState(false)
+  const [newShiftForm, setNewShiftForm]         = useState({ volunteer_id: '', clock_in: '', clock_out: '', role: '' })
+  const [creatingShift, setCreatingShift]       = useState(false)
   const [shiftFilterVolId, setShiftFilterVolId] = useState('')
 
   // ── Hours tab ───────────────────────────────────────────────────────────────
-  const [pendingHours, setPendingHours]             = useState([])
-  const [reviewedHours, setReviewedHours]           = useState([])
-  const [hoursLoading, setHoursLoading]             = useState(false)
-  const [reviewedHoursLoading, setReviewedHoursLoading] = useState(false)
-  const [reviewedHoursHasMore, setReviewedHoursHasMore] = useState(false)
-  const [reviewedHoursCursor, setReviewedHoursCursor]   = useState(null)
-  const [approvingHoursId, setApprovingHoursId]     = useState(null)
+  const [pendingHours, setPendingHours]                   = useState([])
+  const [reviewedHours, setReviewedHours]                 = useState([])
+  const [hoursLoading, setHoursLoading]                   = useState(false)
+  const [reviewedHoursLoading, setReviewedHoursLoading]   = useState(false)
+  const [reviewedHoursHasMore, setReviewedHoursHasMore]   = useState(false)
+  const [reviewedHoursCursor, setReviewedHoursCursor]     = useState(null)
+  const [approvingHoursId, setApprovingHoursId]           = useState(null)
 
   // ── Audit tab ───────────────────────────────────────────────────────────────
-  const [auditLogs, setAuditLogs]           = useState([])
-  const [auditLoading, setAuditLoading]     = useState(false)
+  const [auditLogs, setAuditLogs]               = useState([])
+  const [auditLoading, setAuditLoading]         = useState(false)
   const [auditLoadingMore, setAuditLoadingMore] = useState(false)
-  const [auditHasMore, setAuditHasMore]     = useState(false)
-  const [auditCursor, setAuditCursor]       = useState(null)
-  const [auditFilterAdmin, setAuditFilterAdmin]   = useState('')
+  const [auditHasMore, setAuditHasMore]         = useState(false)
+  const [auditCursor, setAuditCursor]           = useState(null)
+  const [auditFilterAdmin, setAuditFilterAdmin] = useState('')
   const [auditFilterAction, setAuditFilterAction] = useState('')
-  const [auditFilterFrom, setAuditFilterFrom]     = useState('')
-  const [auditFilterTo, setAuditFilterTo]         = useState('')
+  const [auditFilterFrom, setAuditFilterFrom]   = useState('')
+  const [auditFilterTo, setAuditFilterTo]       = useState('')
 
   const [lightboxUrl, setLightboxUrl] = useState(null)
 
@@ -332,24 +337,26 @@ export default function AdminPage() {
   const affiliationColor = { missionary: '#818cf8', intern: '#150d5a', student: '#38bdf8', volunteer: '#02416B', provider: '#7dd3fc' }
   const badgeStyle  = (color) => ({ display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: '100px', fontSize: '0.75rem', fontWeight: 500, background: color + '22', color: color, border: `1px solid ${color}55` })
   const pillBtn     = (active, mono) => ({ padding: '0.45rem 0.85rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: mono ? 'DM Mono, monospace' : 'DM Sans, sans-serif', background: active ? (mono ? '#1e40af' : 'var(--accent)') : 'var(--surface)', color: active ? (mono ? '#bfdbfe' : '#fff') : 'var(--muted)', border: active ? 'none' : '1px solid var(--border)' })
-  // Bi-weekly schedule badges (odd = 1st&3rd, even = 2nd&4th) — was low-contrast sky blue on pale blue
   const biweeklyBadge = { fontWeight: 600, background: '#dbeafe', color: '#1e3a8a', border: '1px solid #2563eb' }
   const tzLabel     = getMountainLabel()
   const DAY_ORDER   = { monday: 0, tuesday: 1, wednesday: 2, thursday: 3, friday: 4, saturday: 5, sunday: 6 }
 
   // ── Data loaders ────────────────────────────────────────────────────────────
+
+  // Volunteers: fetch all profile fields once; subsequent mutations patch local state
   async function loadVolunteers() {
     const { data } = await supabase
       .from('profiles')
-      .select('id, full_name, email, phone, role, affiliation, status, status_reason, credentials, languages, default_role, school, major, sma_name, sma_contact, advisor_name, advisor_contact, intern_school, intern_department, license_exp, bls_exp, dea_exp, ftca_exp, tb_exp, birthday, end_date')
+      .select(PROFILE_LIST_COLS)
       .order('full_name')
     setVolunteers(data || [])
   }
 
+  // Active shifts: only the columns Live/stats actually need
   async function loadActiveShifts() {
     const { data } = await supabase
       .from('shifts')
-      .select('id, volunteer_id, clock_in, profiles(id, full_name)')
+      .select('id,volunteer_id,clock_in,profiles(id,full_name)')
       .is('clock_out', null)
     setActiveShifts(data || [])
   }
@@ -358,17 +365,17 @@ export default function AdminPage() {
     const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
     const { data } = await supabase
       .from('callouts')
-      .select('id, volunteer_id, callout_date, day_of_week, shift_time, role, reason, status, is_read, covered_by, submitted_at, volunteer:profiles!callouts_volunteer_id_fkey(full_name)')
+      .select('id,volunteer_id,callout_date,day_of_week,shift_time,role,reason,status,is_read,covered_by,submitted_at,volunteer:profiles!callouts_volunteer_id_fkey(full_name)')
       .gte('callout_date', todayStr)
       .order('callout_date', { ascending: true })
-      .limit(200)
+      .limit(CALLOUTS_LIMIT)
     setCallouts((data || []).map(c => ({ ...c, profiles: c.volunteer, status: c.status ?? (c.is_read ? 'approved' : 'pending') })))
   }
 
   async function loadSchedule() {
     const { data } = await supabase
       .from('schedule')
-      .select('id, volunteer_id, day_of_week, shift_time, role, start_date, end_date, week_pattern, notes, profiles(id, full_name)')
+      .select('id,volunteer_id,day_of_week,shift_time,role,start_date,end_date,week_pattern,notes,profiles(id,full_name)')
       .order('role')
     setSchedule(data || [])
   }
@@ -376,16 +383,17 @@ export default function AdminPage() {
   async function loadCoverRequests() {
     const { data } = await supabase
       .from('shift_cover_requests')
-      .select('id, callout_id, volunteer_id, status, requested_at, reviewed_at, profiles(full_name)')
+      .select('id,callout_id,volunteer_id,status,requested_at,reviewed_at,profiles(full_name)')
       .order('requested_at', { ascending: false })
     setCoverRequests(data || [])
   }
 
+  // ── Shifts pagination ───────────────────────────────────────────────────────
   async function loadShiftsFirstPage(volId = '') {
     setShiftsLoading(true)
     let q = supabase
       .from('shifts')
-      .select('id, volunteer_id, clock_in, clock_out, role, profiles(id, full_name)')
+      .select('id,volunteer_id,clock_in,clock_out,role,profiles(id,full_name)')
       .order('clock_in', { ascending: false })
       .limit(SHIFTS_PAGE)
     if (volId) q = q.eq('volunteer_id', volId)
@@ -402,7 +410,7 @@ export default function AdminPage() {
     setShiftsLoadingMore(true)
     let q = supabase
       .from('shifts')
-      .select('id, volunteer_id, clock_in, clock_out, role, profiles(id, full_name)')
+      .select('id,volunteer_id,clock_in,clock_out,role,profiles(id,full_name)')
       .order('clock_in', { ascending: false })
       .lt('clock_in', shiftsCursor)
       .limit(SHIFTS_PAGE)
@@ -415,11 +423,15 @@ export default function AdminPage() {
     setShiftsLoadingMore(false)
   }
 
+  // ── Hours pagination ────────────────────────────────────────────────────────
+  // Narrow hours columns — only what the UI renders
+  const HOURS_COLS = 'id,volunteer_id,work_date,hours,role,notes,status,submitted_at,reviewed_at,profiles(full_name,role)'
+
   async function loadPendingHours() {
     setHoursLoading(true)
     const { data } = await supabase
       .from('hours_submissions')
-      .select('id, volunteer_id, work_date, hours, role, notes, status, submitted_at, reviewed_at, profiles(full_name, role)')
+      .select(HOURS_COLS)
       .eq('status', 'pending')
       .order('submitted_at', { ascending: false })
     setPendingHours((data || []).filter(h => h.profiles?.role !== 'admin'))
@@ -430,7 +442,7 @@ export default function AdminPage() {
     setReviewedHoursLoading(true)
     const { data } = await supabase
       .from('hours_submissions')
-      .select('id, volunteer_id, work_date, hours, role, notes, status, submitted_at, reviewed_at, profiles(full_name, role)')
+      .select(HOURS_COLS)
       .neq('status', 'pending')
       .order('submitted_at', { ascending: false })
       .limit(HOURS_PAGE)
@@ -446,7 +458,7 @@ export default function AdminPage() {
     setReviewedHoursLoading(true)
     const { data } = await supabase
       .from('hours_submissions')
-      .select('id, volunteer_id, work_date, hours, role, notes, status, submitted_at, reviewed_at, profiles(full_name, role)')
+      .select(HOURS_COLS)
       .neq('status', 'pending')
       .lt('submitted_at', reviewedHoursCursor)
       .order('submitted_at', { ascending: false })
@@ -458,15 +470,30 @@ export default function AdminPage() {
     setReviewedHoursLoading(false)
   }
 
+  // ── Audit pagination ────────────────────────────────────────────────────────
+  // Narrow audit columns to what's rendered
+  const AUDIT_COLS = 'id,admin_id,action,target_type,target_id,target_name,details,created_at,admin:profiles!audit_logs_admin_id_fkey(full_name)'
+
+  function buildAuditQuery() {
+    let q = supabase
+      .from('audit_logs')
+      .select(AUDIT_COLS)
+      .order('created_at', { ascending: false })
+    if (auditFilterAdmin)  q = q.eq('admin_id', auditFilterAdmin)
+    if (auditFilterAction) q = q.eq('action', auditFilterAction)
+    if (auditFilterFrom)   q = q.gte('created_at', auditFilterFrom + 'T00:00:00Z')
+    if (auditFilterTo)     q = q.lte('created_at', auditFilterTo + 'T23:59:59Z')
+    return q
+  }
+
   async function loadAuditFirstPage() {
     setAuditLoading(true)
     setAuditLogs([])
     setAuditCursor(null)
     const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
-    let q = buildAuditQuery()
+    const { data } = await buildAuditQuery()
       .gte('created_at', twoWeeksAgo)
       .limit(AUDIT_PAGE)
-    const { data } = await q
     const rows = (data || []).filter(log => log.action !== 'sent_message')
     setAuditLogs(rows)
     setAuditHasMore(rows.length === AUDIT_PAGE)
@@ -489,23 +516,12 @@ export default function AdminPage() {
     setAuditLoadingMore(false)
   }
 
-  function buildAuditQuery() {
-    let q = supabase
-      .from('audit_logs')
-      .select('id, admin_id, action, target_type, target_id, target_name, details, created_at, admin:profiles!audit_logs_admin_id_fkey(full_name)')
-      .order('created_at', { ascending: false })
-    if (auditFilterAdmin)  q = q.eq('admin_id', auditFilterAdmin)
-    if (auditFilterAction) q = q.eq('action', auditFilterAction)
-    if (auditFilterFrom)   q = q.gte('created_at', auditFilterFrom + 'T00:00:00Z')
-    if (auditFilterTo)     q = q.lte('created_at', auditFilterTo + 'T23:59:59Z')
-    return q
-  }
-
+  // ── Per-volunteer lazy loaders ──────────────────────────────────────────────
   async function loadRecentShiftsForVolunteer(volunteerId) {
     setLoadingRecentShifts(true)
     const { data } = await supabase
       .from('shifts')
-      .select('id, clock_in, clock_out, role')
+      .select('id,clock_in,clock_out,role')
       .eq('volunteer_id', volunteerId)
       .not('clock_out', 'is', null)
       .order('clock_in', { ascending: false })
@@ -518,18 +534,19 @@ export default function AdminPage() {
     setLoadingScheduledShifts(true)
     const { data } = await supabase
       .from('schedule')
-      .select('id, day_of_week, shift_time, role, week_pattern, start_date, end_date, notes')
+      .select('id,day_of_week,shift_time,role,week_pattern,start_date,end_date,notes')
       .eq('volunteer_id', volunteerId)
       .order('day_of_week')
     setScheduledShifts(data || [])
     setLoadingScheduledShifts(false)
   }
 
+  // Volunteer total hours: fetch only the two timestamp columns needed for math
   async function loadVolunteerTotalHours(volunteerId) {
     setLoadingVolHours(true)
     const { data } = await supabase
       .from('shifts')
-      .select('clock_in, clock_out')
+      .select('clock_in,clock_out')
       .eq('volunteer_id', volunteerId)
       .not('clock_out', 'is', null)
     const total = (data || []).reduce((acc, s) => acc + (asUTC(s.clock_out) - asUTC(s.clock_in)) / 3600000, 0).toFixed(1)
@@ -537,10 +554,11 @@ export default function AdminPage() {
     setLoadingVolHours(false)
   }
 
+  // Date-cover shifts: only id, volunteer_id, clock_in, and the name join
   async function loadDateCoverShifts(date) {
     const { data } = await supabase
       .from('shifts')
-      .select('id, volunteer_id, clock_in, profiles(id, full_name)')
+      .select('id,volunteer_id,clock_in,profiles(id,full_name)')
       .gte('clock_in', date + 'T00:00:00Z')
       .lt('clock_in', date + 'T23:59:59Z')
     setDateCoverShifts(data || [])
@@ -565,9 +583,10 @@ export default function AdminPage() {
       const { data: { session } } = await supabase.auth.getSession()
       const user = session?.user
       if (!user) { window.location.href = '/'; return }
+      // Fetch only the admin profile fields we actually use
       const { data: p } = await supabase
         .from('profiles')
-        .select('id, full_name, email, role, default_role')
+        .select('id,full_name,email,role,default_role')
         .eq('id', user.id).single()
       if (p?.role !== 'admin') { window.location.href = '/volunteer'; return }
       setProfile(p)
@@ -582,7 +601,12 @@ export default function AdminPage() {
   // ── Audit helper ────────────────────────────────────────────────────────────
   async function audit(action, target_type, target_id, target_name, details) {
     try {
-      await supabase.from('audit_logs').insert({ admin_id: profile.id, action, target_type, target_id: target_id ? String(target_id) : null, target_name: target_name || null, details: details || null })
+      await supabase.from('audit_logs').insert({
+        admin_id: profile.id, action, target_type,
+        target_id: target_id ? String(target_id) : null,
+        target_name: target_name || null,
+        details: details || null,
+      })
     } catch (e) { console.error('audit log failed:', e) }
   }
 
@@ -614,7 +638,6 @@ export default function AdminPage() {
     })
   }
 
-  // ── Stats banner: use the same helper as the Live tab ──────────────────────
   const { list: expectedVolunteers } = computeExpectedNotClockedIn({ schedule, callouts, activeShifts, volunteers })
 
   function openVolunteer(v) {
@@ -629,7 +652,8 @@ export default function AdminPage() {
       advisor_name: v.advisor_name||'', advisor_contact: v.advisor_contact||'',
       intern_school: v.intern_school||'', intern_department: v.intern_department||'',
       license_exp: v.license_exp||'', bls_exp: v.bls_exp||'',
-      dea_exp: v.dea_exp||'', ftca_exp: v.ftca_exp||'', tb_exp: v.tb_exp||'', end_date: v.end_date || '', status_reason: v.status_reason || '',
+      dea_exp: v.dea_exp||'', ftca_exp: v.ftca_exp||'', tb_exp: v.tb_exp||'',
+      end_date: v.end_date || '', status_reason: v.status_reason || '',
     })
     setStatusForm({ status: v.status || 'active', status_reason: v.status_reason || '' })
     setEditing(false)
@@ -650,36 +674,62 @@ export default function AdminPage() {
   }
 
   // ── Mutations ───────────────────────────────────────────────────────────────
+
+  // Patch a single callout in local state instead of re-fetching the whole list
+  function patchCallout(id, patch) {
+    setCallouts(prev => prev.map(c => c.id === id ? { ...c, ...patch } : c))
+  }
+
   async function approveCallout(callout) {
     const { error } = await supabase.from('callouts').update({ status: 'approved', is_read: true }).eq('id', callout.id)
-    if (error) showMessage(error.message, 'error')
-    else { showMessage('Callout approved — shift is now open for coverage', 'success'); await audit('approved_callout', 'callout', callout.id, callout.profiles?.full_name, `${callout.callout_date} ${callout.shift_time}`); await loadCallouts() }
+    if (error) { showMessage(error.message, 'error'); return }
+    showMessage('Callout approved — shift is now open for coverage', 'success')
+    await audit('approved_callout', 'callout', callout.id, callout.profiles?.full_name, `${callout.callout_date} ${callout.shift_time}`)
+    patchCallout(callout.id, { status: 'approved', is_read: true })
   }
+
   async function denyCallout(id) {
     const callout = callouts.find(c => c.id === id)
     const { error } = await supabase.from('callouts').update({ status: 'denied', is_read: true }).eq('id', id)
-    if (error) showMessage(error.message, 'error')
-    else { showMessage('Callout denied.', 'success'); await audit('denied_callout', 'callout', id, callout?.profiles?.full_name, `${callout?.callout_date} ${callout?.shift_time}`); await loadCallouts() }
+    if (error) { showMessage(error.message, 'error'); return }
+    showMessage('Callout denied.', 'success')
+    await audit('denied_callout', 'callout', id, callout?.profiles?.full_name, `${callout?.callout_date} ${callout?.shift_time}`)
+    patchCallout(id, { status: 'denied', is_read: true })
   }
+
   async function approveCover(req) {
     setApprovingCoverId(req.id)
     const callout = callouts.find(c => c.id === req.callout_id)
     if (!callout) { showMessage('Callout not found', 'error'); setApprovingCoverId(null); return }
+
     await supabase.from('callouts').update({ covered_by: req.volunteer_id }).eq('id', req.callout_id)
     await supabase.from('shift_cover_requests').update({ status: 'approved', reviewed_at: new Date().toISOString() }).eq('id', req.id)
     await supabase.from('shift_cover_requests').update({ status: 'denied', reviewed_at: new Date().toISOString() }).eq('callout_id', req.callout_id).neq('id', req.id)
+
     showMessage(`${req.profiles?.full_name} approved to cover shift!`, 'success')
     await audit('approved_cover', 'callout', req.callout_id, req.profiles?.full_name, `covering ${callout.callout_date} ${callout.shift_time}`)
-    await loadCallouts(); await loadCoverRequests(); setApprovingCoverId(null)
+
+    // Patch local state — no full re-fetch
+    patchCallout(req.callout_id, { covered_by: req.volunteer_id })
+    setCoverRequests(prev => prev.map(r => {
+      if (r.callout_id !== req.callout_id) return r
+      return { ...r, status: r.id === req.id ? 'approved' : 'denied', reviewed_at: new Date().toISOString() }
+    }))
+    setApprovingCoverId(null)
   }
+
   async function denyCover(id) {
     setApprovingCoverId(id)
     const req = coverRequests.find(r => r.id === id)
     const { error } = await supabase.from('shift_cover_requests').update({ status: 'denied', reviewed_at: new Date().toISOString() }).eq('id', id)
-    if (error) showMessage(error.message, 'error')
-    else { showMessage('Cover request denied.', 'success'); await audit('denied_cover', 'callout', req?.callout_id, req?.profiles?.full_name); await loadCoverRequests() }
+    if (error) { showMessage(error.message, 'error'); setApprovingCoverId(null); return }
+    showMessage('Cover request denied.', 'success')
+    await audit('denied_cover', 'callout', req?.callout_id, req?.profiles?.full_name)
+    // Patch local state
+    setCoverRequests(prev => prev.map(r => r.id === id ? { ...r, status: 'denied', reviewed_at: new Date().toISOString() } : r))
     setApprovingCoverId(null)
   }
+
   async function handleShiftEditSave(shiftId) {
     setSavingShift(true)
     const origClockIn  = toMountainInputValue(shiftEditForm.clock_in_utc)
@@ -688,28 +738,35 @@ export default function AdminPage() {
     const clockOut = shiftEditForm.clock_out ? (shiftEditForm.clock_out !== origClockOut ? fromMountainInputValue(shiftEditForm.clock_out) : shiftEditForm.clock_out_utc) : null
     const shift = allShifts.find(s => s.id === shiftId)
     const { error } = await supabase.from('shifts').update({ clock_in: clockIn, clock_out: clockOut, role: shiftEditForm.role || null }).eq('id', shiftId)
-    if (error) showMessage(error.message, 'error')
-    else {
-      showMessage('Shift updated!', 'success')
-      await audit('edited_shift', 'shift', shiftId, shift?.profiles?.full_name, `${formatDateTime(clockIn)} → ${clockOut ? formatDateTime(clockOut) : 'active'}`)
-      setEditingShiftId(null)
-      await loadShiftsFirstPage(shiftFilterVolId)
-      await loadActiveShifts()
+    if (error) { showMessage(error.message, 'error'); setSavingShift(false); return }
+    showMessage('Shift updated!', 'success')
+    await audit('edited_shift', 'shift', shiftId, shift?.profiles?.full_name, `${formatDateTime(clockIn)} → ${clockOut ? formatDateTime(clockOut) : 'active'}`)
+    setEditingShiftId(null)
+    // Patch local shift list — avoid full re-fetch
+    setAllShifts(prev => prev.map(s => s.id === shiftId ? { ...s, clock_in: clockIn, clock_out: clockOut, role: shiftEditForm.role || null } : s))
+    // If the shift was active (no clock_out) it may have changed active status
+    if (!clockOut) {
+      // Still active: keep in activeShifts as-is (clock_in may have changed)
+      setActiveShifts(prev => prev.map(s => s.id === shiftId ? { ...s, clock_in: clockIn } : s))
+    } else {
+      // Now closed: remove from activeShifts
+      setActiveShifts(prev => prev.filter(s => s.id !== shiftId))
     }
     setSavingShift(false)
   }
+
   async function handleShiftDelete(shiftId) {
     if (!confirm('Delete this shift entry? This cannot be undone.')) return
     const shift = allShifts.find(s => s.id === shiftId)
     const { error } = await supabase.from('shifts').delete().eq('id', shiftId)
-    if (error) showMessage(error.message, 'error')
-    else {
-      showMessage('Shift deleted.', 'success')
-      await audit('deleted_shift', 'shift', shiftId, shift?.profiles?.full_name, `${formatDateTime(shift?.clock_in)}`)
-      await loadShiftsFirstPage(shiftFilterVolId)
-      await loadActiveShifts()
-    }
+    if (error) { showMessage(error.message, 'error'); return }
+    showMessage('Shift deleted.', 'success')
+    await audit('deleted_shift', 'shift', shiftId, shift?.profiles?.full_name, `${formatDateTime(shift?.clock_in)}`)
+    // Patch local state — no re-fetch
+    setAllShifts(prev => prev.filter(s => s.id !== shiftId))
+    setActiveShifts(prev => prev.filter(s => s.id !== shiftId))
   }
+
   async function approveHours(sub) {
     setApprovingHoursId(sub.id)
     const clockInUTC  = fromMountainInputValue(`${sub.work_date}T09:00`)
@@ -719,20 +776,24 @@ export default function AdminPage() {
     await supabase.from('hours_submissions').update({ status: 'approved', reviewed_at: new Date().toISOString() }).eq('id', sub.id)
     showMessage('Hours approved and shift created!', 'success')
     await audit('approved_hours', 'hours', sub.id, sub.profiles?.full_name, `${sub.hours}h on ${sub.work_date} (${sub.role})`)
+    const reviewed = { ...sub, status: 'approved', reviewed_at: new Date().toISOString() }
     setPendingHours(prev => prev.filter(h => h.id !== sub.id))
-    setReviewedHours(prev => [{ ...sub, status: 'approved', reviewed_at: new Date().toISOString() }, ...prev])
+    setReviewedHours(prev => [reviewed, ...prev])
     setApprovingHoursId(null)
   }
+
   async function rejectHours(id) {
     setApprovingHoursId(id)
     const sub = pendingHours.find(h => h.id === id)
     await supabase.from('hours_submissions').update({ status: 'rejected', reviewed_at: new Date().toISOString() }).eq('id', id)
     showMessage('Submission rejected.', 'success')
     await audit('rejected_hours', 'hours', id, sub?.profiles?.full_name, `${sub?.hours}h on ${sub?.work_date}`)
+    const reviewed = { ...sub, status: 'rejected', reviewed_at: new Date().toISOString() }
     setPendingHours(prev => prev.filter(h => h.id !== id))
-    setReviewedHours(prev => [{ ...sub, status: 'rejected', reviewed_at: new Date().toISOString() }, ...prev])
+    setReviewedHours(prev => [reviewed, ...prev])
     setApprovingHoursId(null)
   }
+
   async function handleCreateShift(e) {
     e.preventDefault()
     if (!newShiftForm.volunteer_id || !newShiftForm.clock_in) return
@@ -740,20 +801,25 @@ export default function AdminPage() {
     const clockIn  = fromMountainInputValue(newShiftForm.clock_in)
     const clockOut = newShiftForm.clock_out ? fromMountainInputValue(newShiftForm.clock_out) : null
     const vol = volunteers.find(v => v.id === newShiftForm.volunteer_id)
-    const { error } = await supabase.from('shifts').insert({ volunteer_id: newShiftForm.volunteer_id, clock_in: clockIn, clock_out: clockOut, role: newShiftForm.role || null })
-    if (error) showMessage(error.message, 'error')
-    else {
-      showMessage('Shift entry created!', 'success')
-      await audit('created_shift', 'shift', null, vol?.full_name, `${formatDateTime(clockIn)}`)
-      setNewShiftForm({ volunteer_id: '', clock_in: '', clock_out: '', role: '' })
-      setShowNewShiftForm(false)
-      await loadShiftsFirstPage(shiftFilterVolId)
-      await loadActiveShifts()
-    }
+    const { data: inserted, error } = await supabase
+      .from('shifts')
+      .insert({ volunteer_id: newShiftForm.volunteer_id, clock_in: clockIn, clock_out: clockOut, role: newShiftForm.role || null })
+      .select('id,volunteer_id,clock_in,clock_out,role,profiles(id,full_name)')
+      .single()
+    if (error) { showMessage(error.message, 'error'); setCreatingShift(false); return }
+    showMessage('Shift entry created!', 'success')
+    await audit('created_shift', 'shift', inserted?.id, vol?.full_name, `${formatDateTime(clockIn)}`)
+    setNewShiftForm({ volunteer_id: '', clock_in: '', clock_out: '', role: '' })
+    setShowNewShiftForm(false)
+    // Prepend to local list — no full re-fetch
+    setAllShifts(prev => [inserted, ...prev])
+    if (!clockOut) setActiveShifts(prev => [{ id: inserted.id, volunteer_id: inserted.volunteer_id, clock_in: clockIn, profiles: inserted.profiles }, ...prev])
     setCreatingShift(false)
   }
+
   async function handleAddEntry() {
-    if (!addVolId) return; setAddingEntry(true)
+    if (!addVolId) return
+    setAddingEntry(true)
     const currentEntries = getEntries(scheduleDay, scheduleShift, addingRole)
     const effectiveCount = currentEntries.reduce((sum, entry) => {
       if (addStartDate && entry.end_date && entry.end_date < addStartDate) return sum
@@ -770,51 +836,68 @@ export default function AdminPage() {
     })
     if (exists) { showMessage('Volunteer already assigned to this slot', 'error'); setAddingEntry(false); return }
     const vol = volunteers.find(v => v.id === addVolId)
-    const { error } = await supabase.from('schedule').insert({ volunteer_id: addVolId, day_of_week: scheduleDay, shift_time: scheduleShift, role: addingRole, start_date: addStartDate || null, end_date: addEndDate || null, week_pattern: addWeekPattern || 'every', notes: addNotes || null })
-    if (error) showMessage(error.message, 'error')
-    else {
-      showMessage('Volunteer assigned!', 'success')
-      await audit('assigned_schedule', 'schedule', null, vol?.full_name, `${scheduleDay} ${scheduleShift} — ${addingRole}`)
-      setAddingRole(null); setAddVolId(''); setAddStartDate(''); setAddEndDate(''); setAddWeekPattern('every'); setAddNotes('')
-      await loadSchedule()
-    }
+    const { data: inserted, error } = await supabase
+      .from('schedule')
+      .insert({ volunteer_id: addVolId, day_of_week: scheduleDay, shift_time: scheduleShift, role: addingRole, start_date: addStartDate || null, end_date: addEndDate || null, week_pattern: addWeekPattern || 'every', notes: addNotes || null })
+      .select('id,volunteer_id,day_of_week,shift_time,role,start_date,end_date,week_pattern,notes,profiles(id,full_name)')
+      .single()
+    if (error) { showMessage(error.message, 'error'); setAddingEntry(false); return }
+    showMessage('Volunteer assigned!', 'success')
+    await audit('assigned_schedule', 'schedule', inserted?.id, vol?.full_name, `${scheduleDay} ${scheduleShift} — ${addingRole}`)
+    setAddingRole(null); setAddVolId(''); setAddStartDate(''); setAddEndDate(''); setAddWeekPattern('every'); setAddNotes('')
+    // Append to local schedule — no full re-fetch
+    setSchedule(prev => [...prev, inserted].sort((a, b) => (a.role || '').localeCompare(b.role || '')))
     setAddingEntry(false)
   }
+
   async function handleRemoveEntry(id) {
     const entry = schedule.find(s => s.id === id)
     const { error } = await supabase.from('schedule').delete().eq('id', id)
-    if (error) showMessage(error.message, 'error')
-    else {
-      showMessage('Removed from schedule', 'success')
-      await audit('removed_schedule', 'schedule', id, entry?.profiles?.full_name, `${entry?.day_of_week} ${entry?.shift_time} — ${entry?.role}`)
-      await loadSchedule()
-    }
+    if (error) { showMessage(error.message, 'error'); return }
+    showMessage('Removed from schedule', 'success')
+    await audit('removed_schedule', 'schedule', id, entry?.profiles?.full_name, `${entry?.day_of_week} ${entry?.shift_time} — ${entry?.role}`)
+    // Patch local state — no re-fetch
+    setSchedule(prev => prev.filter(s => s.id !== id))
   }
+
   async function handleStatusChange(newStatus, reason) {
     setChangingStatus(true)
     const volunteerId = selectedVolunteer.id
     const isDeactivating = newStatus === 'inactive'
-    const { error } = await supabase.from('profiles').update({ status: newStatus, status_reason: isDeactivating ? (reason || null) : null, status_changed_at: new Date().toISOString() }).eq('id', volunteerId)
+    const { error } = await supabase.from('profiles').update({
+      status: newStatus,
+      status_reason: isDeactivating ? (reason || null) : null,
+      status_changed_at: new Date().toISOString(),
+    }).eq('id', volunteerId)
     if (error) { showMessage(error.message, 'error'); setChangingStatus(false); return }
     if (isDeactivating) {
       const { error: se } = await supabase.from('schedule').delete().eq('volunteer_id', volunteerId)
       if (se) { showMessage(se.message, 'error'); setChangingStatus(false); return }
+      // Remove from local schedule
+      setSchedule(prev => prev.filter(s => s.volunteer_id !== volunteerId))
     }
-    const { data: fresh } = await supabase.from('profiles').select('id, full_name, email, phone, role, affiliation, status, status_reason, credentials, languages, default_role, school, major, sma_name, sma_contact, advisor_name, advisor_contact, intern_school, intern_department, license_exp, bls_exp, dea_exp, ftca_exp, tb_exp, birthday, end_date').eq('id', volunteerId).single()
     await audit(isDeactivating ? 'deactivated_volunteer' : 'reactivated_volunteer', 'volunteer', volunteerId, selectedVolunteer.full_name, reason || null)
     showMessage(isDeactivating ? 'Volunteer deactivated and removed from schedule.' : 'Volunteer reactivated!', 'success')
-    setSelectedVolunteer(fresh); await loadVolunteers(); setChangingStatus(false)
+    // Patch volunteer in local state — avoid full re-fetch
+    const patch = { status: newStatus, status_reason: isDeactivating ? (reason || null) : null }
+    const fresh = { ...selectedVolunteer, ...patch }
+    setSelectedVolunteer(fresh)
+    setVolunteers(prev => prev.map(v => v.id === volunteerId ? { ...v, ...patch } : v))
+    setChangingStatus(false)
   }
+
   async function handleSaveEdit() {
     setSaving(true)
     if (editForm.end_date && !editForm.status_reason) {
       showMessage('Please select a deactivation reason when setting an end date.', 'error')
       setSaving(false)
       return
-    }    
-    const isProvider = editForm.affiliation === 'provider'; const isIntern   = editForm.affiliation === 'intern'
-    const isMission  = editForm.affiliation === 'missionary'; const isStudent = editForm.affiliation === 'student'
-    const { error } = await supabase.from('profiles').update({
+    }
+    const isProvider = editForm.affiliation === 'provider'
+    const isIntern   = editForm.affiliation === 'intern'
+    const isMission  = editForm.affiliation === 'missionary'
+    const isStudent  = editForm.affiliation === 'student'
+    const updates = {
       full_name: editForm.full_name, phone: editForm.phone, affiliation: editForm.affiliation || null,
       credentials: editForm.credentials || null, languages: editForm.languages, role: editForm.role,
       sma_name: isMission ? (editForm.sma_name||null) : null, sma_contact: isMission ? (editForm.sma_contact||null) : null,
@@ -824,21 +907,32 @@ export default function AdminPage() {
       license_exp: isProvider ? (editForm.license_exp||null) : null, bls_exp: isProvider ? (editForm.bls_exp||null) : null,
       dea_exp: isProvider ? (editForm.dea_exp||null) : null, ftca_exp: isProvider ? (editForm.ftca_exp||null) : null,
       tb_exp: isProvider ? (editForm.tb_exp||null) : null,
-      default_role: editForm.default_role || null, birthday: editForm.birthday || null, end_date: editForm.end_date || null, status_reason: editForm.end_date ? (editForm.status_reason || null) : null,
-    }).eq('id', selectedVolunteer.id)
+      default_role: editForm.default_role || null, birthday: editForm.birthday || null,
+      end_date: editForm.end_date || null,
+      status_reason: editForm.end_date ? (editForm.status_reason || null) : null,
+    }
+    const { error } = await supabase.from('profiles').update(updates).eq('id', selectedVolunteer.id)
     if (error) { showMessage(error.message, 'error'); setSaving(false); return }
-    const { data: fresh } = await supabase.from('profiles').select('id, full_name, email, phone, role, affiliation, status, status_reason, credentials, languages, default_role, school, major, sma_name, sma_contact, advisor_name, advisor_contact, intern_school, intern_department, license_exp, bls_exp, dea_exp, ftca_exp, tb_exp, birthday, end_date').eq('id', selectedVolunteer.id).single()
     showMessage('Profile updated!', 'success')
     await audit('edited_volunteer', 'volunteer', selectedVolunteer.id, selectedVolunteer.full_name)
-    setEditing(false); setSelectedVolunteer(fresh); await loadVolunteers(); setSaving(false)
+    // Patch local volunteer list — no round-trip SELECT
+    const fresh = { ...selectedVolunteer, ...updates }
+    setEditing(false)
+    setSelectedVolunteer(fresh)
+    setVolunteers(prev => prev.map(v => v.id === selectedVolunteer.id ? fresh : v))
+    setSaving(false)
   }
+
   async function handleCreateVolunteer(e) {
-    e.preventDefault(); setCreating(true)
-    const isProvider = newAffiliation === 'provider'; const isIntern = newAffiliation === 'intern'
-    const isMission  = newAffiliation === 'missionary'; const isStudent = newAffiliation === 'student'
+    e.preventDefault()
+    setCreating(true)
+    const isProvider = newAffiliation === 'provider'
+    const isIntern   = newAffiliation === 'intern'
+    const isMission  = newAffiliation === 'missionary'
+    const isStudent  = newAffiliation === 'student'
     const { data, error } = await supabase.auth.signUp({ email: newEmail, password: newPassword })
     if (error) { showMessage(error.message, 'error'); setCreating(false); return }
-    const { error: pe } = await supabase.from('profiles').insert({
+    const profileData = {
       id: data.user.id, full_name: newName, email: newEmail, role: 'volunteer',
       affiliation: newAffiliation||null, credentials: newCredentials || null,
       phone: newPhone||null, languages: newLanguages||null,
@@ -850,11 +944,14 @@ export default function AdminPage() {
       dea_exp: isProvider ? (newProviderCreds.dea_exp||null) : null, ftca_exp: isProvider ? (newProviderCreds.ftca_exp||null) : null,
       tb_exp: isProvider ? (newProviderCreds.tb_exp||null) : null,
       birthday: newBirthday || null, default_role: newDefaultRole || null, end_date: newEndDate || null,
-    })
-    if (pe) showMessage(pe.message, 'error')
-    else {
+      status: 'active', status_reason: null,
+    }
+    const { error: pe } = await supabase.from('profiles').insert(profileData)
+    if (pe) { showMessage(pe.message, 'error') } else {
       showMessage(`Account created for ${newName}!`, 'success')
       await audit('created_volunteer', 'volunteer', data.user.id, newName, newRole)
+      // Append to local volunteers — no full re-fetch
+      setVolunteers(prev => [...prev, profileData].sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')))
       setNewName(''); setNewEmail(''); setNewPassword(''); setNewRole('volunteer')
       setNewAffiliation(''); setNewCredentials(''); setNewPhone(''); setNewLanguages('')
       setNewSmaName(''); setNewSmaContact(''); setNewSchool(''); setNewMajor('')
@@ -862,7 +959,6 @@ export default function AdminPage() {
       setNewAdvisorName(''); setNewAdvisorContact('')
       setNewInternSchool(''); setNewInternDepartment('')
       setNewProviderCreds({ license_exp: '', bls_exp: '', dea_exp: '', ftca_exp: '', tb_exp: '' })
-      loadVolunteers()
     }
     setCreating(false)
   }
@@ -897,7 +993,7 @@ export default function AdminPage() {
     </div>
   )
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
       <div style={{ maxWidth: '960px', margin: '0 auto' }}>
@@ -914,7 +1010,7 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* Stats — use computeExpectedNotClockedIn so they match the Live tab */}
+        {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
           {[
             { label: 'Not Clocked In',    value: expectedVolunteers.length, warn: expectedVolunteers.length > 0 },
@@ -941,7 +1037,7 @@ export default function AdminPage() {
           ))}
         </div>
 
-        {/* ── LIVE TAB — now a separate component ───────────────────────────── */}
+        {/* ── LIVE TAB ──────────────────────────────────────────────────────── */}
         {tab === 'dashboard' && (
           <Live
             schedule={schedule}
@@ -1204,9 +1300,9 @@ export default function AdminPage() {
                   <div><label style={labelStyle}>Full Name</label><input value={editForm.full_name} onChange={e => setEditForm({...editForm, full_name: e.target.value})} style={inputStyle} /></div>
                   <div><label style={labelStyle}>Phone</label><input value={editForm.phone} onChange={e => setEditForm({...editForm, phone: e.target.value})} placeholder="xxx-xxx-xxxx" style={inputStyle} /></div>
                   <div><label style={labelStyle}>Affiliation</label><select value={editForm.affiliation} onChange={e => setEditForm({...editForm, affiliation: e.target.value})} style={inputStyle}><option value="">— Select —</option><option value="missionary">Missionary</option><option value="intern">Intern</option><option value="student">Student</option><option value="volunteer">Volunteer</option><option value="provider">Clinical Care Volunteer</option></select></div>
-                  <div><label style={labelStyle}>Credentials / Skills</label><input type="text" value={editForm.credentials} onChange={e => setEditForm({...editForm, credentials: e.target.value})} placeholder="e.g. EMT, Phlebotomy" style={inputStyle} /></div>                
+                  <div><label style={labelStyle}>Credentials / Skills</label><input type="text" value={editForm.credentials} onChange={e => setEditForm({...editForm, credentials: e.target.value})} placeholder="e.g. EMT, Phlebotomy" style={inputStyle} /></div>
                   <div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Languages</label><input value={editForm.languages} onChange={e => setEditForm({...editForm, languages: e.target.value})} placeholder="e.g. Spanish, French" style={inputStyle} /></div>
-                  {profile?.default_role === 'Director' && (  
+                  {profile?.default_role === 'Director' && (
                     <div><label style={labelStyle}>Role</label><select value={editForm.role} onChange={e => setEditForm({...editForm, role: e.target.value})} style={inputStyle}><option value="volunteer">Volunteer</option><option value="admin">Admin</option></select></div>
                   )}
                   {!profile?.default_role === 'Director' && (
@@ -1214,7 +1310,7 @@ export default function AdminPage() {
                       <label style={labelStyle}>Role</label>
                       <p style={{ padding: '0.75rem 1rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', fontSize: '0.95rem' }}>{editForm.role}</p>
                     </div>
-                  )}                  
+                  )}
                   <div><label style={labelStyle}>Default Position</label><select value={editForm.default_role} onChange={e => setEditForm({...editForm, default_role: e.target.value})} style={inputStyle}><option value="">— None —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
                   <div><label style={labelStyle}>Birthday</label><input type="date" value={editForm.birthday || ''} onChange={e => setEditForm({ ...editForm, birthday: e.target.value })} style={inputStyle} /></div>
                   <div>
@@ -1578,7 +1674,7 @@ export default function AdminPage() {
                 <div>
                   <label style={labelStyle}>End Date <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(optional — auto-deactivates on this date)</span></label>
                   <input type="date" value={newEndDate} onChange={e => setNewEndDate(e.target.value)} style={inputStyle} />
-                </div>          
+                </div>
                 {newAffiliation === 'missionary' && (<><div><label style={labelStyle}>SMA Name</label><input value={newSmaName} onChange={e => setNewSmaName(e.target.value)} placeholder="SMA full name" style={inputStyle} /></div><div><label style={labelStyle}>SMA Contact</label><input value={newSmaContact} onChange={e => setNewSmaContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div></>)}
                 {newAffiliation === 'student' && (<><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>School</label><select value={newSchool} onChange={e => setNewSchool(e.target.value)} style={inputStyle}><option value="">— Select school —</option>{SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}</select></div><div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Major</label><select value={newMajor} onChange={e => setNewMajor(e.target.value)} style={inputStyle}><option value="">— Select major —</option>{MAJORS.map(m => <option key={m} value={m}>{m}</option>)}</select></div></>)}
                 {newAffiliation === 'intern' && (<><div><label style={labelStyle}>Advisor Name</label><input value={newAdvisorName} onChange={e => setNewAdvisorName(e.target.value)} placeholder="Advisor full name" style={inputStyle} /></div><div><label style={labelStyle}>Advisor Contact</label><input value={newAdvisorContact} onChange={e => setNewAdvisorContact(e.target.value)} placeholder="Phone or email" style={inputStyle} /></div><div><label style={labelStyle}>School</label><input value={newInternSchool} onChange={e => setNewInternSchool(e.target.value)} placeholder="University or institution" style={inputStyle} /></div><div><label style={labelStyle}>Dept / Company</label><input value={newInternDepartment} onChange={e => setNewInternDepartment(e.target.value)} placeholder="Department or company" style={inputStyle} /></div></>)}
