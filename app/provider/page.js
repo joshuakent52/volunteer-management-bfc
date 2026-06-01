@@ -1,8 +1,9 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
-import { SHIFTS } from '../../lib/constants'
+import { SHIFTS, ROLES } from '../../lib/constants'
 import { recurringAppliesToDate, getEffectiveProviderIds } from '../../lib/scheduleUtils'
+import { SubmitHoursPanel } from '../../components/SubmitHoursPanel'
 
 export const dynamic = 'force-dynamic'
 
@@ -784,6 +785,13 @@ export default function ProviderPage() {
                 </div>
               )}
             </div>
+
+            <SubmitHoursPanel
+              supabase={supabase}
+              userId={user.id}
+              roles={ROLES}
+              showToast={showToast}
+            />
 
             {/* Change password */}
             <div style={S.card}>
