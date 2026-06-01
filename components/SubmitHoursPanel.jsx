@@ -18,9 +18,9 @@ const S = {
   },
 }
 
-export function SubmitHoursPanel({ supabase, userId, roles, showToast }) {
+export function SubmitHoursPanel({ supabase, userId, roles, showToast, defaultRole }) {
+  const [hoursRole, setHoursRole] = useState(defaultRole || '')
   const [hoursDate, setHoursDate]       = useState('')
-  const [hoursRole, setHoursRole]       = useState('')
   const [hoursWorked, setHoursWorked]   = useState('')
   const [hoursNotes, setHoursNotes]     = useState('')
   const [submitting, setSubmitting]     = useState(false)

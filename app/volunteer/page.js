@@ -1773,6 +1773,7 @@ export default function VolunteerPage() {
                 userId={user.id}
                 roles={ROLES}
                 showToast={showToast}
+                defaultRole={profile?.default_role}
               />
             )}
             */}
