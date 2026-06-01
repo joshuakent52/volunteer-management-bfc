@@ -489,7 +489,7 @@ export default function VolunteerPage() {
     if (!user || fetchedTabs.current.has('account')) return
     fetchedTabs.current.add('account')
 
-    const [{ data: all }, { data: history }, pushState, { data: hoursSubs }] = await Promise.all([
+    const [{ data: all }, { data: history }, pushState] = await Promise.all([
       supabase
         .from('shifts')
         .select('id, clock_in, clock_out')
