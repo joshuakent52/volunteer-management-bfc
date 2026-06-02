@@ -140,11 +140,12 @@ function TaskRow({ task, currentUserId, teamMembers, onUpdate, showToast }) {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.35rem', flexWrap: 'wrap' }}>
             {/* Assignee */}
+
             <select
-              value={task.assignee_id || ''}
-              onChange={e => changeAssignee(e.target.value)}
-              disabled={updatingAssignee}
-              style={{
+            value={task.assignee_id || ''}
+            onChange={e => changeAssignee(e.target.value)}
+            disabled={updatingAssignee}
+            style={{
                 fontSize: '0.75rem',
                 color: 'var(--muted)',
                 background: 'transparent',
@@ -153,8 +154,14 @@ function TaskRow({ task, currentUserId, teamMembers, onUpdate, showToast }) {
                 fontFamily: 'DM Sans, sans-serif',
                 padding: 0,
                 outline: 'none',
-              }}
+            }}
             >
+            <option value="">Unassigned</option>
+            {teamMembers.map(m => (
+                <option key={m.id} value={m.id}>{m.full_name}</option>
+            ))}
+            </select>
+
             <select
             value={task.status}
             onChange={async e => {
@@ -177,11 +184,6 @@ function TaskRow({ task, currentUserId, teamMembers, onUpdate, showToast }) {
             <option value="open">Open</option>
             <option value="blocked">Blocked</option>
             <option value="closed">Closed</option>
-            </select>            
-              <option value="">Unassigned</option>
-              {teamMembers.map(m => (
-                <option key={m.id} value={m.id}>{m.full_name}</option>
-              ))}
             </select>
 
             {/* Due date */}
