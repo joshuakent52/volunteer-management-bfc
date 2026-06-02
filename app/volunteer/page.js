@@ -1086,7 +1086,6 @@ export default function VolunteerPage() {
             supabase={supabase}
             showToast={showToast}
             isMobile={isMobile}
-            allUsers={allUsers}
             getInboxMessages={getInboxMessages}
             MAX_FILE_SIZE={MAX_FILE_SIZE}
             SHIFTS={SHIFTS}
