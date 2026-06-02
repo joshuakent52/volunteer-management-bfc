@@ -66,8 +66,7 @@ function TaskRow({ task, currentUserId, teamMembers, onUpdate, showToast }) {
   const assignee = teamMembers.find(m => m.id === task.assignee_id)
 
   async function cycleStatus() {
-    const order = ['open', 'blocked', 'closed']
-    const next = order[(order.indexOf(task.status) + 1) % order.length]
+    const next = task.status === 'closed' ? 'open' : 'closed'
     setUpdatingStatus(true)
     const { error } = await supabase.from('tasks').update({ status: next }).eq('id', task.id)
     if (error) showToast(error.message, 'error')
@@ -105,7 +104,7 @@ function TaskRow({ task, currentUserId, teamMembers, onUpdate, showToast }) {
         <button
           onClick={cycleStatus}
           disabled={updatingStatus}
-          title={`Status: ${sm.label} — click to cycle`}
+          title={task.status === 'closed' ? 'Mark as open' : 'Mark as done'}
           style={{
             flexShrink: 0,
             marginTop: '2px',
@@ -156,6 +155,29 @@ function TaskRow({ task, currentUserId, teamMembers, onUpdate, showToast }) {
                 outline: 'none',
               }}
             >
+            <select
+            value={task.status}
+            onChange={async e => {
+                const next = e.target.value
+                const { error } = await supabase.from('tasks').update({ status: next }).eq('id', task.id)
+                if (error) showToast(error.message, 'error')
+                else onUpdate(task.id, { status: next })
+            }}
+            style={{
+                fontSize: '0.75rem',
+                color: STATUS_META[task.status]?.color || 'var(--muted)',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                fontFamily: 'DM Sans, sans-serif',
+                padding: 0,
+                outline: 'none',
+            }}
+            >
+            <option value="open">Open</option>
+            <option value="blocked">Blocked</option>
+            <option value="closed">Closed</option>
+            </select>            
               <option value="">Unassigned</option>
               {teamMembers.map(m => (
                 <option key={m.id} value={m.id}>{m.full_name}</option>
