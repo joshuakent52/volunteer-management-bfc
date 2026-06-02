@@ -17,8 +17,8 @@ const TEAMS = [
 
 const STATUS_META = {
   open:    { label: 'Open',    color: '#60a5fa', bg: 'rgba(96,165,250,0.12)',  border: 'rgba(96,165,250,0.3)'  },
-  blocked: { label: 'Blocked', color: '#f97316', bg: 'rgba(249,115,22,0.12)', border: 'rgba(249,115,22,0.3)'  },
-  closed:  { label: 'Done',    color: '#4ade80', bg: 'rgba(74,222,128,0.12)', border: 'rgba(74,222,128,0.3)'  },
+  blocked: { label: 'Blocked', color: '#93c5fd', bg: 'rgba(147,197,253,0.12)', border: 'rgba(147,197,253,0.3)'  },
+  closed:  { label: 'Done',    color: '#2563eb', bg: 'rgba(37,99,235,0.12)',   border: 'rgba(37,99,235,0.3)'  },
 }
 
 const S = {
