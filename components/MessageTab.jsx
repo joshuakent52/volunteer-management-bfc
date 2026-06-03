@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { MessageCard } from './MessageCard'
 import { formatDateTime } from '../lib/timeUtils'
+import { ROLES } from '../../lib/constants'
 
 const MSG_PAGE_SIZE = 10
 const BROADCAST_TYPES = ['everyone', 'role', 'shift']
@@ -609,11 +610,9 @@ export function MessageTab({
     ...schedule.filter(s => s.volunteer_id === user?.id).map(s => s.role).filter(Boolean),
   ])]
 
-  // Admins can message any role — collect all distinct roles from the schedule
-  const allRoles = [...new Set(schedule.map(s => s.role).filter(Boolean))].sort()
-
-  // Roles available for the compose "role" recipient type
-  const rolesForCompose = isAdmin ? allRoles : myRoles
+  // Admins can message any role — use the canonical ROLES constant so it's
+  // always complete regardless of whether the admin has schedule entries
+  const rolesForCompose = isAdmin ? ROLES : myRoles
 
   // ── Image helpers ──────────────────────────────────────────────────────────
   function handleImageSelect(e) {
