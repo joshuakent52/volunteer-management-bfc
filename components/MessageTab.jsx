@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { MessageCard } from './MessageCard'
 import { formatDateTime } from '../lib/timeUtils'
-import { ROLES } from '../lib/constants'
+import { ROLES } from '../../lib/constants'
 
 const MSG_PAGE_SIZE = 10
 const BROADCAST_TYPES = ['everyone', 'role', 'shift']
@@ -900,23 +900,21 @@ export function MessageTab({
 
               {/* Role sub-selector */}
               {msgRecipientType === 'role' && rolesForCompose.length > 0 && (
-                <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  {rolesForCompose.map(r => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => setMsgSelectedRole(r)}
-                      style={{
-                        padding: '0.35rem 0.75rem', borderRadius: '8px', fontSize: '0.82rem',
-                        cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-                        background: msgSelectedRole === r ? 'var(--accent)' : 'var(--bg)',
-                        color:      msgSelectedRole === r ? '#fff' : 'var(--muted)',
-                        border:     msgSelectedRole === r ? 'none' : '1px solid var(--border)',
-                      }}
-                    >
-                      {r}
-                    </button>
-                  ))}
+                <div style={{ marginTop: '0.75rem' }}>
+                  <select
+                    value={msgSelectedRole || ''}
+                    onChange={e => setMsgSelectedRole(e.target.value || null)}
+                    style={{
+                      ...S.input,
+                      cursor: 'pointer',
+                      color: msgSelectedRole ? 'var(--text)' : 'var(--muted)',
+                    }}
+                  >
+                    <option value="">Select a role…</option>
+                    {rolesForCompose.map(r => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
                 </div>
               )}
 
