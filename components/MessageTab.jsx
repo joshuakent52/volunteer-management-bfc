@@ -171,7 +171,7 @@ function ReplyThread({
                   {replyCount} {replyCount === 1 ? 'reply' : 'replies'} ·
                 </span>
               )}
-              <span style={{ fontSize: '0.75rem', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: '0.92rem', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {bodySnippet}
               </span>
             </div>
