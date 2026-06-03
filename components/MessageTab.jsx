@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { MessageCard } from './MessageCard'
 import { formatDateTime } from '../lib/timeUtils'
-import { ROLES } from '../../lib/constants'
+import { ROLES } from '../lib/constants'
 
 const MSG_PAGE_SIZE = 10
 const BROADCAST_TYPES = ['everyone', 'role', 'shift']
