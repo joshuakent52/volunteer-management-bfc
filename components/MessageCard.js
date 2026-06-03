@@ -166,7 +166,7 @@ export function MessageCard({ m, readMessageIds, user, setLightboxUrl, senderLab
       </div>
 
       {m.body && (
-        <p
+        <div
           style={{
             fontSize: '1.12rem',
             lineHeight: 1.5,
@@ -177,7 +177,7 @@ export function MessageCard({ m, readMessageIds, user, setLightboxUrl, senderLab
           }}
         >
           {formatBody(m.body)}
-        </p>
+        </div>
       )}
 
       {m.image_url && (
