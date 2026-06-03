@@ -609,6 +609,12 @@ export function MessageTab({
     ...schedule.filter(s => s.volunteer_id === user?.id).map(s => s.role).filter(Boolean),
   ])]
 
+  // Admins can message any role — collect all distinct roles from the schedule
+  const allRoles = [...new Set(schedule.map(s => s.role).filter(Boolean))].sort()
+
+  // Roles available for the compose "role" recipient type
+  const rolesForCompose = isAdmin ? allRoles : myRoles
+
   // ── Image helpers ──────────────────────────────────────────────────────────
   function handleImageSelect(e) {
     const file = e.target.files?.[0]
@@ -844,7 +850,7 @@ export function MessageTab({
                   { value: 'admin',    label: 'Admin' },
                   { value: 'everyone', label: 'Everyone' },
                   ...(myShiftCombos.length > 0 ? [{ value: 'shift', label: 'My Shift' }] : []),
-                  ...(myRoles.length > 0       ? [{ value: 'role',  label: 'My Role'  }] : []),
+                  ...(rolesForCompose.length > 0 ? [{ value: 'role', label: isAdmin ? 'Role' : 'My Role' }] : []),
                   { value: 'user', label: 'Individual' },
                 ].map(opt => (
                   <button
@@ -894,9 +900,9 @@ export function MessageTab({
               )}
 
               {/* Role sub-selector */}
-              {msgRecipientType === 'role' && myRoles.length > 0 && (
+              {msgRecipientType === 'role' && rolesForCompose.length > 0 && (
                 <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  {myRoles.map(r => (
+                  {rolesForCompose.map(r => (
                     <button
                       key={r}
                       type="button"
