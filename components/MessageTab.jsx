@@ -75,14 +75,14 @@ function ReplyThread({
   setLightboxUrl,
   allUsers,
   onReplySent,
+  onMarkRead,
   senderLabel,
 }) {
-  const [expanded, setExpanded]     = useState(false)
+  const isUnread = readMessageIds && !readMessageIds.has(message.id) && message.sender_id !== user?.id
+  const [expanded, setExpanded]     = useState(!!isUnread)
   const [replyOpen, setReplyOpen]   = useState(false)
   const [replyBody, setReplyBody]   = useState('')
   const [sending, setSending]       = useState(false)
-
-  const isUnread = readMessageIds && !readMessageIds.has(message.id) && message.sender_id !== user?.id
   const bodySnippet = message.body ? message.body.replace(/\n/g, ' ').slice(0, 80) + (message.body.length > 80 ? '…' : '') : '📎 Image'
   const replyCount = replies.length
 
@@ -140,7 +140,10 @@ function ReplyThread({
   if (!expanded) {
     return (
       <div
-        onClick={() => setExpanded(true)}
+        onClick={() => {
+          setExpanded(true)
+          onMarkRead(message.id, replies.map(r => r.id))
+        }}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -467,20 +470,20 @@ export function MessageTab({
     setAllUsers(usersData || [])
     await loadBroadcastReadCounts(fetched)
 
-    // Mark unread messages as read
-    const unreadIds = fetched
-      .filter(m => m.sender_id !== user.id && !readSet.has(m.id))
-      .map(m => m.id)
-    if (unreadIds.length > 0) {
-      const rows = unreadIds.map(id => ({ user_id: user.id, message_id: id }))
-      await supabase.from('message_reads').upsert(rows, { onConflict: 'user_id,message_id' })
-      setReadMessageIds(prev => {
-        const next = new Set(prev)
-        unreadIds.forEach(id => next.add(id))
-        return next
-      })
-    }
   }, [user, supabase])
+
+  const markThreadRead = useCallback(async (messageId, replyIds = []) => {
+    const allIds = [messageId, ...replyIds]
+    const toMark = allIds.filter(id => !readMessageIds.has(id))
+    if (toMark.length === 0) return
+    const rows = toMark.map(id => ({ user_id: user.id, message_id: id }))
+    await supabase.from('message_reads').upsert(rows, { onConflict: 'user_id,message_id' })
+    setReadMessageIds(prev => {
+      const next = new Set(prev)
+      toMark.forEach(id => next.add(id))
+      return next
+    })
+  }, [user, supabase, readMessageIds])
 
   async function loadMoreMessages() {
     if (!user || !msgCursor || loadingMoreMsgs) return
@@ -742,6 +745,7 @@ export function MessageTab({
                   setLightboxUrl={setLightboxUrl}
                   allUsers={allUsers}
                   onReplySent={fetchMessages}
+                  onMarkRead={markThreadRead}
                 />
               ))}
             </div>
@@ -794,6 +798,7 @@ export function MessageTab({
                     setLightboxUrl={setLightboxUrl}
                     allUsers={allUsers}
                     onReplySent={fetchMessages}
+                    onMarkRead={markThreadRead}
                     senderLabel={toLabel}
                   />
                 )
