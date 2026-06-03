@@ -80,12 +80,17 @@ function ReplyThread({
   const [replyBody, setReplyBody]   = useState('')
   const [sending, setSending]       = useState(false)
 
-  // Who can reply:
-  //   - Any admin (role === 'admin') can reply to admin-directed messages
-  //   - The original sender can reply to any admin response in their thread
   const isAdmin        = profile?.role === 'admin'
   const isThreadSender = message.sender_id === user?.id
-  const canReply       = message.recipient_type === 'admin' && (isAdmin || isThreadSender)
+  const isOneOnOne     = message.recipient_type === 'volunteer' || message.recipient_type === 'user'
+
+  // Admins can reply to admin-directed messages.
+  // Either party can reply in a one-on-one thread.
+  const isThreadParticipant = isOneOnOne && (
+    isThreadSender || message.recipient_volunteer_id === user?.id
+  )
+  const canReply = (message.recipient_type === 'admin' && (isAdmin || isThreadSender))
+                || isThreadParticipant
 
   async function handleSendReply() {
     if (!replyBody.trim()) return
@@ -99,12 +104,13 @@ function ReplyThread({
           'Authorization': `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          recipient_type: 'admin',
+          recipient_type: isOneOnOne ? 'volunteer' : 'admin',
           body: replyBody.trim(),
           image_url: null,
           parent_message_id: message.id,
-          // Route back to the original sender if admin is replying
-          recipient_volunteer_id: isAdmin && !isThreadSender ? message.sender_id : null,
+          recipient_volunteer_id: isOneOnOne
+            ? (isThreadSender ? message.recipient_volunteer_id : message.sender_id)
+            : (isAdmin && !isThreadSender ? message.sender_id : null),
         }),
       })
       const result = await res.json()
@@ -176,7 +182,7 @@ function ReplyThread({
                     padding: '0.1rem 0.5rem',
                     marginBottom: '0.1rem',
                   }}>
-                    Admin replied
+                    {isOneOnOne ? (reply.sender?.full_name?.split(' ')[0] ?? 'Reply') : 'Admin replied'}
                   </span>
                 )}
                 <MessageCard
