@@ -1715,12 +1715,28 @@ export default function AdminPage() {
 
       </div>
 
-      {/* ── Footer ───────────────────────────────────────────────────────── */}
-      <footer style={{ marginTop: '3rem', padding: '1.5rem', textAlign: 'center', borderTop: '1px solid var(--border)' }}>
-        <p style={{ fontSize: '0.78rem', color: 'var(--fg)', margin: 0 }}>
-          <a href="/privacy" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>Privacy Policy</a>
+      <footer
+        style={{
+          marginTop: '3rem',
+          padding: '1.5rem',
+          textAlign: 'center',
+          borderTop: '1px solid var(--border)'
+        }}
+      >
+        <p style={{ fontSize: '0.78rem', color: '#9ca3af', margin: 0 }}>
+          <a
+            href="/privacy"
+            style={{ color: '#9ca3af', textDecoration: 'none' }}
+          >
+            Privacy Policy
+          </a>
           &nbsp;·&nbsp;
-          <a href="/terms" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>Terms of Service</a>
+          <a
+            href="/terms"
+            style={{ color: '#9ca3af', textDecoration: 'none' }}
+          >
+            Terms of Service
+          </a>
         </p>
       </footer>
 
