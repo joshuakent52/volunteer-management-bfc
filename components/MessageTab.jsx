@@ -75,6 +75,22 @@ function ReplyThread({
   const bodySnippet = message.body ? message.body.replace(/\n/g, ' ') : '📎 Image'
   const replyCount = replies.length
 
+  // Surface the latest unread reply in the collapsed preview so admins
+  // can tell which thread has new activity without expanding it.
+  const latestUnreadReply = readMessageIds
+    ? replies
+        .filter(r => !readMessageIds.has(r.id) && r.sender_id !== user?.id)
+        .at(-1) // replies are already sorted oldest→newest, so last = most recent
+    : null
+
+  const previewSource = latestUnreadReply ?? message
+  const previewSnippet = previewSource.body
+    ? previewSource.body.replace(/\n/g, ' ')
+    : '📎 Image'
+  const previewSenderName = latestUnreadReply
+    ? (latestUnreadReply.sender?.full_name || 'Admin')
+    : (senderLabel || message.sender?.full_name || 'Unknown')
+
   const isAdmin        = profile?.role === 'admin'
   const isThreadSender = message.sender_id === user?.id
   const isOneOnOne     = message.recipient_type === 'volunteer' || message.recipient_type === 'user'
@@ -158,10 +174,10 @@ function ReplyThread({
           {/* Line 1: sender + timestamp */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
             <span style={{ fontWeight: isUnread ? 700 : 600, fontSize: '0.8rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
-              {senderLabel || message.sender?.full_name || 'Unknown'}
+              {latestUnreadReply ? `↩ ${previewSenderName}` : previewSenderName}
             </span>
             <span style={{ fontSize: '0.68rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', whiteSpace: 'nowrap', flexShrink: 0 }}>
-              {formatDateTime(message.created_at)}
+              {formatDateTime(previewSource.created_at)}
             </span>
           </div>
           {/* Line 2: reply count + snippet (only rendered if there is content) */}
@@ -173,7 +189,7 @@ function ReplyThread({
                 </span>
               )}
               <span style={{ fontSize: '0.92rem', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {bodySnippet}
+                {previewSnippet}
               </span>
             </div>
           )}
