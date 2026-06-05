@@ -187,6 +187,8 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   const [recentUploadingKey, setRecentUploadingKey] = useState(null)
   const [offloadingId,       setOffloadingId]       = useState(null)
   const [expandedId,         setExpandedId]         = useState(null)
+  const [recentPhotoUrls,    setRecentPhotoUrls]    = useState({})   // { [applicantId]: signedUrl }
+  const [recentPhotoUploading, setRecentPhotoUploading] = useState(null) // applicantId currently uploading
 
   // Onboarding form
   const EMPTY_FORM = {
@@ -391,8 +393,22 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       .from('volunteer_applications').select('*').eq('stage', 'completed').order('full_name', { ascending: true })
     if (!error && data) {
       setCompleted(data)
-      if (data.length > 0) await loadRecentChecklists(data.map(a => a.id))
+      if (data.length > 0) {
+        const ids = data.map(a => a.id)
+        await loadRecentChecklists(ids)
+        await loadRecentPhotos(ids)
+      }
     }
+  }
+
+  async function loadRecentPhotos(ids) {
+    const entries = await Promise.all(
+      ids.map(async id => {
+        const { data } = await supabase.storage.from('avatars').createSignedUrl(`${id}/avatar.jpg`, 3600)
+        return [id, data?.signedUrl || null]
+      })
+    )
+    setRecentPhotoUrls(Object.fromEntries(entries.filter(([, url]) => url !== null)))
   }
 
   async function loadRecentChecklists(ids) {
@@ -555,6 +571,32 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       else msg(`${item.label} uploaded`)
     } catch (e) { msg(e.message, 'error') }
     setRecentUploadingKey(null)
+  }
+
+  async function handleRecentPhotoUpload(applicantId, file) {
+    if (!file) return
+    setRecentPhotoUploading(applicantId)
+    try {
+      const compressed = await compressImage(file)
+      const path = `${applicantId}/avatar.jpg`
+      const { error: upErr } = await supabase.storage
+        .from('avatars')
+        .upload(path, compressed, { contentType: 'image/jpeg', upsert: true })
+      if (upErr) { msg(upErr.message, 'error'); setRecentPhotoUploading(null); return }
+      // Also write avatar_url to the profile row (volunteer_id links application → profile)
+      const app = completed.find(a => a.id === applicantId)
+      if (app?.volunteer_id) {
+        await supabase.from('profiles').update({ avatar_url: path }).eq('id', app.volunteer_id)
+      }
+      const { data } = await supabase.storage.from('avatars').createSignedUrl(path, 3600)
+      if (data?.signedUrl) {
+        setRecentPhotoUrls(prev => ({ ...prev, [applicantId]: data.signedUrl }))
+      }
+      msg('Photo uploaded!')
+    } catch (e) {
+      msg('Upload failed: ' + e.message, 'error')
+    }
+    setRecentPhotoUploading(null)
   }
 
   async function openFile(bucket, storagePath) {
@@ -1135,7 +1177,40 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
               {/* ── Card header row ── */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', padding: '1rem 1.25rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-                  <div style={{ width: 38, height: 38, borderRadius: '50%', background: C.primary + '22', border: `2px solid ${C.blue}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '1rem', color: C.blue, flexShrink: 0 }}>{a.full_name?.charAt(0)}</div>
+                  {/* Profile photo upload */}
+                  {(() => {
+                    const photoUrl    = recentPhotoUrls[a.id] || null
+                    const isUploading = recentPhotoUploading === a.id
+                    const inputId     = `recent-photo-${a.id}`
+                    return (
+                      <>
+                        <div
+                          onClick={() => { if (!isUploading) document.getElementById(inputId)?.click() }}
+                          title={photoUrl ? 'Click to replace photo' : 'Click to upload photo'}
+                          style={{ position: 'relative', width: 38, height: 38, borderRadius: '50%', background: C.primary + '22', border: `2px solid ${C.blue}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '1rem', color: C.blue, overflow: 'hidden', cursor: 'pointer', flexShrink: 0 }}
+                        >
+                          {isUploading
+                            ? <span style={{ fontSize: '0.6rem', color: 'var(--muted)' }}>…</span>
+                            : photoUrl
+                              ? <img src={photoUrl} alt={a.full_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              : <span>{a.full_name?.charAt(0)}</span>
+                          }
+                          {photoUrl && !isUploading && (
+                            <div style={{ position: 'absolute', bottom: 0, right: 0, width: 14, height: 14, borderRadius: '50%', background: C.blue, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--surface)' }}>
+                              <span style={{ fontSize: '0.45rem', color: '#fff' }}>✎</span>
+                            </div>
+                          )}
+                        </div>
+                        <input
+                          id={inputId}
+                          type="file"
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          onChange={e => { const f = e.target.files?.[0]; if (f) handleRecentPhotoUpload(a.id, f); e.target.value = '' }}
+                        />
+                      </>
+                    )
+                  })()}
                   <div>
                     <p style={{ fontWeight: 600, fontSize: '0.95rem' }}>{a.full_name}</p>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.15rem', flexWrap: 'wrap' }}>
