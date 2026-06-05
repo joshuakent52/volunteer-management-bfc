@@ -1723,17 +1723,17 @@ export default function AdminPage() {
           borderTop: '1px solid var(--border)'
         }}
       >
-        <p style={{ fontSize: '0.78rem', color: '#9ca3af', margin: 0 }}>
+        <p style={{ fontSize: '0.78rem', color: '#474b52', margin: 0 }}>
           <a
             href="/privacy"
-            style={{ color: '#9ca3af', textDecoration: 'none' }}
+            style={{ color: '#474b52', textDecoration: 'none' }}
           >
             Privacy Policy
           </a>
           &nbsp;·&nbsp;
           <a
             href="/terms"
-            style={{ color: '#9ca3af', textDecoration: 'none' }}
+            style={{ color: '#474b52', textDecoration: 'none' }}
           >
             Terms of Service
           </a>
