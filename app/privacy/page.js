@@ -26,15 +26,16 @@ export default function PrivacyPolicy() {
         <li>Track credential expiration dates and ensure compliance.</li>
         <li>Communicate with you about your schedule, role, or clinic operations.</li>
         <li>Maintain an audit log for administrative and safety purposes.</li>
-        <li>Improve and maintain the App.</li>
+        <li>Refine and maintain the App.</li>
+        <li>Improve and enhance clinical operations.</li>
       </ul>
-      <p>We do not sell, rent, or share your personal information with third parties for marketing purposes.</p>
+      <p>We do not sell, rent, or share your personal information with third parties.</p>
 
       <h2 style={h2}>3. How We Store and Protect Your Information</h2>
-      <p>Your data is stored securely using Supabase, a cloud database platform with industry-standard encryption at rest and in transit. Access to personal data is restricted to authorized clinic administrators. We take reasonable technical and organizational measures to protect your information against unauthorized access, loss, or misuse.</p>
+      <p>Your data is stored securely using Supabase, a cloud database platform with industry-standard encryption at rest and in transit. Access to personal data is restricted to authorized clinic administrators.</p>
 
       <h2 style={h2}>4. Data Retention</h2>
-      <p>We retain your personal information for as long as your volunteer account is active or as needed to operate the App. If you are deactivated or your volunteer engagement ends, your records may be retained for administrative and historical purposes. You may request deletion of your data by contacting us at the address below.</p>
+      <p>If you are deactivated or your volunteer engagement ends, your records may be retained for administrative and historical purposes. You may request deletion of your data by contacting us at the address below.</p>
 
       <h2 style={h2}>5. Your Rights</h2>
       <p>Depending on your state of residence, you may have the right to:</p>
@@ -46,9 +47,6 @@ export default function PrivacyPolicy() {
       </ul>
       <p>To exercise any of these rights, please contact us using the information in Section 8.</p>
 
-      <h2 style={h2}>6. Children's Privacy</h2>
-      <p>The App is intended for use by adult volunteers. We do not knowingly collect personal information from individuals under the age of 18 without appropriate consent from a parent or guardian.</p>
-
       <h2 style={h2}>7. Changes to This Policy</h2>
       <p>We may update this Privacy Policy from time to time. When we do, we will update the "Last updated" date at the top of this page. Continued use of the App after changes are posted constitutes your acceptance of the revised policy.</p>
 
@@ -56,9 +54,9 @@ export default function PrivacyPolicy() {
       <p>If you have questions or concerns about this Privacy Policy or your personal data, please contact:</p>
       <p style={{ paddingLeft: '1rem', borderLeft: '3px solid var(--border, #334155)' }}>
         <strong>Bingham Family Free Clinic</strong><br />
-        [Clinic Address]<br />
-        [City, State, ZIP]<br />
-        [contact@email.com]
+        [987 South Geneva Road Suite 141,Orem, UT 84058]<br />
+        [Orem, UT 84058]<br />
+        [info@binghamfamilyclinic.org]
       </p>
 
       <p style={{ marginTop: '3rem' }}>
