@@ -727,14 +727,14 @@ export default function ProviderPage() {
         )}
 
         {/* ══ MESSAGES TAB ══════════════════════════════════════════════════ */}
-        {tab === 'messages' && (
+        <div style={{ display: tab === 'messages' ? 'block' : 'none' }}>
           <MessageTab
             user={user}
             profile={profile}
             supabase={supabase}
             showToast={showToast}
           />
-        )}
+        </div>
 
         {/* ══ ACCOUNT TAB ═══════════════════════════════════════════════════ */}
         {tab === 'account' && (
