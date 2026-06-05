@@ -47,6 +47,40 @@ export default function PrivacyPolicy() {
       </ul>
       <p>To exercise any of these rights, please contact us using the information in Section 8.</p>
 
+        <h2 style={h2}>6. Research and Educational Use of Data</h2>
+
+        <p>
+        The Clinic may, at its sole discretion, grant explicit access to certain data for research,
+        educational, or training purposes, including but not limited to academic coursework, machine
+        learning, and data analysis projects.
+        </p>
+
+        <p>
+        Such access is not granted by default and requires prior written authorization from the Clinic.
+        </p>
+
+        <p>When approved, data access will be subject to the following conditions:</p>
+
+        <ul style={ul}>
+        <li>Data will be limited to the minimum necessary for the approved purpose.</li>
+        <li>Wherever possible, data will be de-identified or anonymized before release.</li>
+        <li>
+            Recipients may not attempt to re-identify individuals or link data back to specific patients,
+            volunteers, or staff.
+        </li>
+        <li>
+            Data may only be used for the approved project and may not be shared, published, or
+            redistributed without additional written consent from the Clinic.
+        </li>
+        <li>
+            Access is temporary and may be revoked at any time by the Clinic.
+        </li>
+        <li>
+            Any resulting publications, models, or outputs must be reviewed and approved by the Clinic
+            prior to external release if they contain or are derived from Clinic data.
+        </li>
+        </ul>
+
       <h2 style={h2}>7. Changes to This Policy</h2>
       <p>We may update this Privacy Policy from time to time. When we do, we will update the "Last updated" date at the top of this page. Continued use of the App after changes are posted constitutes your acceptance of the revised policy.</p>
 
