@@ -725,15 +725,13 @@ export default function ProviderPage() {
         )}
 
         {/* ══ MESSAGES TAB ══════════════════════════════════════════════════ */}
-        {(tab === 'messages' || fetchedTabs.current.has('messages')) && (
-          <div style={{ display: tab === 'messages' ? 'block' : 'none' }}>
-            <MessageTab
-              user={user}
-              profile={profile}
-              supabase={supabase}
-              showToast={showToast}
-            />
-          </div>
+        {tab === 'messages' && (
+          <MessageTab
+            user={user}
+            profile={profile}
+            supabase={supabase}
+            showToast={showToast}
+          />
         )}
 
         {/* ══ ACCOUNT TAB ═══════════════════════════════════════════════════ */}
