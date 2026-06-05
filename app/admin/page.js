@@ -813,6 +813,11 @@ export default function AdminPage() {
     const origClockOut = toMountainInputValue(shiftEditForm.clock_out_utc)
     const clockIn  = shiftEditForm.clock_in  !== origClockIn  ? fromMountainInputValue(shiftEditForm.clock_in)  : shiftEditForm.clock_in_utc
     const clockOut = shiftEditForm.clock_out ? (shiftEditForm.clock_out !== origClockOut ? fromMountainInputValue(shiftEditForm.clock_out) : shiftEditForm.clock_out_utc) : null
+    if (clockOut) {
+      const hours = (new Date(clockOut) - new Date(clockIn)) / 3600000
+      if (hours < 0) { showMessage('Clock-out must be after clock-in.', 'error'); setSavingShift(false); return }
+      if (hours > 15) { showMessage('Shifts cannot be longer than 15 hours.', 'error'); setSavingShift(false); return }
+    }
     const shift = allShifts.find(s => s.id === shiftId)
     const { error } = await supabase.from('shifts').update({ clock_in: clockIn, clock_out: clockOut, role: shiftEditForm.role || null }).eq('id', shiftId)
     if (error) { showMessage(error.message, 'error'); setSavingShift(false); return }
@@ -877,6 +882,11 @@ export default function AdminPage() {
     setCreatingShift(true)
     const clockIn  = fromMountainInputValue(newShiftForm.clock_in)
     const clockOut = newShiftForm.clock_out ? fromMountainInputValue(newShiftForm.clock_out) : null
+    if (clockOut) {
+      const hours = (new Date(clockOut) - new Date(clockIn)) / 3600000
+      if (hours < 0) { showMessage('Clock-out must be after clock-in.', 'error'); setCreatingShift(false); return }
+      if (hours > 15) { showMessage('Shifts cannot be longer than 15 hours. If this is intentional, please break up into multiple shifts.', 'error'); setCreatingShift(false); return }
+    }
     const vol = volunteers.find(v => v.id === newShiftForm.volunteer_id)
     const { data: inserted, error } = await supabase
       .from('shifts')
