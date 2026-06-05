@@ -1,8 +1,8 @@
 export default function TermsOfService() {
   return (
-    <main style={{ maxWidth: '720px', margin: '4rem auto', padding: '0 1.5rem 6rem', fontFamily: 'DM Sans, sans-serif', lineHeight: 1.8, color: 'var(--fg, #e2e8f0)' }}>
+    <main style={{ maxWidth: '720px', margin: '4rem auto', padding: '0 1.5rem 6rem', fontFamily: 'DM Sans, sans-serif', lineHeight: 1.8, color: 'var(--fg, #1e293b)' }}>
       <h1 style={{ fontWeight: 700, fontSize: '1.75rem', marginBottom: '0.25rem' }}>Terms of Service</h1>
-      <p style={{ color: 'var(--muted, #94a3b8)', fontSize: '0.85rem', marginBottom: '2rem' }}>Effective date: June 5, 2025 &nbsp;·&nbsp; Last updated: June 5, 2025</p>
+      <p style={{ color: 'var(--muted, #475569)', fontSize: '0.85rem', marginBottom: '2rem' }}>Effective date: June 5, 2025 &nbsp;·&nbsp; Last updated: June 5, 2025</p>
 
       <p>These Terms of Service ("Terms") govern your access to and use of the volunteer management application operated by Bingham Family Free Clinic ("Clinic," "we," "us," or "our"). By logging in or using the App, you agree to these Terms.</p>
 

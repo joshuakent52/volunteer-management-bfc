@@ -1,8 +1,8 @@
 export default function PrivacyPolicy() {
   return (
-    <main style={{ maxWidth: '720px', margin: '4rem auto', padding: '0 1.5rem 6rem', fontFamily: 'DM Sans, sans-serif', lineHeight: 1.8, color: 'var(--fg, #e2e8f0)' }}>
+    <main style={{ maxWidth: '720px', margin: '4rem auto', padding: '0 1.5rem 6rem', fontFamily: 'DM Sans, sans-serif', lineHeight: 1.8, color: 'var(--fg, #1e293b)' }}>
       <h1 style={{ fontWeight: 700, fontSize: '1.75rem', marginBottom: '0.25rem' }}>Privacy Policy</h1>
-      <p style={{ color: 'var(--muted, #94a3b8)', fontSize: '0.85rem', marginBottom: '2rem' }}>Effective date: June 5, 2025 &nbsp;·&nbsp; Last updated: June 5, 2025</p>
+      <p style={{ color: 'var(--muted, #475569)', fontSize: '0.85rem', marginBottom: '2rem' }}>Effective date: June 5, 2025 &nbsp;·&nbsp; Last updated: June 5, 2025</p>
 
       <p>Bingham Family Free Clinic ("Clinic," "we," "us," or "our") operates this volunteer management application (the "App") to coordinate scheduling, credentialing, and communications for our volunteers. This Privacy Policy explains what personal information we collect, how we use it, and the choices you have.</p>
 
