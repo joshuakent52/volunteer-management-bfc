@@ -1,12 +1,12 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
+import nextDynamic from 'next/dynamic'
 import { supabase } from '../../lib/supabase'
 import { SHIFTS, ROLES } from '../../lib/constants'
 import { recurringAppliesToDate, getEffectiveProviderIds } from '../../lib/scheduleUtils'
-import { getInboxMessages } from '../../lib/messageUtils'
-import { MessageCard } from '../../components/MessageCard'
 import { SubmitHoursPanel } from '../../components/SubmitHoursPanel'
-import { MessageTab } from '../../components/MessageTab'
+
+const MessageTab = nextDynamic(() => import('../../components/MessageTab').then(m => m.MessageTab), { ssr: false })
 
 export const dynamic = 'force-dynamic'
 
