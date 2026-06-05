@@ -1563,6 +1563,14 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                 )}
               </div>
             )}
+
+            {/* Reject — always visible in onboarding, separated from step content */}
+            <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: `1px solid ${C.danger}22`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <p style={{ fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic' }}>Need to remove this applicant from onboarding?</p>
+              <button onClick={() => moveToStage(applicant, 'rejected')} disabled={movingStage} style={outlineBtn(C.danger)}>
+                Reject Application
+              </button>
+            </div>
           </div>
         )}
 
