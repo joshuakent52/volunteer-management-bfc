@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { SHIFTS, ROLES } from '../../lib/constants'
 import { recurringAppliesToDate, getEffectiveProviderIds } from '../../lib/scheduleUtils'
 import { SubmitHoursPanel } from '../../components/SubmitHoursPanel'
+import { MessageTab } from '../../components/MessageTab'
 
 export const dynamic = 'force-dynamic'
 
@@ -453,7 +454,7 @@ export default function ProviderPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem' }}>
-          {[['home', 'My Shifts'], ['schedule', 'Schedule'], ['account', 'Account']].map(([key, label]) => (
+          {[['home', 'My Shifts'], ['schedule', 'Schedule'], ['messages', 'Messages'], ['account', 'Account']].map(([key, label]) => (
             <TabButton key={key} id={key} label={label} active={tab === key} onClick={t => setTab(t)} />
           ))}
         </div>
@@ -720,6 +721,18 @@ export default function ProviderPage() {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ══ MESSAGES TAB ══════════════════════════════════════════════════ */}
+        {(tab === 'messages' || fetchedTabs.current.has('messages')) && (
+          <div style={{ display: tab === 'messages' ? 'block' : 'none' }}>
+            <MessageTab
+              user={user}
+              profile={profile}
+              supabase={supabase}
+              showToast={showToast}
+            />
           </div>
         )}
 
