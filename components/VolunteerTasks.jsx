@@ -404,16 +404,18 @@ export default function VolunteerTasks({ userId, team }) {
 
   async function loadData() {
     setLoading(true)
+    const teamFilter = Array.isArray(team) ? team : [team]
+
     const [{ data: tasksData }, { data: membersData }] = await Promise.all([
       supabase
         .from('tasks')
         .select('*, assignee:profiles!tasks_assignee_id_fkey(id, full_name)')
-        .contains('team', team)
+        .in('team', teamFilter)                    // ← text column, use .in()
         .order('due_date', { ascending: true, nullsFirst: false }),
       supabase
         .from('profiles')
         .select('id, full_name')
-        .contains('team', team)
+        .contains('team', teamFilter)              // ← array column, .contains() is correct
         .order('full_name'),
     ])
     setTasks(tasksData || [])
