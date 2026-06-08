@@ -337,7 +337,7 @@ function NewTaskForm({ currentUserId, team, teamMembers, onCreated, showToast, o
   const [selectedTeam, setSelectedTeam] = useState(teams[0])
   const [saving, setSaving]       = useState(false)
 
-  // When team changes, filter assignee list to that team's members
+  // Filter assignees to members who belong to the selected team
   const assignableMembers = teamMembers.filter(m =>
     Array.isArray(m.team) ? m.team.includes(selectedTeam) : m.team === selectedTeam
   )
@@ -455,7 +455,7 @@ export default function VolunteerTasks({ userId, team }) {
       supabase
         .from('profiles')
         .select('id, full_name')
-        .contains('team', teamFilter)              // ← array column, .contains() is correct
+        .overlaps('team', teamFilter)              // ← array column, overlaps = member on ANY of the user's teams
         .order('full_name'),
     ])
     setTasks(tasksData || [])
