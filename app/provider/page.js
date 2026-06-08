@@ -178,7 +178,7 @@ export default function ProviderPage() {
    */
   async function fetchUpcomingShifts(uid) {
     const today     = getMountainDateStr()
-    const twoMonths = getMountainDateStr(62)
+    const twoMonths = getMountainDateStr(280)
 
     const [
       { data: oneTime },
