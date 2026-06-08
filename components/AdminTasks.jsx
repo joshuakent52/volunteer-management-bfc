@@ -74,7 +74,7 @@ function AdminTaskRow({ task, allMembers, onUpdate, onDelete, showToast }) {
 
   const due = formatDue(task.due_date)
   const sm = STATUS_META[task.status] || STATUS_META.open
-  const teamMembers = allMembers.filter(m => m.team === task.team)
+  const teamMembers = allMembers.filter(m => Array.isArray(m.team) && m.team.includes(task.team))
 
   async function updateField(field, value) {
     const { error } = await supabase.from('tasks').update({ [field]: value }).eq('id', task.id)
@@ -281,7 +281,7 @@ function NewTaskForm({ currentUserId, allMembers, onCreated, showToast, onClose 
   const [dueDate, setDueDate]   = useState('')
   const [saving, setSaving]     = useState(false)
 
-  const teamMembers = allMembers.filter(m => m.team === team)
+  const teamMembers = allMembers.filter(m => Array.isArray(m.team) && m.team.includes(team))
 
   async function submit() {
     if (!name.trim() || !team || !dueDate) return
@@ -346,29 +346,44 @@ function NewTaskForm({ currentUserId, allMembers, onCreated, showToast, onClose 
   )
 }
 
+// ── Team Status Editor ────────────────────────────────────────────────────────
 function TeamStatusEditor({ volunteers, onTeamUpdated, showToast }) {
   const [filterTeam, setFilterTeam] = useState('')
   const [saving, setSaving] = useState(null)
-  const [addingToTeam, setAddingToTeam] = useState(null) // which team is open for adding
+  const [addingToTeam, setAddingToTeam] = useState(null)
   const [addVolId, setAddVolId] = useState('')
 
   const displayed = filterTeam
-    ? volunteers.filter(v => v.team === filterTeam)
-    : volunteers.filter(v => v.team)
+    ? volunteers.filter(v => Array.isArray(v.team) && v.team.includes(filterTeam))
+    : volunteers.filter(v => v.team?.length)
 
-  const unassigned = volunteers.filter(v => !v.team)
+  const unassigned = volunteers.filter(v => !v.team?.length)
 
-  async function updateTeam(volId, newTeam) {
+  async function addToTeam(volId, teamToAdd) {
+    const vol = volunteers.find(v => v.id === volId)
+    const current = Array.isArray(vol?.team) ? vol.team : []
+    if (current.includes(teamToAdd)) return
+    const updated = [...current, teamToAdd]
     setSaving(volId)
-    const { error } = await supabase.from('profiles').update({ team: newTeam || null }).eq('id', volId)
+    const { error } = await supabase.from('profiles').update({ team: updated }).eq('id', volId)
     if (error) showToast(error.message, 'error')
-    else { onTeamUpdated(volId, newTeam || null); showToast('Team updated.', 'success') }
+    else { onTeamUpdated(volId, updated); showToast('Team updated.', 'success') }
+    setSaving(null)
+  }
+
+  async function removeFromTeam(volId, teamToRemove) {
+    const vol = volunteers.find(v => v.id === volId)
+    const updated = (Array.isArray(vol?.team) ? vol.team : []).filter(t => t !== teamToRemove)
+    setSaving(volId)
+    const { error } = await supabase.from('profiles').update({ team: updated.length ? updated : null }).eq('id', volId)
+    if (error) showToast(error.message, 'error')
+    else { onTeamUpdated(volId, updated.length ? updated : null); showToast('Team updated.', 'success') }
     setSaving(null)
   }
 
   async function handleAdd() {
     if (!addVolId || !addingToTeam) return
-    await updateTeam(addVolId, addingToTeam)
+    await addToTeam(addVolId, addingToTeam)
     setAddVolId('')
     setAddingToTeam(null)
   }
@@ -392,23 +407,16 @@ function TeamStatusEditor({ volunteers, onTeamUpdated, showToast }) {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
           {displayed.map(v => (
-            <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0.75rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px' }}>
-              <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: 500 }}>{v.full_name}</span>
-              <select
-                value={v.team || ''}
-                onChange={e => updateTeam(v.id, e.target.value)}
-                disabled={saving === v.id}
-                style={{
-                  fontSize: '0.8rem', color: 'var(--muted)',
-                  background: 'var(--surface)', border: '1px solid var(--border)',
-                  borderRadius: '6px', padding: '0.2rem 0.5rem',
-                  cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', outline: 'none',
-                  opacity: saving === v.id ? 0.5 : 1,
-                }}
-              >
-                <option value="">— No team —</option>
-                {TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
+            <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0.75rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.88rem', fontWeight: 500, minWidth: '120px' }}>{v.full_name}</span>
+              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', flex: 1 }}>
+                {(v.team || []).map(t => (
+                  <span key={t} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', padding: '0.15rem 0.5rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '5px', color: 'var(--muted)' }}>
+                    {t}
+                    <button onClick={() => removeFromTeam(v.id, t)} disabled={saving === v.id} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: '0.7rem', padding: 0, lineHeight: 1 }}>✕</button>
+                  </span>
+                ))}
+              </div>
             </div>
           ))}
         </div>
@@ -432,23 +440,14 @@ function TeamStatusEditor({ volunteers, onTeamUpdated, showToast }) {
               </select>
               <button
                 onClick={handleAdd}
-                disabled={!addVolId || saving}
-                style={{
-                  padding: '0.5rem 0.9rem', background: 'var(--accent)', color: '#fff',
-                  border: 'none', borderRadius: '7px', fontSize: '0.82rem', fontWeight: 600,
-                  cursor: !addVolId ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif',
-                  opacity: !addVolId ? 0.5 : 1,
-                }}
+                disabled={!addVolId || !!saving}
+                style={{ padding: '0.5rem 0.9rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '7px', fontSize: '0.82rem', fontWeight: 600, cursor: !addVolId ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', opacity: !addVolId ? 0.5 : 1 }}
               >
                 Add
               </button>
               <button
                 onClick={() => { setAddingToTeam(null); setAddVolId('') }}
-                style={{
-                  padding: '0.5rem 0.75rem', background: 'var(--surface)', color: 'var(--muted)',
-                  border: '1px solid var(--border)', borderRadius: '7px', fontSize: '0.82rem',
-                  cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-                }}
+                style={{ padding: '0.5rem 0.75rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '7px', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}
               >
                 Cancel
               </button>
@@ -461,12 +460,7 @@ function TeamStatusEditor({ volunteers, onTeamUpdated, showToast }) {
               <button
                 key={t}
                 onClick={() => { setAddingToTeam(t); setFilterTeam(''); setAddVolId('') }}
-                style={{
-                  padding: '0.25rem 0.65rem', fontSize: '0.75rem', fontWeight: 500,
-                  background: 'var(--surface)', color: 'var(--muted)',
-                  border: '1px solid var(--border)', borderRadius: '6px',
-                  cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-                }}
+                style={{ padding: '0.25rem 0.65rem', fontSize: '0.75rem', fontWeight: 500, background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '6px', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}
               >
                 {t}
               </button>
@@ -508,7 +502,6 @@ export default function AdminTasks({ currentUserId, volunteers: externalVoluntee
       supabase
         .from('profiles')
         .select('id, full_name, team')
-        .not('team', 'is', null)
         .order('full_name'),
     ])
     setTasks(tasksData || [])

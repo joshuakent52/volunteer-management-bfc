@@ -408,12 +408,12 @@ export default function VolunteerTasks({ userId, team }) {
       supabase
         .from('tasks')
         .select('*, assignee:profiles!tasks_assignee_id_fkey(id, full_name)')
-        .eq('team', team)
+        .contains('team', [team])
         .order('due_date', { ascending: true, nullsFirst: false }),
       supabase
         .from('profiles')
         .select('id, full_name')
-        .eq('team', team)
+        .contains('team', [team])
         .order('full_name'),
     ])
     setTasks(tasksData || [])
@@ -446,7 +446,7 @@ export default function VolunteerTasks({ userId, team }) {
     return a.due_date.localeCompare(b.due_date)
   })
 
-  if (!team) {
+  if (!team?.length) {
     return (
       <div style={{ ...S.card, textAlign: 'center', padding: '2.5rem' }}>
         <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>You are not currently assigned to a team.</p>
