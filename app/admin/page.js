@@ -1431,18 +1431,7 @@ export default function AdminPage() {
                     </div>
                   )}
                   <div><label style={labelStyle}>Default Position</label><select value={editForm.default_role} onChange={e => setEditForm({...editForm, default_role: e.target.value})} style={inputStyle}><option value="">— None —</option>{ROLES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
-                  <div><label style={labelStyle}>Birthday</label><input type="date" value={editForm.birthday || ''} onChange={e => setEditForm({ ...editForm, birthday: e.target.value })} style={inputStyle} /></div>
-                  <div>
-                    <label style={labelStyle}>Team</label>
-                    <select
-                      value={editForm.team || ''}
-                      onChange={e => setEditForm({ ...editForm, team: e.target.value || null })}
-                      style={inputStyle}
-                    >
-                      <option value="">— No team —</option>
-                      {TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </div>                  
+                  <div><label style={labelStyle}>Birthday</label><input type="date" value={editForm.birthday || ''} onChange={e => setEditForm({ ...editForm, birthday: e.target.value })} style={inputStyle} /></div>                
                   <div>
                     <label style={labelStyle}>End Date <span style={{ textTransform: 'none', color: 'var(--muted)', fontSize: '0.72rem' }}>(auto-deactivates on this date)</span></label>
                     <input type="date" value={editForm.end_date || ''} onChange={e => setEditForm({ ...editForm, end_date: e.target.value })} style={inputStyle} />
@@ -1828,7 +1817,15 @@ export default function AdminPage() {
         {tab === 'data'      && <DataDashboard supabase={supabase} />}
         {tab === 'lunch'     && <LunchScheduler supabase={supabase} profile={profile} />}
         {tab === 'tasks' && (
-          <AdminTasks currentUserId={profile.id} />
+          <AdminTasks
+            currentUserId={profile.id}
+            volunteers={volunteers}
+            onVolunteerTeamUpdate={(volId, newTeam) =>
+              setVolunteers(prev =>
+                prev.map(v => v.id === volId ? { ...v, team: newTeam } : v)
+              )
+            }
+          />
         )}
 
         {/* Toast */}
