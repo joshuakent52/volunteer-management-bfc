@@ -408,12 +408,12 @@ export default function VolunteerTasks({ userId, team }) {
       supabase
         .from('tasks')
         .select('*, assignee:profiles!tasks_assignee_id_fkey(id, full_name)')
-        .contains('team', [team])
+        .contains('team', team)
         .order('due_date', { ascending: true, nullsFirst: false }),
       supabase
         .from('profiles')
         .select('id, full_name')
-        .contains('team', [team])
+        .contains('team', team)
         .order('full_name'),
     ])
     setTasks(tasksData || [])
@@ -459,7 +459,9 @@ export default function VolunteerTasks({ userId, team }) {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h2 style={{ fontWeight: 600, fontSize: '1rem' }}>{team} Tasks</h2>
+          <h2 style={{ fontWeight: 600, fontSize: '1rem' }}>
+            {Array.isArray(team) ? team.join(' & ') : team} Tasks
+          </h2>
           <p style={{ color: 'var(--muted)', fontSize: '0.8rem', marginTop: '0.1rem' }}>
             {open.length} open
             {blocked.length  > 0 ? ` · ${blocked.length} blocked`  : ''}
