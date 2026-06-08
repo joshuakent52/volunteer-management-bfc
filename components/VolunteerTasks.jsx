@@ -332,15 +332,16 @@ function TaskRow({ task, currentUserId, teamMembers, onUpdate, showToast, teamBa
 function NewTaskForm({ currentUserId, team, teamMembers, onCreated, showToast, onClose }) {
   const teams = Array.isArray(team) ? team : [team]
   const [name, setName]           = useState('')
-  const [assigneeId, setAssigneeId] = useState(currentUserId)
+  const [assigneeId, setAssigneeId] = useState('')
   const [dueDate, setDueDate]     = useState('')
   const [selectedTeam, setSelectedTeam] = useState(teams[0])
   const [saving, setSaving]       = useState(false)
 
   // Filter assignees to members who belong to the selected team
-  const assignableMembers = teamMembers.filter(m =>
-    Array.isArray(m.team) ? m.team.includes(selectedTeam) : m.team === selectedTeam
-  )
+  const assignableMembers = teamMembers.filter(m => {
+    const memberTeams = Array.isArray(m.team) ? m.team : (m.team ? [m.team] : [])
+    return memberTeams.includes(selectedTeam)
+  })
 
   async function submit() {
     if (!name.trim() || !dueDate) return
