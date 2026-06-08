@@ -316,7 +316,7 @@ function NewTaskForm({ currentUserId, team, teamMembers, onCreated, showToast, o
   const [saving, setSaving]       = useState(false)
 
   async function submit() {
-    if (!name.trim()) return
+    if (!name.trim() || !dueDate) return
     setSaving(true)
     const { data, error } = await supabase.from('tasks').insert({
       name: name.trim(),
@@ -357,15 +357,15 @@ function NewTaskForm({ currentUserId, team, teamMembers, onCreated, showToast, o
             </select>
           </div>
           <div>
-            <label style={S.label}>Due date</label>
+            <label style={S.label}>Due date *</label>
             <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={S.input} />
           </div>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <button
             onClick={submit}
-            disabled={saving || !name.trim()}
-            style={{ flex: 1, padding: '0.7rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: saving || !name.trim() ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', opacity: !name.trim() ? 0.5 : 1 }}
+            disabled={saving || !name.trim() || !dueDate}
+            style={{ flex: 1, padding: '0.7rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: saving || !name.trim() || !dueDate ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', opacity: !name.trim() || !dueDate ? 0.5 : 1 }}
           >
             {saving ? 'Creating…' : 'Create Task'}
           </button>
