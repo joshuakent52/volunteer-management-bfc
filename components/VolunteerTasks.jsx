@@ -52,7 +52,17 @@ function formatDue(dateStr) {
 }
 
 // ── Task Row ─────────────────────────────────────────────────────────────────
-function TaskRow({ task, currentUserId, teamMembers, onUpdate, showToast }) {
+// Distinct muted colors for team badges (cycles if >6 teams)
+const TEAM_BADGE_COLORS = [
+  { color: '#7c3aed', bg: 'rgba(124,58,237,0.12)', border: 'rgba(124,58,237,0.3)' },
+  { color: '#0891b2', bg: 'rgba(8,145,178,0.12)',  border: 'rgba(8,145,178,0.3)'  },
+  { color: '#b45309', bg: 'rgba(180,83,9,0.12)',   border: 'rgba(180,83,9,0.3)'   },
+  { color: '#047857', bg: 'rgba(4,120,87,0.12)',   border: 'rgba(4,120,87,0.3)'   },
+  { color: '#be185d', bg: 'rgba(190,24,93,0.12)',  border: 'rgba(190,24,93,0.3)'  },
+  { color: '#1d4ed8', bg: 'rgba(29,78,216,0.12)',  border: 'rgba(29,78,216,0.3)'  },
+]
+
+function TaskRow({ task, currentUserId, teamMembers, onUpdate, showToast, teamBadge }) {
   const [notesOpen, setNotesOpen] = useState(false)
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesVal, setNotesVal] = useState(task.notes || '')
@@ -169,6 +179,16 @@ function TaskRow({ task, currentUserId, teamMembers, onUpdate, showToast }) {
             {isMine && !editingName && (
               <span style={{ fontSize: '0.65rem', background: 'rgba(2,65,107,0.15)', color: '#02416b', borderRadius: '4px', padding: '0.1rem 0.4rem', fontWeight: 700, letterSpacing: '0.05em' }}>
                 MINE
+              </span>
+            )}
+            {teamBadge && !editingName && (
+              <span style={{
+                fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.04em',
+                color: teamBadge.color, background: teamBadge.bg,
+                border: `1px solid ${teamBadge.border}`,
+                borderRadius: '4px', padding: '0.1rem 0.4rem',
+              }}>
+                {task.team.toUpperCase()}
               </span>
             )}
           </div>
@@ -310,10 +330,17 @@ function TaskRow({ task, currentUserId, teamMembers, onUpdate, showToast }) {
 
 // ── New Task Form ─────────────────────────────────────────────────────────────
 function NewTaskForm({ currentUserId, team, teamMembers, onCreated, showToast, onClose }) {
+  const teams = Array.isArray(team) ? team : [team]
   const [name, setName]           = useState('')
   const [assigneeId, setAssigneeId] = useState(currentUserId)
   const [dueDate, setDueDate]     = useState('')
+  const [selectedTeam, setSelectedTeam] = useState(teams[0])
   const [saving, setSaving]       = useState(false)
+
+  // When team changes, filter assignee list to that team's members
+  const assignableMembers = teamMembers.filter(m =>
+    Array.isArray(m.team) ? m.team.includes(selectedTeam) : m.team === selectedTeam
+  )
 
   async function submit() {
     if (!name.trim() || !dueDate) return
@@ -323,7 +350,7 @@ function NewTaskForm({ currentUserId, team, teamMembers, onCreated, showToast, o
       assignee_id: assigneeId || null,
       status: 'open',
       due_date: dueDate || null,
-      team,
+      team: selectedTeam,
       created_by: currentUserId,
     }).select('*, assignee:profiles!tasks_assignee_id_fkey(id, full_name)').single()
     if (error) { showToast(error.message, 'error'); setSaving(false); return }
@@ -336,6 +363,19 @@ function NewTaskForm({ currentUserId, team, teamMembers, onCreated, showToast, o
     <div style={{ ...S.card, border: '1px solid var(--accent)', marginBottom: '1rem' }}>
       <h3 style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '1rem' }}>New Task</h3>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        {/* Team picker — only shown for multi-team users */}
+        {teams.length > 1 && (
+          <div>
+            <label style={S.label}>Team *</label>
+            <select
+              value={selectedTeam}
+              onChange={e => { setSelectedTeam(e.target.value); setAssigneeId('') }}
+              style={S.input}
+            >
+              {teams.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        )}
         <div>
           <label style={S.label}>Task name *</label>
           <input
@@ -351,7 +391,7 @@ function NewTaskForm({ currentUserId, team, teamMembers, onCreated, showToast, o
             <label style={S.label}>Assign to</label>
             <select value={assigneeId} onChange={e => setAssigneeId(e.target.value)} style={S.input}>
               <option value="">Unassigned</option>
-              {teamMembers.map(m => (
+              {assignableMembers.map(m => (
                 <option key={m.id} value={m.id}>{m.full_name}</option>
               ))}
             </select>
@@ -448,6 +488,14 @@ export default function VolunteerTasks({ userId, team }) {
     return a.due_date.localeCompare(b.due_date)
   })
 
+  const isMultiTeam = Array.isArray(team) && team.length > 1
+  const teamList = isMultiTeam ? team : (team ? [team] : [])
+
+  // Build a stable color map: team name → badge style
+  const teamBadgeMap = Object.fromEntries(
+    teamList.map((t, i) => [t, TEAM_BADGE_COLORS[i % TEAM_BADGE_COLORS.length]])
+  )
+
   if (!team?.length) {
     return (
       <div style={{ ...S.card, textAlign: 'center', padding: '2.5rem' }}>
@@ -508,18 +556,53 @@ export default function VolunteerTasks({ userId, team }) {
             </div>
           )}
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {sortedOpen.map(task => (
-              <TaskRow
-                key={task.id}
-                task={task}
-                currentUserId={userId}
-                teamMembers={teamMembers}
-                onUpdate={handleUpdate}
-                showToast={showToast}
-              />
-            ))}
-          </div>
+          {/* Open tasks — grouped by team when multi-team */}
+          {isMultiTeam ? (
+            teamList.map(t => {
+              const teamOpen = sortedOpen.filter(task => task.team === t)
+              if (teamOpen.length === 0) return null
+              const badge = teamBadgeMap[t]
+              return (
+                <div key={t}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem', marginTop: '0.25rem' }}>
+                    <span style={{
+                      fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.05em',
+                      color: badge.color, background: badge.bg, border: `1px solid ${badge.border}`,
+                      borderRadius: '5px', padding: '0.15rem 0.55rem',
+                    }}>{t.toUpperCase()}</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{teamOpen.length} open</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {teamOpen.map(task => (
+                      <TaskRow
+                        key={task.id}
+                        task={task}
+                        currentUserId={userId}
+                        teamMembers={teamMembers}
+                        onUpdate={handleUpdate}
+                        showToast={showToast}
+                        teamBadge={null}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )
+            })
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {sortedOpen.map(task => (
+                <TaskRow
+                  key={task.id}
+                  task={task}
+                  currentUserId={userId}
+                  teamMembers={teamMembers}
+                  onUpdate={handleUpdate}
+                  showToast={showToast}
+                  teamBadge={null}
+                />
+              ))}
+            </div>
+          )}
 
           {/* Blocked tasks toggle */}
           {blocked.length > 0 && (
@@ -546,6 +629,7 @@ export default function VolunteerTasks({ userId, team }) {
                       teamMembers={teamMembers}
                       onUpdate={handleUpdate}
                       showToast={showToast}
+                      teamBadge={isMultiTeam ? teamBadgeMap[task.team] : null}
                     />
                   ))}
                 </div>
@@ -578,6 +662,7 @@ export default function VolunteerTasks({ userId, team }) {
                       teamMembers={teamMembers}
                       onUpdate={handleUpdate}
                       showToast={showToast}
+                      teamBadge={isMultiTeam ? teamBadgeMap[task.team] : null}
                     />
                   ))}
                 </div>
@@ -610,6 +695,7 @@ export default function VolunteerTasks({ userId, team }) {
                       teamMembers={teamMembers}
                       onUpdate={handleUpdate}
                       showToast={showToast}
+                      teamBadge={isMultiTeam ? teamBadgeMap[task.team] : null}
                     />
                   ))}
                 </div>
