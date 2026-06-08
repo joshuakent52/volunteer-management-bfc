@@ -436,7 +436,9 @@ function TeamStatusEditor({ volunteers, onTeamUpdated, showToast }) {
                 style={{ ...S.input, flex: 1, fontSize: '0.85rem' }}
               >
                 <option value="">— Select person —</option>
-                {unassigned.map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}
+                {volunteers
+                  .filter(v => !Array.isArray(v.team) || !v.team.includes(addingToTeam))
+                  .map(v => <option key={v.id} value={v.id}>{v.full_name}</option>)}
               </select>
               <button
                 onClick={handleAdd}
