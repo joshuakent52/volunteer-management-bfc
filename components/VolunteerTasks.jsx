@@ -59,6 +59,9 @@ function TaskRow({ task, currentUserId, teamMembers, onUpdate, showToast }) {
   const [savingNotes, setSavingNotes] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [updatingAssignee, setUpdatingAssignee] = useState(false)
+  const [editingName, setEditingName] = useState(false)
+  const [nameVal, setNameVal] = useState(task.name)
+  const [savingName, setSavingName] = useState(false)
 
   const isMine = task.assignee_id === currentUserId
   const due = formatDue(task.due_date)
@@ -81,6 +84,15 @@ function TaskRow({ task, currentUserId, teamMembers, onUpdate, showToast }) {
     if (error) showToast(error.message, 'error')
     else { onUpdate(task.id, { notes: notesVal }); setEditingNotes(false) }
     setSavingNotes(false)
+  }
+
+  async function saveName() {
+    if (!nameVal.trim()) return
+    setSavingName(true)
+    const { error } = await supabase.from('tasks').update({ name: nameVal.trim() }).eq('id', task.id)
+    if (error) showToast(error.message, 'error')
+    else { onUpdate(task.id, { name: nameVal.trim() }); setEditingName(false) }
+    setSavingName(false)
   }
 
   async function changeAssignee(newId) {
@@ -125,15 +137,36 @@ function TaskRow({ task, currentUserId, teamMembers, onUpdate, showToast }) {
         {/* Content */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <span style={{
-              fontWeight: isMine ? 600 : 500,
-              fontSize: '0.9rem',
-              color: (task.status === 'closed' || task.status === 'inactive') ? 'var(--muted)' : 'var(--text)',
-              textDecoration: (task.status === 'closed' || task.status === 'inactive') ? 'line-through' : 'none',
-            }}>
-              {task.name}
-            </span>
-            {isMine && (
+            {editingName ? (
+              <>
+                <input
+                  value={nameVal}
+                  onChange={e => setNameVal(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') { setEditingName(false); setNameVal(task.name) } }}
+                  autoFocus
+                  style={{ ...S.input, fontSize: '0.9rem', padding: '0.25rem 0.5rem', flex: 1, minWidth: '150px' }}
+                />
+                <button onClick={saveName} disabled={savingName} style={{ padding: '0.2rem 0.55rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '5px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                  {savingName ? '…' : '✓'}
+                </button>
+                <button onClick={() => { setEditingName(false); setNameVal(task.name) }} style={{ padding: '0.2rem 0.55rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '5px', fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>✕</button>
+              </>
+            ) : (
+              <span
+                onClick={() => { setEditingName(true); setNameVal(task.name) }}
+                title="Click to edit name"
+                style={{
+                  fontWeight: isMine ? 600 : 500,
+                  fontSize: '0.9rem',
+                  color: (task.status === 'closed' || task.status === 'inactive') ? 'var(--muted)' : 'var(--text)',
+                  textDecoration: (task.status === 'closed' || task.status === 'inactive') ? 'line-through' : 'none',
+                  cursor: 'text',
+                }}
+              >
+                {task.name}
+              </span>
+            )}
+            {isMine && !editingName && (
               <span style={{ fontSize: '0.65rem', background: 'rgba(2,65,107,0.15)', color: '#02416b', borderRadius: '4px', padding: '0.1rem 0.4rem', fontWeight: 700, letterSpacing: '0.05em' }}>
                 MINE
               </span>

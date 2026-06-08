@@ -68,6 +68,9 @@ function AdminTaskRow({ task, allMembers, onUpdate, onDelete, showToast }) {
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesVal, setNotesVal]       = useState(task.notes || '')
   const [savingNotes, setSavingNotes] = useState(false)
+  const [editingName, setEditingName] = useState(false)
+  const [nameVal, setNameVal]         = useState(task.name)
+  const [savingName, setSavingName]   = useState(false)
 
   const due = formatDue(task.due_date)
   const sm = STATUS_META[task.status] || STATUS_META.open
@@ -87,7 +90,17 @@ function AdminTaskRow({ task, allMembers, onUpdate, onDelete, showToast }) {
     setSavingNotes(false)
   }
 
+  async function saveName() {
+    if (!nameVal.trim()) return
+    setSavingName(true)
+    const { error } = await supabase.from('tasks').update({ name: nameVal.trim() }).eq('id', task.id)
+    if (error) showToast(error.message, 'error')
+    else { onUpdate(task.id, { name: nameVal.trim() }); setEditingName(false) }
+    setSavingName(false)
+  }
+
   async function handleDelete() {
+
     if (!confirm(`Delete task "${task.name}"?`)) return
     const { error } = await supabase.from('tasks').delete().eq('id', task.id)
     if (error) showToast(error.message, 'error')
@@ -123,14 +136,34 @@ function AdminTaskRow({ task, allMembers, onUpdate, onDelete, showToast }) {
 
         {/* Main content */}
         <div style={{ flex: 1, minWidth: '200px' }}>
-          <p style={{
-            fontWeight: 500, fontSize: '0.9rem',
-            color: (task.status === 'closed' || task.status === 'inactive') ? 'var(--muted)' : 'var(--text)',
-            textDecoration: (task.status === 'closed' || task.status === 'inactive') ? 'line-through' : 'none',
-            marginBottom: '0.4rem',
-          }}>
-            {task.name}
-          </p>
+          {editingName ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem' }}>
+              <input
+                value={nameVal}
+                onChange={e => setNameVal(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') { setEditingName(false); setNameVal(task.name) } }}
+                autoFocus
+                style={{ ...S.input, fontSize: '0.9rem', padding: '0.25rem 0.5rem', flex: 1 }}
+              />
+              <button onClick={saveName} disabled={savingName} style={{ padding: '0.25rem 0.6rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '5px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                {savingName ? '…' : '✓'}
+              </button>
+              <button onClick={() => { setEditingName(false); setNameVal(task.name) }} style={{ padding: '0.25rem 0.6rem', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: '5px', fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>✕</button>
+            </div>
+          ) : (
+            <p
+              onClick={() => { setEditingName(true); setNameVal(task.name) }}
+              title="Click to edit name"
+              style={{
+                fontWeight: 500, fontSize: '0.9rem',
+                color: (task.status === 'closed' || task.status === 'inactive') ? 'var(--muted)' : 'var(--text)',
+                textDecoration: (task.status === 'closed' || task.status === 'inactive') ? 'line-through' : 'none',
+                marginBottom: '0.4rem', cursor: 'text',
+              }}
+            >
+              {task.name}
+            </p>
+          )}
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
             {/* Team badge */}
@@ -251,7 +284,7 @@ function NewTaskForm({ currentUserId, allMembers, onCreated, showToast, onClose 
   const teamMembers = allMembers.filter(m => m.team === team)
 
   async function submit() {
-    if (!name.trim() || !team) return
+    if (!name.trim() || !team || !dueDate) return
     setSaving(true)
     const { data, error } = await supabase.from('tasks').insert({
       name: name.trim(),
@@ -293,14 +326,14 @@ function NewTaskForm({ currentUserId, allMembers, onCreated, showToast, onClose 
           </div>
         </div>
         <div>
-          <label style={S.label}>Due date</label>
+          <label style={S.label}>Due date *</label>
           <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={{ ...S.input, maxWidth: '200px' }} />
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <button
             onClick={submit}
-            disabled={saving || !name.trim() || !team}
-            style={{ flex: 1, padding: '0.7rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: saving || !name.trim() || !team ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', opacity: (!name.trim() || !team) ? 0.5 : 1 }}
+            disabled={saving || !name.trim() || !team || !dueDate}
+            style={{ flex: 1, padding: '0.7rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: saving || !name.trim() || !team || !dueDate ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', opacity: (!name.trim() || !team || !dueDate) ? 0.5 : 1 }}
           >
             {saving ? 'Creating…' : 'Create Task'}
           </button>
@@ -313,8 +346,68 @@ function NewTaskForm({ currentUserId, allMembers, onCreated, showToast, onClose 
   )
 }
 
+// ── Team Status Editor ────────────────────────────────────────────────────────
+function TeamStatusEditor({ volunteers, onTeamUpdated, showToast }) {
+  const [filterTeam, setFilterTeam] = useState('')
+  const [saving, setSaving] = useState(null) // holds volunteer id being saved
+
+  const displayed = filterTeam
+    ? volunteers.filter(v => v.team === filterTeam)
+    : volunteers.filter(v => v.team)
+
+  async function updateTeam(volId, newTeam) {
+    setSaving(volId)
+    const { error } = await supabase.from('profiles').update({ team: newTeam || null }).eq('id', volId)
+    if (error) showToast(error.message, 'error')
+    else { onTeamUpdated(volId, newTeam || null); showToast('Team updated.', 'success') }
+    setSaving(null)
+  }
+
+  return (
+    <div style={{ ...S.card, display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <h3 style={{ fontWeight: 600, fontSize: '0.95rem' }}>Team Assignments</h3>
+        <select
+          value={filterTeam}
+          onChange={e => setFilterTeam(e.target.value)}
+          style={{ ...S.input, width: 'auto', fontSize: '0.82rem', flex: '0 0 auto' }}
+        >
+          <option value="">All teams</option>
+          {TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>
+      {displayed.length === 0 ? (
+        <p style={{ fontSize: '0.85rem', color: 'var(--muted)', fontStyle: 'italic' }}>No volunteers assigned to a team.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+          {displayed.map(v => (
+            <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0.75rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px' }}>
+              <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: 500 }}>{v.full_name}</span>
+              <select
+                value={v.team || ''}
+                onChange={e => updateTeam(v.id, e.target.value)}
+                disabled={saving === v.id}
+                style={{
+                  fontSize: '0.8rem', color: 'var(--muted)',
+                  background: 'var(--surface)', border: '1px solid var(--border)',
+                  borderRadius: '6px', padding: '0.2rem 0.5rem',
+                  cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', outline: 'none',
+                  opacity: saving === v.id ? 0.5 : 1,
+                }}
+              >
+                <option value="">— No team —</option>
+                {TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
-export default function AdminTasks({ currentUserId }) {
+export default function AdminTasks({ currentUserId, volunteers: externalVolunteers, onVolunteerTeamUpdate }) {
   const [tasks, setTasks]           = useState([])
   const [allMembers, setAllMembers] = useState([])
   const [loading, setLoading]       = useState(true)
@@ -324,6 +417,7 @@ export default function AdminTasks({ currentUserId }) {
   const [filterTeam, setFilterTeam]   = useState('')
   const [filterDue, setFilterDue]   = useState('') // 'overdue' | 'week' | 'month' | ''
   const [toast, setToast]           = useState(null)
+  const [showTeamEditor, setShowTeamEditor] = useState(false)
 
   function showToast(text, type = 'success') {
     setToast({ text, type })
@@ -441,7 +535,31 @@ export default function AdminTasks({ currentUserId }) {
         >
           {showNewForm ? 'Cancel' : '+ New Task'}
         </button>
+        {externalVolunteers && externalVolunteers.length > 0 && (
+          <button
+            onClick={() => setShowTeamEditor(s => !s)}
+            style={{
+              padding: '0.65rem 1.1rem',
+              background: showTeamEditor ? 'rgba(2,65,107,0.12)' : 'var(--surface)',
+              color: showTeamEditor ? 'var(--accent)' : 'var(--muted)',
+              border: `1px solid ${showTeamEditor ? 'var(--accent)' : 'var(--border)'}`,
+              borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600,
+              cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', whiteSpace: 'nowrap',
+            }}
+          >
+            {showTeamEditor ? 'Hide Teams' : 'Edit Teams'}
+          </button>
+        )}
       </div>
+
+      {/* Team status editor */}
+      {showTeamEditor && externalVolunteers && (
+        <TeamStatusEditor
+          volunteers={externalVolunteers}
+          onTeamUpdated={(volId, newTeam) => onVolunteerTeamUpdate && onVolunteerTeamUpdate(volId, newTeam)}
+          showToast={showToast}
+        />
+      )}
 
       {/* New task form */}
       {showNewForm && (
