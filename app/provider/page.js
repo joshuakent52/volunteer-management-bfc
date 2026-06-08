@@ -203,7 +203,7 @@ export default function ProviderPage() {
     const oneTimeKeys  = new Set((oneTime   || []).map(s => `${s.shift_date}|${s.shift_time}`))
 
     // Generate recurring instances for dates in range
-    const allDays = generateUpcomingWeekdays(10)
+    const allDays = generateUpcomingWeekdays(40)
     const recurringInstances = []
     for (const { date, day } of allDays) {
       if (date > twoMonths) continue
@@ -242,7 +242,7 @@ export default function ProviderPage() {
    */
   async function fetchSlotData(uid) {
     const today   = getMountainDateStr()
-    const horizon = getMountainDateStr(70) // 10 weeks
+    const horizon = getMountainDateStr(280) // 10 weeks
 
     const [{ data: oneTimeShifts }, { data: allRecurring }, { data: allCallouts }] = await Promise.all([
       supabase.from('provider_shifts')
@@ -410,7 +410,7 @@ export default function ProviderPage() {
   }
 
   // ── Schedule tab — compute visible week ──────────────────────────────────
-  const allWeekdays = generateUpcomingWeekdays(10)
+  const allWeekdays = generateUpcomingWeekdays(40)
   const weeks       = groupIntoWeeks(allWeekdays)
   const visibleWeek = weeks[scheduleWeekOffset] || []
 
