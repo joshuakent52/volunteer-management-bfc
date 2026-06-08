@@ -44,6 +44,14 @@ const STAGE_COLORS = {
   rejected:   C.danger,
 }
 
+const EMAIL_STAGES = ['interview', 'onboarding', 'rejected']
+
+const TEMPLATE_LABELS = {
+  interview:  'Interview Invitation',
+  onboarding: 'Onboarding Welcome',
+  rejected:   'Rejection Notice',
+}
+
 const AFFILIATION_OPTIONS = [
   { value: 'missionary', label: 'Missionary' },
   { value: 'student',    label: 'Student'    },
@@ -67,12 +75,11 @@ const CHECKLIST_ITEMS = [
   { key: 'tb_test',                   label: 'TB Test',                   mandatory: true,  bucket: 'onboarding-tb-tests',          urlKey: 'tb_test_url'           },
   { key: 'licenses_certifications',   label: 'Licenses & Certifications', mandatory: false, bucket: 'onboarding-licenses',           urlKey: 'licenses_url'          },
   { key: 'confidentiality_agreement', label: 'Confidentiality Agreement', mandatory: false, bucket: 'onboarding-confidentiality',   urlKey: 'confidentiality_url'   },
-  { key: 'welcome_packet',            label: 'Welcome Packet',            mandatory: true,  bucket: null,                           urlKey: null                    },
   { key: 'parking_pass',              label: 'Parking Pass',              mandatory: false, bucket: 'onboarding-parking-passes',    urlKey: 'parking_pass_url'      },
 ]
 
 const FILE_CHECKLIST_ITEMS = CHECKLIST_ITEMS.filter(i => i.bucket && i.urlKey)
-const NON_MISSIONARY_REQUIRED = ['background_check', 'id_check', 'immunization', 'welcome_packet']
+const NON_MISSIONARY_REQUIRED = ['background_check', 'id_check', 'immunization']
 
 const TOTAL_STEPS = 5
 
@@ -170,14 +177,20 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   const [savingInterview, setSavingInterview] = useState(false)
   const [creatingProfile, setCreatingProfile] = useState(false)
 
+  // templates shape: { interview: { subject, body }, onboarding: { ... }, rejected: { ... } }
+  const [templates,        setTemplates]        = useState({})
+  const [templatesLoading, setTemplatesLoading] = useState(false)
+  const [activeTemplate,   setActiveTemplate]   = useState('interview')
+  const [savingTemplate,   setSavingTemplate]   = useState(false)
+  // local edits per stage before saving
+  const [templateDrafts,   setTemplateDrafts]   = useState({})
+
   // ── Parking pass modal state ───────────────────────────────────────────────
-  // context: { applicantId, applicantName, isRecent } — isRecent=true when opened from Recently Added
   const [parkingPassModal,  setParkingPassModal]  = useState(null)
   const [parkingPassSaving, setParkingPassSaving] = useState(false)
   const parkingPassIframeRef = useRef(null)
 
   // ── Confidentiality agreement modal state ─────────────────────────────────
-  // Mirrors parking pass exactly: same context shape, same lifecycle
   const [confidentialityModal,  setConfidentialityModal]  = useState(null)
   const [confidentialitySaving, setConfidentialitySaving] = useState(false)
   const confidentialityIframeRef = useRef(null)
@@ -187,8 +200,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   const [recentUploadingKey, setRecentUploadingKey] = useState(null)
   const [offloadingId,       setOffloadingId]       = useState(null)
   const [expandedId,         setExpandedId]         = useState(null)
-  const [recentPhotoUrls,    setRecentPhotoUrls]    = useState({})   // { [applicantId]: signedUrl }
-  const [recentPhotoUploading, setRecentPhotoUploading] = useState(null) // applicantId currently uploading
 
   // Onboarding form
   const EMPTY_FORM = {
@@ -228,13 +239,13 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
   const [toast, setToast] = useState(null)
 
-  // ── Applicant profile photo state ──────────────────────────────────────────
-  const [applicantPhotoUrl,       setApplicantPhotoUrl]       = useState(null)
-  const [uploadingApplicantPhoto, setUploadingApplicantPhoto] = useState(false)
-  const [applicantAvatarPath,     setApplicantAvatarPath]     = useState(null)
-  const applicantPhotoInputRef = useRef(null)
-
   useEffect(() => { loadAll() }, [])
+
+  useEffect(() => {
+    if (activeTab === 'templates' && Object.keys(templates).length === 0) {
+      loadTemplates()
+    }
+  }, [activeTab])
 
   // ── Parking pass PDF message listener ─────────────────────────────────────
   useEffect(() => {
@@ -298,8 +309,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   }, [parkingPassModal, checklist, recentChecklist])
 
   // ── Confidentiality agreement PDF message listener ────────────────────────
-  // Mirrors the parking pass listener exactly — only message types and storage
-  // bucket differ; all state update, audit, and error patterns are identical.
   useEffect(() => {
     async function onMessage(e) {
       if (!e.data || e.data.type !== 'confidentiality_agreement_pdf') return
@@ -392,10 +401,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       .from('volunteer_applications').select('*').eq('stage', 'completed').order('full_name', { ascending: true })
     if (!error && data) {
       setCompleted(data)
-      if (data.length > 0) {
-        const ids = data.map(a => a.id)
-        await loadRecentChecklists(ids)
-      }
+      if (data.length > 0) await loadRecentChecklists(data.map(a => a.id))
     }
   }
 
@@ -448,6 +454,23 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     } : EMPTY_CHECKLIST)
   }
 
+  async function loadTemplates() {
+    setTemplatesLoading(true)
+    const { data, error } = await supabase
+      .from('email_templates')
+      .select('stage, subject, body')
+      .in('stage', EMAIL_STAGES)
+
+    if (!error && data) {
+      const map = {}
+      data.forEach(row => { map[row.stage] = { subject: row.subject, body: row.body } })
+      setTemplates(map)
+      // Initialise drafts from DB values so inputs are populated immediately
+      setTemplateDrafts(map)
+    }
+    setTemplatesLoading(false)
+  }
+
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
   function msg(text, type = 'success') { setToast({ text, type }); setTimeout(() => setToast(null), 3500) }
@@ -478,18 +501,63 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     return hasTime ? `${date} at ${time}` : date
   }
 
+  async function sendStageEmail(applicant, stage) {
+    if (!EMAIL_STAGES.includes(stage)) return
+
+    // For onboarding emails, generate a short-lived signed URL for the welcome packet
+    let attachmentUrl = null
+    if (stage === 'onboarding') {
+      const { data: tmpl } = await supabase
+        .from('email_templates')
+        .select('welcome_packet_path')
+        .eq('stage', 'onboarding')
+        .maybeSingle()
+
+      if (tmpl?.welcome_packet_path) {
+        const { data: signed } = await supabase.storage
+          .from('onboarding-assets')
+          .createSignedUrl(tmpl.welcome_packet_path, 3600) // 1 hour — plenty of time for the edge function to fetch it
+        attachmentUrl = signed?.signedUrl ?? null
+      }
+    }
+
+    try {
+      const { error } = await supabase.functions.invoke('send-stage-email', {
+        body: {
+          applicantEmail: applicant.email,
+          applicantName:  applicant.full_name,
+          stage,
+          attachmentUrl,
+          senderName: profile?.full_name || 'BFC Volunteer Team',
+        },
+      })
+      if (error) {
+        console.error('Email send error:', error)
+        msg(`Stage moved, but email failed: ${error.message}`, 'error')
+      } else {
+        msg(`Moved to ${STAGE_LABELS[stage]} — email sent to ${applicant.email}`)
+      }
+    } catch (e) {
+      console.error('Email send exception:', e)
+      msg(`Stage moved, but email failed: ${e.message}`, 'error')
+    }
+  }
+
   // ─── Pipeline actions ─────────────────────────────────────────────────────
 
+  // ── MODIFIED: moveToStage now fires sendStageEmail after a successful move ─
   async function moveToStage(applicant, stage) {
     setMovingStage(true)
     const { error } = await supabase.from('volunteer_applications')
       .update({ stage, stage_updated_at: new Date().toISOString() }).eq('id', applicant.id)
-    if (error) msg(error.message, 'error')
-    else {
-      msg(`Moved to ${STAGE_LABELS[stage]}`)
+    if (error) {
+      msg(error.message, 'error')
+    } else {
       await audit(`pipeline_${stage}`, 'applicant', applicant.id, applicant.full_name, stage)
       await loadApplicants()
       setSelected(prev => prev?.id === applicant.id ? { ...prev, stage } : prev)
+
+      await sendStageEmail(applicant, stage)
     }
     setMovingStage(false)
   }
@@ -561,32 +629,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     setRecentUploadingKey(null)
   }
 
-  async function handleRecentPhotoUpload(applicantId, file) {
-    if (!file) return
-    setRecentPhotoUploading(applicantId)
-    try {
-      const compressed = await compressImage(file)
-      const path = `${applicantId}/avatar.jpg`
-      const { error: upErr } = await supabase.storage
-        .from('avatars')
-        .upload(path, compressed, { contentType: 'image/jpeg', upsert: true })
-      if (upErr) { msg(upErr.message, 'error'); setRecentPhotoUploading(null); return }
-      // Also write avatar_url to the profile row (volunteer_id links application → profile)
-      const app = completed.find(a => a.id === applicantId)
-      if (app?.volunteer_id) {
-        await supabase.from('profiles').update({ avatar_url: path }).eq('id', app.volunteer_id)
-      }
-      const { data } = await supabase.storage.from('avatars').createSignedUrl(path, 3600)
-      if (data?.signedUrl) {
-        setRecentPhotoUrls(prev => ({ ...prev, [applicantId]: data.signedUrl }))
-      }
-      msg('Photo uploaded!')
-    } catch (e) {
-      msg('Upload failed: ' + e.message, 'error')
-    }
-    setRecentPhotoUploading(null)
-  }
-
   async function openFile(bucket, storagePath) {
     const { data, error } = await supabase.storage.from(bucket).createSignedUrl(storagePath, 120)
     if (error) { msg('Could not open file', 'error'); return }
@@ -598,51 +640,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     const { data, error } = await supabase.storage.from('resumes').createSignedUrl(resumeUrl, 60)
     if (error) { msg('Could not load resume', 'error'); return }
     window.open(data.signedUrl, '_blank')
-  }
-
-  // ─── Applicant photo helpers ──────────────────────────────────────────────
-
-  async function compressImage(file, maxDim = 480, quality = 0.75) {
-    return new Promise((resolve, reject) => {
-      const img = new Image()
-      const url = URL.createObjectURL(file)
-      img.onload = () => {
-        URL.revokeObjectURL(url)
-        let { width, height } = img
-        if (width > maxDim || height > maxDim) {
-          const scale = maxDim / Math.max(width, height)
-          width  = Math.round(width  * scale)
-          height = Math.round(height * scale)
-        }
-        const canvas = document.createElement('canvas')
-        canvas.width = width; canvas.height = height
-        const ctx = canvas.getContext('2d')
-        ctx.drawImage(img, 0, 0, width, height)
-        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Canvas toBlob failed')), 'image/jpeg', quality)
-      }
-      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image load failed')) }
-      img.src = url
-    })
-  }
-
-  async function handleApplicantPhotoUpload(file) {
-    if (!file || !selected) return
-    setUploadingApplicantPhoto(true)
-    try {
-      const compressed = await compressImage(file)
-      const path = `${selected.id}/avatar.jpg`
-      const { error: upErr } = await supabase.storage
-        .from('avatars')
-        .upload(path, compressed, { contentType: 'image/jpeg', upsert: true })
-      if (upErr) { msg(upErr.message, 'error'); setUploadingApplicantPhoto(false); return }
-      const { data } = await supabase.storage.from('avatars').createSignedUrl(path, 3600)
-      setApplicantPhotoUrl(data?.signedUrl || null)
-      setApplicantAvatarPath(path)
-      msg('Photo uploaded!')
-    } catch (e) {
-      msg('Upload failed: ' + e.message, 'error')
-    }
-    setUploadingApplicantPhoto(false)
   }
 
   // ─── Offload ──────────────────────────────────────────────────────────────
@@ -747,7 +744,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       default_role: affiliData.default_role || null,
       birthday:     affiliData.birthday     || null,
       status: 'active',
-      avatar_url: applicantAvatarPath || null,
       sma_name:    affil === 'missionary' ? (affiliData.sma_name    || null) : null,
       sma_contact: affil === 'missionary' ? (affiliData.sma_contact || null) : null,
       school:      affil === 'student'    ? (affiliData.school      || null) : null,
@@ -787,8 +783,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     setOnboardStep(1)
     setOnboardForm(EMPTY_FORM)
     setChecklist(EMPTY_CHECKLIST)
-    setApplicantPhotoUrl(null)
-    setApplicantAvatarPath(null)
 
     await loadAll()
     setActiveTab('recent')
@@ -832,10 +826,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       setInterviewDate(d.toISOString().slice(0, 10))
       setInterviewTime(d.toTimeString().slice(0, 5))
     }
-
-    // Reset photo state — photo will appear only once uploaded this session
-    setApplicantPhotoUrl(null)
-    setApplicantAvatarPath(null)
   }
 
   // ─── Derived ──────────────────────────────────────────────────────────────
@@ -843,26 +833,21 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   const filteredApplicants = applicants.filter(a => a.stage === stageFilter)
   const stageCounts        = STAGES.reduce((acc, s) => { acc[s] = applicants.filter(a => a.stage === s).length; return acc }, {})
 
-  // ─── Non-missionary document validation ───────────────────────────────────────
+  // ─── Non-missionary document validation ────────────────────────────────────
 
   function getMissingRequiredDocs() {
-    // Missionaries are exempt from this requirement entirely.
     if (onboardForm.affiliation === 'missionary') return []
-
     return NON_MISSIONARY_REQUIRED.filter(key => {
-      // Checkbox must be checked.
       if (!checklist[key]) return true
-
-      // If the item has a file slot (urlKey), that file must also be uploaded.
       const item = CHECKLIST_ITEMS.find(i => i.key === key)
       if (item?.urlKey && !checklist[item.urlKey]) return true
-
       return false
     }).map(key => CHECKLIST_ITEMS.find(i => i.key === key)?.label ?? key)
   }
 
   const missingRequiredDocs = getMissingRequiredDocs()
   const docsComplete        = missingRequiredDocs.length === 0
+
   // ─── Shared styles ────────────────────────────────────────────────────────
 
   const card       = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }
@@ -1088,7 +1073,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   }
 
   // ─── Confidentiality agreement modal helpers ──────────────────────────────
-  // Mirrors ParkingPassModal exactly — title, iframe src, and message types differ only.
 
   function openConfidentialityModal(applicantId, applicantName, isRecent = false) {
     setConfidentialityModal({ applicantId, applicantName, isRecent })
@@ -1130,6 +1114,259 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     )
   }
 
+  async function saveTemplate(stage) {
+    const draft = templateDrafts[stage]
+    if (!draft?.subject || !draft?.body) {
+      msg('Subject and body are required', 'error')
+      return
+    }
+    setSavingTemplate(true)
+    const { error } = await supabase
+      .from('email_templates')
+      .upsert({ stage, subject: draft.subject, body: draft.body, updated_at: new Date().toISOString() }, { onConflict: 'stage' })
+    if (error) {
+      msg(`Save failed: ${error.message}`, 'error')
+    } else {
+      setTemplates(prev => ({ ...prev, [stage]: { subject: draft.subject, body: draft.body } }))
+      msg(`${TEMPLATE_LABELS[stage]} template saved`)
+    }
+    setSavingTemplate(false)
+  }
+
+  function updateDraft(stage, field, value) {
+    setTemplateDrafts(prev => ({
+      ...prev,
+      [stage]: { ...(prev[stage] || {}), [field]: value },
+    }))
+  }
+  
+  function WelcomePacketManager() {
+    const [packetPath, setPacketPath] = useState(null)
+    const [uploading,  setUploading]  = useState(false)
+    const ref = useRef(null)
+
+    useEffect(() => { loadPacketMeta() }, [])
+
+    async function loadPacketMeta() {
+      const { data } = await supabase
+        .from('email_templates')
+        .select('welcome_packet_path')
+        .eq('stage', 'onboarding')
+        .maybeSingle()
+      if (data?.welcome_packet_path) setPacketPath(data.welcome_packet_path)
+    }
+
+    async function handleUpload(file) {
+      setUploading(true)
+      const path = `welcome_packet.pdf`
+      const { error } = await supabase.storage
+        .from('onboarding-assets')
+        .upload(path, file, { upsert: true, contentType: 'application/pdf' })
+      if (error) { msg(error.message, 'error'); setUploading(false); return }
+
+      await supabase
+        .from('email_templates')
+        .update({ welcome_packet_path: path })
+        .eq('stage', 'onboarding')
+
+      setPacketPath(path)
+      msg('Welcome packet updated')
+      setUploading(false)
+    }
+
+    async function viewCurrent() {
+      const { data } = await supabase.storage
+        .from('onboarding-assets')
+        .createSignedUrl(packetPath, 60)
+      if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+    }
+
+    return (
+      <div style={{
+        ...card,
+        padding: '1rem 1.25rem',
+        borderColor: C.blue + '44',
+        background: C.blue + '06',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: '0.75rem',
+        marginBottom: '0.5rem',
+      }}>
+        <div>
+          <p style={{ ...secLabel, marginBottom: '0.2rem', color: C.blue }}>
+            Welcome Packet Attachment
+          </p>
+          <p style={{ fontSize: '0.8rem', color: 'var(--muted)', lineHeight: 1.5 }}>
+            {packetPath
+              ? 'A PDF is attached to every onboarding email automatically.'
+              : 'No packet uploaded yet — onboarding emails will send without an attachment.'}
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexShrink: 0 }}>
+          {packetPath && (
+            <button onClick={viewCurrent} style={outlineBtn(C.blue)}>
+              View Current ↗
+            </button>
+          )}
+          <input
+            ref={ref}
+            type="file"
+            accept=".pdf"
+            style={{ display: 'none' }}
+            onChange={e => {
+              const f = e.target.files?.[0]
+              if (f) handleUpload(f)
+              e.target.value = ''
+            }}
+          />
+          <button
+            onClick={() => ref.current?.click()}
+            disabled={uploading}
+            style={solidBtn(C.blue, uploading)}
+          >
+            {uploading ? 'Uploading...' : packetPath ? 'Replace Packet' : '+ Upload Packet'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  function EmailTemplatesTab() {
+    if (templatesLoading) return <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading templates...</p>
+
+    const draft   = templateDrafts[activeTemplate] || templates[activeTemplate] || { subject: '', body: '' }
+    const isDirty = JSON.stringify(draft) !== JSON.stringify(templates[activeTemplate] || {})
+
+    // Preview: replace placeholders with sample values
+    const senderPreview  = profile?.full_name || 'Your Name'
+    const previewSubject = (draft.subject || '')
+      .replace(/\{\{name\}\}/g, 'Jane Doe')
+      .replace(/\{\{email\}\}/g, 'jane@example.com')
+      .replace(/\{\{sender_name\}\}/g, senderPreview)
+    const previewBody    = (draft.body    || '')
+      .replace(/\{\{name\}\}/g, 'Jane Doe')
+      .replace(/\{\{email\}\}/g, 'jane@example.com')
+      .replace(/\{\{sender_name\}\}/g, senderPreview)
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        
+        <WelcomePacketManager />
+
+        {/* Stage selector pills */}
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {EMAIL_STAGES.map(stage => {
+            const color   = STAGE_COLORS[stage]
+            const active  = activeTemplate === stage
+            const hasDiff = JSON.stringify(templateDrafts[stage]) !== JSON.stringify(templates[stage] || {})
+            return (
+              <button
+                key={stage}
+                onClick={() => setActiveTemplate(stage)}
+                style={{
+                  padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.82rem',
+                  fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                  background: active ? color + '18' : 'var(--surface)',
+                  color: active ? color : 'var(--muted)',
+                  border: active ? `1px solid ${color}55` : '1px solid var(--border)',
+                  display: 'flex', alignItems: 'center', gap: '0.4rem',
+                }}
+              >
+                {TEMPLATE_LABELS[stage]}
+                {hasDiff && <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, display: 'inline-block' }} />}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Editor + Preview side by side */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'start' }}>
+
+          {/* Left: editor */}
+          <div style={{ ...card, padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <p style={{ ...secLabel, color: STAGE_COLORS[activeTemplate], marginBottom: 0 }}>
+                {TEMPLATE_LABELS[activeTemplate]}
+              </p>
+              <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>
+                Use {'{{name}}'}, {'{{email}}'}, {'{{sender_name}}'}
+              </span>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Subject line</label>
+              <input
+                value={draft.subject}
+                onChange={e => updateDraft(activeTemplate, 'subject', e.target.value)}
+                placeholder="Subject…"
+                style={inputStyle}
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Body</label>
+              <textarea
+                value={draft.body}
+                onChange={e => updateDraft(activeTemplate, 'body', e.target.value)}
+                placeholder="Email body…"
+                rows={14}
+                style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+              {isDirty && (
+                <button
+                  onClick={() => setTemplateDrafts(prev => ({ ...prev, [activeTemplate]: templates[activeTemplate] || { subject: '', body: '' } }))}
+                  style={ghostBtn()}
+                >
+                  Discard
+                </button>
+              )}
+              <button
+                onClick={() => saveTemplate(activeTemplate)}
+                disabled={savingTemplate || !isDirty}
+                style={solidBtn(STAGE_COLORS[activeTemplate], savingTemplate || !isDirty)}
+              >
+                {savingTemplate ? 'Saving...' : 'Save Template'}
+              </button>
+            </div>
+          </div>
+
+          {/* Right: preview */}
+          <div style={{ ...card, padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'var(--bg)' }}>
+            <p style={{ ...secLabel, marginBottom: 0 }}>Preview — sample applicant</p>
+
+            {/* Email chrome mockup */}
+            <div style={{ border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden', fontSize: '0.85rem' }}>
+              {/* Header */}
+              <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.3rem' }}>
+                  <span style={{ color: 'var(--muted)', fontSize: '0.78rem', minWidth: 50 }}>To</span>
+                  <span style={{ fontSize: '0.78rem' }}>Jane Doe &lt;jane@example.com&gt;</span>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <span style={{ color: 'var(--muted)', fontSize: '0.78rem', minWidth: 50 }}>Subject</span>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600 }}>{previewSubject || <em style={{ opacity: 0.5 }}>No subject</em>}</span>
+                </div>
+              </div>
+              {/* Body */}
+              <div style={{ padding: '1rem', background: 'var(--surface)', whiteSpace: 'pre-wrap', lineHeight: 1.7, fontSize: '0.85rem', color: 'var(--text)', minHeight: 200 }}>
+                {previewBody || <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>No body yet</span>}
+              </div>
+            </div>
+
+            <p style={{ fontSize: '0.75rem', color: 'var(--muted)', lineHeight: 1.5 }}>
+              This email is sent automatically when an applicant is moved to <strong>{STAGE_LABELS[activeTemplate]}</strong>.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // ─────────────────────────── RECENTLY ADDED ───────────────────────────────
 
   function RecentlyAdded() {
@@ -1155,40 +1392,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
               {/* ── Card header row ── */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', padding: '1rem 1.25rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-                  {/* Profile photo upload */}
-                  {(() => {
-                    const photoUrl    = recentPhotoUrls[a.id] || null
-                    const isUploading = recentPhotoUploading === a.id
-                    const inputId     = `recent-photo-${a.id}`
-                    return (
-                      <>
-                        <div
-                          onClick={() => { if (!isUploading) document.getElementById(inputId)?.click() }}
-                          title={photoUrl ? 'Click to replace photo' : 'Click to upload photo'}
-                          style={{ position: 'relative', width: 38, height: 38, borderRadius: '50%', background: C.primary + '22', border: `2px solid ${C.blue}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '1rem', color: C.blue, overflow: 'hidden', cursor: 'pointer', flexShrink: 0 }}
-                        >
-                          {isUploading
-                            ? <span style={{ fontSize: '0.6rem', color: 'var(--muted)' }}>…</span>
-                            : photoUrl
-                              ? <img src={photoUrl} alt={a.full_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                              : <span>{a.full_name?.charAt(0)}</span>
-                          }
-                          {photoUrl && !isUploading && (
-                            <div style={{ position: 'absolute', bottom: 0, right: 0, width: 14, height: 14, borderRadius: '50%', background: C.blue, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--surface)' }}>
-                              <span style={{ fontSize: '0.45rem', color: '#fff' }}>✎</span>
-                            </div>
-                          )}
-                        </div>
-                        <input
-                          id={inputId}
-                          type="file"
-                          accept="image/*"
-                          style={{ display: 'none' }}
-                          onChange={e => { const f = e.target.files?.[0]; if (f) handleRecentPhotoUpload(a.id, f); e.target.value = '' }}
-                        />
-                      </>
-                    )
-                  })()}
+                  <div style={{ width: 38, height: 38, borderRadius: '50%', background: C.primary + '22', border: `2px solid ${C.blue}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '1rem', color: C.blue, flexShrink: 0 }}>{a.full_name?.charAt(0)}</div>
                   <div>
                     <p style={{ fontWeight: 600, fontSize: '0.95rem' }}>{a.full_name}</p>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.15rem', flexWrap: 'wrap' }}>
@@ -1213,7 +1417,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                   >
                     {isOffloading
                       ? <><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', border: `2px solid ${C.primary}`, borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} /> Offloading...</>
-                      : 'Do not click this button.'
+                      : '↑ Offload to OneDrive'
                     }
                   </button>
                 </div>
@@ -1226,7 +1430,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
 
-                    {/* ── Resume (submitted with application) ── */}
+                    {/* Resume */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.65rem 0.9rem', borderRadius: '8px', background: a.resume_url ? C.blue + '0a' : 'var(--bg)', border: `1px solid ${a.resume_url ? C.blue + '44' : 'var(--border)'}`, gap: '0.75rem', flexWrap: 'wrap' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flex: 1, minWidth: 0 }}>
                         <div style={{ width: 18, height: 18, borderRadius: '4px', flexShrink: 0, background: a.resume_url ? C.blue : 'transparent', border: `2px solid ${a.resume_url ? C.blue : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1248,8 +1452,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
                     {FILE_CHECKLIST_ITEMS.map(item => {
 
-                      // ── Confidentiality Agreement: open the HTML form modal ──
-                      // Mirrors the parking_pass special case exactly.
                       if (item.key === 'confidentiality_agreement') {
                         const hasPdf = !!(cl[item.urlKey])
                         return (
@@ -1258,28 +1460,17 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                               <div style={{ width: 18, height: 18, borderRadius: '4px', flexShrink: 0, background: hasPdf ? C.blue : 'transparent', border: `2px solid ${hasPdf ? C.blue : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                 {hasPdf && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
                               </div>
-                              <span style={{ fontSize: '0.85rem', fontWeight: hasPdf ? 600 : 400, color: hasPdf ? 'var(--text)' : 'var(--muted)' }}>
-                                Confidentiality Agreement
-                              </span>
+                              <span style={{ fontSize: '0.85rem', fontWeight: hasPdf ? 600 : 400, color: hasPdf ? 'var(--text)' : 'var(--muted)' }}>Confidentiality Agreement</span>
                               {hasPdf && <span style={{ fontSize: '0.7rem', color: C.light, fontWeight: 600, flexShrink: 0 }}>PDF saved</span>}
                             </div>
                             <div style={{ display: 'flex', gap: '0.35rem', flexShrink: 0 }}>
-                              {hasPdf && (
-                                <button
-                                  onClick={() => openFile('onboarding-confidentiality', cl[item.urlKey])}
-                                  style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}44` }}
-                                >View ↗</button>
-                              )}
-                              <button
-                                onClick={() => openConfidentialityModal(a.id, a.full_name, true)}
-                                style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}
-                              >{hasPdf ? 'Re-sign' : '+ Fill Out Agreement'}</button>
+                              {hasPdf && <button onClick={() => openFile('onboarding-confidentiality', cl[item.urlKey])} style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}44` }}>View ↗</button>}
+                              <button onClick={() => openConfidentialityModal(a.id, a.full_name, true)} style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>{hasPdf ? 'Re-sign' : '+ Fill Out Agreement'}</button>
                             </div>
                           </div>
                         )
                       }
 
-                      // ── Parking Pass: open the HTML form modal ──
                       if (item.key === 'parking_pass') {
                         const hasPdf = !!(cl[item.urlKey])
                         return (
@@ -1288,28 +1479,17 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                               <div style={{ width: 18, height: 18, borderRadius: '4px', flexShrink: 0, background: hasPdf ? C.blue : 'transparent', border: `2px solid ${hasPdf ? C.blue : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                 {hasPdf && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
                               </div>
-                              <span style={{ fontSize: '0.85rem', fontWeight: hasPdf ? 600 : 400, color: hasPdf ? 'var(--text)' : 'var(--muted)' }}>
-                                Parking Pass
-                              </span>
+                              <span style={{ fontSize: '0.85rem', fontWeight: hasPdf ? 600 : 400, color: hasPdf ? 'var(--text)' : 'var(--muted)' }}>Parking Pass</span>
                               {hasPdf && <span style={{ fontSize: '0.7rem', color: C.light, fontWeight: 600, flexShrink: 0 }}>PDF saved</span>}
                             </div>
                             <div style={{ display: 'flex', gap: '0.35rem', flexShrink: 0 }}>
-                              {hasPdf && (
-                                <button
-                                  onClick={() => openFile('onboarding-parking-passes', cl[item.urlKey])}
-                                  style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}44` }}
-                                >View ↗</button>
-                              )}
-                              <button
-                                onClick={() => openParkingPassModal(a.id, a.full_name, true)}
-                                style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}
-                              >{hasPdf ? 'Re-issue' : '+ Fill Out Pass'}</button>
+                              {hasPdf && <button onClick={() => openFile('onboarding-parking-passes', cl[item.urlKey])} style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}44` }}>View ↗</button>}
+                              <button onClick={() => openParkingPassModal(a.id, a.full_name, true)} style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>{hasPdf ? 'Re-issue' : '+ Fill Out Pass'}</button>
                             </div>
                           </div>
                         )
                       }
 
-                      // ── Standard file upload ──
                       const hasFile     = !!(cl[item.urlKey])
                       const uploadKey   = `${a.id}-${item.key}`
                       const isUploading = recentUploadingKey === uploadKey
@@ -1327,25 +1507,10 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                             </span>
                             {hasFile && <span style={{ fontSize: '0.7rem', color: C.light, fontWeight: 600, flexShrink: 0 }}>Uploaded</span>}
                           </div>
-                          <input
-                            ref={ref}
-                            type="file"
-                            accept=".pdf,.jpg,.jpeg,.png,.webp,image/*"
-                            style={{ display: 'none' }}
-                            onChange={e => { const f = e.target.files?.[0]; if (f) handleRecentFileUpload(a.id, item, f); e.target.value = '' }}
-                          />
+                          <input ref={ref} type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,image/*" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleRecentFileUpload(a.id, item, f); e.target.value = '' }} />
                           <div style={{ display: 'flex', gap: '0.35rem', flexShrink: 0 }}>
-                            {hasFile && (
-                              <button
-                                onClick={() => openFile(item.bucket, cl[item.urlKey])}
-                                style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}44` }}
-                              >View ↗</button>
-                            )}
-                            <button
-                              onClick={() => ref.current?.click()}
-                              disabled={isUploading}
-                              style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: isUploading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', opacity: isUploading ? 0.5 : 1 }}
-                            >
+                            {hasFile && <button onClick={() => openFile(item.bucket, cl[item.urlKey])} style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}44` }}>View ↗</button>}
+                            <button onClick={() => ref.current?.click()} disabled={isUploading} style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 600, cursor: isUploading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', opacity: isUploading ? 0.5 : 1 }}>
                               {isUploading ? 'Uploading...' : hasFile ? 'Replace' : '+ Upload'}
                             </button>
                           </div>
@@ -1354,7 +1519,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                     })}
                   </div>
 
-                  {/* Missing mandatory warning */}
                   {(() => {
                     const missing = FILE_CHECKLIST_ITEMS.filter(i => i.mandatory && !cl[i.urlKey])
                     if (missing.length === 0) return (
@@ -1409,31 +1573,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            {/* Profile photo — click to upload or replace */}
-            <div
-              onClick={() => { if (!uploadingApplicantPhoto) applicantPhotoInputRef.current?.click() }}
-              title={applicantPhotoUrl ? 'Click to replace photo' : 'Click to upload photo'}
-              style={{ position: 'relative', width: 48, height: 48, borderRadius: '50%', background: C.primary + '18', border: `2px solid ${C.blue}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '1.2rem', color: C.blue, overflow: 'hidden', cursor: 'pointer', flexShrink: 0 }}
-            >
-              {uploadingApplicantPhoto
-                ? <span style={{ fontSize: '0.65rem', color: 'var(--muted)' }}>…</span>
-                : applicantPhotoUrl
-                  ? <img src={applicantPhotoUrl} alt={applicant.full_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  : <span>{applicant.full_name?.charAt(0)}</span>
-              }
-              {applicantPhotoUrl && !uploadingApplicantPhoto && (
-                <div style={{ position: 'absolute', bottom: 0, right: 0, width: 16, height: 16, borderRadius: '50%', background: C.blue, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--surface)', cursor: 'pointer' }}>
-                  <span style={{ fontSize: '0.5rem', color: '#fff' }}>✎</span>
-                </div>
-              )}
-            </div>
-            <input
-              ref={applicantPhotoInputRef}
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={e => { const f = e.target.files?.[0]; if (f) handleApplicantPhotoUpload(f); e.target.value = '' }}
-            />
+            <div style={{ width: 48, height: 48, borderRadius: '50%', background: C.primary + '18', border: `2px solid ${C.blue}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '1.2rem', color: C.blue, flexShrink: 0 }}>{applicant.full_name?.charAt(0)}</div>
             <div>
               <h3 style={{ fontWeight: 600, fontSize: '1.1rem' }}>{applicant.full_name}</h3>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.2rem' }}>
@@ -1491,32 +1631,14 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
             </div>
             <p style={{ ...secLabel, marginBottom: '0.65rem' }}>Decision</p>
 
-            {/* Block advancement until an interview has actually been saved */}
             {!applicant.interview_scheduled_at && (
-              <div style={{
-                marginBottom: '0.85rem',
-                padding: '0.65rem 0.9rem',
-                borderRadius: '8px',
-                background: C.danger + '08',
-                border: `1px solid ${C.danger}44`,
-                fontSize: '0.82rem',
-                color: C.danger,
-                fontWeight: 500,
-                lineHeight: 1.5,
-              }}>
-                An interview must be scheduled and saved before this applicant can be
-                moved to onboarding. Use the Schedule section above to set a date and
-                click <strong>Save</strong>.
+              <div style={{ marginBottom: '0.85rem', padding: '0.65rem 0.9rem', borderRadius: '8px', background: C.danger + '08', border: `1px solid ${C.danger}44`, fontSize: '0.82rem', color: C.danger, fontWeight: 500, lineHeight: 1.5 }}>
+                An interview must be scheduled and saved before this applicant can be moved to onboarding.
               </div>
             )}
 
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-              <button
-                onClick={() => moveToStage(applicant, 'onboarding')}
-                disabled={movingStage || !applicant.interview_scheduled_at}
-                style={outlineBtn(applicant.interview_scheduled_at ? C.blue : C.muted)}
-                title={!applicant.interview_scheduled_at ? 'Schedule and save an interview date first' : undefined}
-              >
+              <button onClick={() => moveToStage(applicant, 'onboarding')} disabled={movingStage || !applicant.interview_scheduled_at} style={outlineBtn(applicant.interview_scheduled_at ? C.blue : C.muted)}>
                 Accept — Move to Onboarding
               </button>
               <button onClick={() => moveToStage(applicant, 'rejected')} disabled={movingStage} style={outlineBtn(C.danger)}>Reject Application</button>
@@ -1595,7 +1717,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                 <div>
                   <p style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: '0.35rem' }}>Availability &amp; Waitlist Preferences</p>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.6 }}>Select which specific shifts this volunteer can cover. Leave everything unchecked to mark them as fully flexible.</p>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.6 }}>Select which specific shifts this volunteer can cover.</p>
                 </div>
                 <div style={{ padding: '1.1rem 1.25rem', borderRadius: '10px', background: 'var(--bg)', border: `1px solid ${C.blue}2a`, overflowX: 'auto' }}>
                   <p style={{ ...secLabel, color: C.blue, marginBottom: '0.85rem' }}>Shift Grid</p>
@@ -1621,7 +1743,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
               </div>
             )}
 
-            {/* Step 5 — Onboarding Checklist */}
+            {/* Step 5 */}
             {onboardStep === 5 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1633,9 +1755,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-
-                  {/* Standard checklist items — parking_pass and confidentiality_agreement
-                      are excluded here and rendered as dedicated rows below. */}
                   {CHECKLIST_ITEMS
                     .filter(item => item.key !== 'parking_pass' && item.key !== 'confidentiality_agreement')
                     .map(item => {
@@ -1658,27 +1777,11 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                     })
                   }
                 </div>
-                
-                {/* Non-missionary document requirement error — shown above the submit button */}
+
                 {onboardForm.affiliation && onboardForm.affiliation !== 'missionary' && missingRequiredDocs.length > 0 && (
-                  <div style={{
-                    padding: '0.75rem 1rem',
-                    borderRadius: '8px',
-                    background: C.danger + '08',
-                    border: `1px solid ${C.danger}44`,
-                    fontSize: '0.83rem',
-                    color: C.danger,
-                    fontWeight: 500,
-                    lineHeight: 1.6,
-                  }}>
+                  <div style={{ padding: '0.75rem 1rem', borderRadius: '8px', background: C.danger + '08', border: `1px solid ${C.danger}44`, fontSize: '0.83rem', color: C.danger, fontWeight: 500, lineHeight: 1.6 }}>
                     <span style={{ fontWeight: 700 }}>Cannot create profile yet.</span>{' '}
-                    The following items must be uploaded and checked off before a
-                    non-missionary volunteer profile can be created:{' '}
-                    <span style={{ fontWeight: 700 }}>{missingRequiredDocs.join(', ')}</span>.
-                    <span style={{ display: 'block', marginTop: '0.3rem', fontWeight: 400, opacity: 0.85 }}>
-                      Background Check, ID, and Immunization each require a file attachment.
-                      Welcome Packet only requires the checkbox to be marked.
-                    </span>
+                    Missing: <span style={{ fontWeight: 700 }}>{missingRequiredDocs.join(', ')}</span>.
                   </div>
                 )}
 
@@ -1709,14 +1812,6 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                 )}
               </div>
             )}
-
-            {/* Reject — always visible in onboarding, separated from step content */}
-            <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: `1px solid ${C.danger}22`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
-              <p style={{ fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic' }}>Need to remove this applicant from onboarding?</p>
-              <button onClick={() => moveToStage(applicant, 'rejected')} disabled={movingStage} style={outlineBtn(C.danger)}>
-                Reject Application
-              </button>
-            </div>
           </div>
         )}
 
@@ -1746,11 +1841,12 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-      {/* Tab switcher */}
+      {/* ── Tab switcher — now includes Email Templates ── */}
       <div style={{ display: 'flex', gap: '0.4rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
         {[
-          { id: 'pipeline', label: 'Pipeline' },
-          { id: 'recent',   label: `Recently Added${completed.length > 0 ? ` (${completed.length})` : ''}` },
+          { id: 'pipeline',  label: 'Pipeline' },
+          { id: 'recent',    label: `Recently Added${completed.length > 0 ? ` (${completed.length})` : ''}` },
+          { id: 'templates', label: 'Email Templates' },  
         ].map(tab => (
           <button
             key={tab.id}
@@ -1835,6 +1931,8 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
       {/* Recently Added tab */}
       {activeTab === 'recent' && <RecentlyAdded />}
+
+      {activeTab === 'templates' && <EmailTemplatesTab />}
 
       {toast && <Toast toast={toast} />}
 
