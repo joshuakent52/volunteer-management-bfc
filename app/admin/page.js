@@ -382,6 +382,7 @@ export default function AdminPage() {
       .from('callouts')
       .select('id,volunteer_id,callout_date,day_of_week,shift_time,role,reason,status,is_read,covered_by,submitted_at,volunteer:profiles!callouts_volunteer_id_fkey(full_name)')
       .gte('callout_date', todayStr)
+      .or('status.eq.pending,status.is.null')
       .order('callout_date', { ascending: true })
       .limit(CALLOUTS_LIMIT)
     setCallouts((data || []).map(c => ({ ...c, profiles: c.volunteer, status: c.status ?? (c.is_read ? 'approved' : 'pending') })))
