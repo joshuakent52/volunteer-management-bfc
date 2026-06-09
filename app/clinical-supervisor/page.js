@@ -231,7 +231,7 @@ export default function CSPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
           <div>
             <h1 style={{ fontSize: '1.3rem', fontWeight: 600, letterSpacing: '-0.02em', marginBottom: '0.25rem' }}>
-              Clinical Supervisor
+              Clinical Supervisor and Office Manager Dashboard
             </h1>
 
             <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
