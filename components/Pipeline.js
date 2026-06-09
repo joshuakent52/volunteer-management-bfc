@@ -160,6 +160,252 @@ function RolePicker({ selected, onChange }) {
   )
 }
 
+// ─── WelcomePacketManager ─────────────────────────────────────────────────────
+// Lifted out of Pipeline so React never remounts it during parent re-renders.
+function WelcomePacketManager({ supabase, msg, outlineBtn, solidBtn, secLabel, card }) {
+  const [packetPath, setPacketPath] = useState(null)
+  const [uploading,  setUploading]  = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => { loadPacketMeta() }, [])
+
+  async function loadPacketMeta() {
+    const { data } = await supabase
+      .from('email_templates')
+      .select('welcome_packet_path')
+      .eq('stage', 'onboarding')
+      .maybeSingle()
+    if (data?.welcome_packet_path) setPacketPath(data.welcome_packet_path)
+  }
+
+  async function handleUpload(file) {
+    setUploading(true)
+    const path = `welcome_packet.pdf`
+    const { error } = await supabase.storage
+      .from('onboarding-assets')
+      .upload(path, file, { upsert: true, contentType: 'application/pdf' })
+    if (error) { msg(error.message, 'error'); setUploading(false); return }
+
+    await supabase
+      .from('email_templates')
+      .update({ welcome_packet_path: path })
+      .eq('stage', 'onboarding')
+
+    setPacketPath(path)
+    msg('Welcome packet updated')
+    setUploading(false)
+  }
+
+  async function viewCurrent() {
+    const { data } = await supabase.storage
+      .from('onboarding-assets')
+      .createSignedUrl(packetPath, 60)
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+  }
+
+  return (
+    <div style={{
+      ...card,
+      padding: '1rem 1.25rem',
+      borderColor: C.blue + '44',
+      background: C.blue + '06',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      flexWrap: 'wrap',
+      gap: '0.75rem',
+      marginBottom: '0.5rem',
+    }}>
+      <div>
+        <p style={{ ...secLabel, marginBottom: '0.2rem', color: C.blue }}>
+          Welcome Packet Attachment
+        </p>
+        <p style={{ fontSize: '0.8rem', color: 'var(--muted)', lineHeight: 1.5 }}>
+          {packetPath
+            ? 'A PDF is attached to every onboarding email automatically.'
+            : 'No packet uploaded yet — onboarding emails will send without an attachment.'}
+        </p>
+      </div>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexShrink: 0 }}>
+        {packetPath && (
+          <button onClick={viewCurrent} style={outlineBtn(C.blue)}>
+            View Current ↗
+          </button>
+        )}
+        <input
+          ref={ref}
+          type="file"
+          accept=".pdf"
+          style={{ display: 'none' }}
+          onChange={e => {
+            const f = e.target.files?.[0]
+            if (f) handleUpload(f)
+            e.target.value = ''
+          }}
+        />
+        <button
+          onClick={() => ref.current?.click()}
+          disabled={uploading}
+          style={solidBtn(C.blue, uploading)}
+        >
+          {uploading ? 'Uploading...' : packetPath ? 'Replace Packet' : '+ Upload Packet'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── EmailTemplatesTab ────────────────────────────────────────────────────────
+// Lifted out of Pipeline so React never remounts it during parent re-renders.
+function EmailTemplatesTab({
+  supabase, profile,
+  templatesLoading, templates, setTemplates,
+  templateDrafts, setTemplateDrafts,
+  activeTemplate, setActiveTemplate,
+  savingTemplate, saveTemplate, updateDraft,
+  card, inputStyle, labelStyle, secLabel,
+  solidBtn, ghostBtn, outlineBtn, msg,
+}) {
+  if (templatesLoading) return <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading templates...</p>
+
+  const draft   = templateDrafts[activeTemplate] || templates[activeTemplate] || { subject: '', body: '' }
+  const isDirty = JSON.stringify(draft) !== JSON.stringify(templates[activeTemplate] || {})
+
+  // Preview: replace placeholders with sample values
+  const senderPreview  = profile?.full_name || 'Your Name'
+  const previewSubject = (draft.subject || '')
+    .replace(/\{\{name\}\}/g, 'Jane Doe')
+    .replace(/\{\{email\}\}/g, 'jane@example.com')
+    .replace(/\{\{sender_name\}\}/g, senderPreview)
+  const previewBody    = (draft.body    || '')
+    .replace(/\{\{name\}\}/g, 'Jane Doe')
+    .replace(/\{\{email\}\}/g, 'jane@example.com')
+    .replace(/\{\{sender_name\}\}/g, senderPreview)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+      <WelcomePacketManager
+        supabase={supabase}
+        msg={msg}
+        outlineBtn={outlineBtn}
+        solidBtn={solidBtn}
+        secLabel={secLabel}
+        card={card}
+      />
+
+      {/* Stage selector pills */}
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        {EMAIL_STAGES.map(stage => {
+          const color   = STAGE_COLORS[stage]
+          const active  = activeTemplate === stage
+          const hasDiff = JSON.stringify(templateDrafts[stage]) !== JSON.stringify(templates[stage] || {})
+          return (
+            <button
+              key={stage}
+              onClick={() => setActiveTemplate(stage)}
+              style={{
+                padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.82rem',
+                fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                background: active ? color + '18' : 'var(--surface)',
+                color: active ? color : 'var(--muted)',
+                border: active ? `1px solid ${color}55` : '1px solid var(--border)',
+                display: 'flex', alignItems: 'center', gap: '0.4rem',
+              }}
+            >
+              {TEMPLATE_LABELS[stage]}
+              {hasDiff && <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, display: 'inline-block' }} />}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Editor + Preview side by side */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'start' }}>
+
+        {/* Left: editor */}
+        <div style={{ ...card, padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <p style={{ ...secLabel, color: STAGE_COLORS[activeTemplate], marginBottom: 0 }}>
+              {TEMPLATE_LABELS[activeTemplate]}
+            </p>
+            <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>
+              Use {'{{name}}'}, {'{{email}}'}, {'{{sender_name}}'}
+            </span>
+          </div>
+
+          <div>
+            <label style={labelStyle}>Subject line</label>
+            <input
+              value={draft.subject}
+              onChange={e => updateDraft(activeTemplate, 'subject', e.target.value)}
+              placeholder="Subject…"
+              style={inputStyle}
+            />
+          </div>
+
+          <div>
+            <label style={labelStyle}>Body</label>
+            <textarea
+              value={draft.body}
+              onChange={e => updateDraft(activeTemplate, 'body', e.target.value)}
+              placeholder="Email body…"
+              rows={14}
+              style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+            {isDirty && (
+              <button
+                onClick={() => setTemplateDrafts(prev => ({ ...prev, [activeTemplate]: templates[activeTemplate] || { subject: '', body: '' } }))}
+                style={ghostBtn()}
+              >
+                Discard
+              </button>
+            )}
+            <button
+              onClick={() => saveTemplate(activeTemplate)}
+              disabled={savingTemplate || !isDirty}
+              style={solidBtn(STAGE_COLORS[activeTemplate], savingTemplate || !isDirty)}
+            >
+              {savingTemplate ? 'Saving...' : 'Save Template'}
+            </button>
+          </div>
+        </div>
+
+        {/* Right: preview */}
+        <div style={{ ...card, padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'var(--bg)' }}>
+          <p style={{ ...secLabel, marginBottom: 0 }}>Preview — sample applicant</p>
+
+          {/* Email chrome mockup */}
+          <div style={{ border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden', fontSize: '0.85rem' }}>
+            {/* Header */}
+            <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.3rem' }}>
+                <span style={{ color: 'var(--muted)', fontSize: '0.78rem', minWidth: 50 }}>To</span>
+                <span style={{ fontSize: '0.78rem' }}>Jane Doe &lt;jane@example.com&gt;</span>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <span style={{ color: 'var(--muted)', fontSize: '0.78rem', minWidth: 50 }}>Subject</span>
+                <span style={{ fontSize: '0.78rem', fontWeight: 600 }}>{previewSubject || <em style={{ opacity: 0.5 }}>No subject</em>}</span>
+              </div>
+            </div>
+            {/* Body */}
+            <div style={{ padding: '1rem', background: 'var(--surface)', whiteSpace: 'pre-wrap', lineHeight: 1.7, fontSize: '0.85rem', color: 'var(--text)', minHeight: 200 }}>
+              {previewBody || <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>No body yet</span>}
+            </div>
+          </div>
+
+          <p style={{ fontSize: '0.75rem', color: 'var(--muted)', lineHeight: 1.5 }}>
+            This email is sent automatically when an applicant is moved to <strong>{STAGE_LABELS[activeTemplate]}</strong>.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
 
@@ -1140,232 +1386,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     }))
   }
   
-  function WelcomePacketManager() {
-    const [packetPath, setPacketPath] = useState(null)
-    const [uploading,  setUploading]  = useState(false)
-    const ref = useRef(null)
 
-    useEffect(() => { loadPacketMeta() }, [])
-
-    async function loadPacketMeta() {
-      const { data } = await supabase
-        .from('email_templates')
-        .select('welcome_packet_path')
-        .eq('stage', 'onboarding')
-        .maybeSingle()
-      if (data?.welcome_packet_path) setPacketPath(data.welcome_packet_path)
-    }
-
-    async function handleUpload(file) {
-      setUploading(true)
-      const path = `welcome_packet.pdf`
-      const { error } = await supabase.storage
-        .from('onboarding-assets')
-        .upload(path, file, { upsert: true, contentType: 'application/pdf' })
-      if (error) { msg(error.message, 'error'); setUploading(false); return }
-
-      await supabase
-        .from('email_templates')
-        .update({ welcome_packet_path: path })
-        .eq('stage', 'onboarding')
-
-      setPacketPath(path)
-      msg('Welcome packet updated')
-      setUploading(false)
-    }
-
-    async function viewCurrent() {
-      const { data } = await supabase.storage
-        .from('onboarding-assets')
-        .createSignedUrl(packetPath, 60)
-      if (data?.signedUrl) window.open(data.signedUrl, '_blank')
-    }
-
-    return (
-      <div style={{
-        ...card,
-        padding: '1rem 1.25rem',
-        borderColor: C.blue + '44',
-        background: C.blue + '06',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: '0.75rem',
-        marginBottom: '0.5rem',
-      }}>
-        <div>
-          <p style={{ ...secLabel, marginBottom: '0.2rem', color: C.blue }}>
-            Welcome Packet Attachment
-          </p>
-          <p style={{ fontSize: '0.8rem', color: 'var(--muted)', lineHeight: 1.5 }}>
-            {packetPath
-              ? 'A PDF is attached to every onboarding email automatically.'
-              : 'No packet uploaded yet — onboarding emails will send without an attachment.'}
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexShrink: 0 }}>
-          {packetPath && (
-            <button onClick={viewCurrent} style={outlineBtn(C.blue)}>
-              View Current ↗
-            </button>
-          )}
-          <input
-            ref={ref}
-            type="file"
-            accept=".pdf"
-            style={{ display: 'none' }}
-            onChange={e => {
-              const f = e.target.files?.[0]
-              if (f) handleUpload(f)
-              e.target.value = ''
-            }}
-          />
-          <button
-            onClick={() => ref.current?.click()}
-            disabled={uploading}
-            style={solidBtn(C.blue, uploading)}
-          >
-            {uploading ? 'Uploading...' : packetPath ? 'Replace Packet' : '+ Upload Packet'}
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  function EmailTemplatesTab() {
-    if (templatesLoading) return <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Loading templates...</p>
-
-    const draft   = templateDrafts[activeTemplate] || templates[activeTemplate] || { subject: '', body: '' }
-    const isDirty = JSON.stringify(draft) !== JSON.stringify(templates[activeTemplate] || {})
-
-    // Preview: replace placeholders with sample values
-    const senderPreview  = profile?.full_name || 'Your Name'
-    const previewSubject = (draft.subject || '')
-      .replace(/\{\{name\}\}/g, 'Jane Doe')
-      .replace(/\{\{email\}\}/g, 'jane@example.com')
-      .replace(/\{\{sender_name\}\}/g, senderPreview)
-    const previewBody    = (draft.body    || '')
-      .replace(/\{\{name\}\}/g, 'Jane Doe')
-      .replace(/\{\{email\}\}/g, 'jane@example.com')
-      .replace(/\{\{sender_name\}\}/g, senderPreview)
-
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        
-        <WelcomePacketManager />
-
-        {/* Stage selector pills */}
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          {EMAIL_STAGES.map(stage => {
-            const color   = STAGE_COLORS[stage]
-            const active  = activeTemplate === stage
-            const hasDiff = JSON.stringify(templateDrafts[stage]) !== JSON.stringify(templates[stage] || {})
-            return (
-              <button
-                key={stage}
-                onClick={() => setActiveTemplate(stage)}
-                style={{
-                  padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.82rem',
-                  fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
-                  background: active ? color + '18' : 'var(--surface)',
-                  color: active ? color : 'var(--muted)',
-                  border: active ? `1px solid ${color}55` : '1px solid var(--border)',
-                  display: 'flex', alignItems: 'center', gap: '0.4rem',
-                }}
-              >
-                {TEMPLATE_LABELS[stage]}
-                {hasDiff && <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, display: 'inline-block' }} />}
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Editor + Preview side by side */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'start' }}>
-
-          {/* Left: editor */}
-          <div style={{ ...card, padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <p style={{ ...secLabel, color: STAGE_COLORS[activeTemplate], marginBottom: 0 }}>
-                {TEMPLATE_LABELS[activeTemplate]}
-              </p>
-              <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>
-                Use {'{{name}}'}, {'{{email}}'}, {'{{sender_name}}'}
-              </span>
-            </div>
-
-            <div>
-              <label style={labelStyle}>Subject line</label>
-              <input
-                value={draft.subject}
-                onChange={e => updateDraft(activeTemplate, 'subject', e.target.value)}
-                placeholder="Subject…"
-                style={inputStyle}
-              />
-            </div>
-
-            <div>
-              <label style={labelStyle}>Body</label>
-              <textarea
-                value={draft.body}
-                onChange={e => updateDraft(activeTemplate, 'body', e.target.value)}
-                placeholder="Email body…"
-                rows={14}
-                style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center' }}>
-              {isDirty && (
-                <button
-                  onClick={() => setTemplateDrafts(prev => ({ ...prev, [activeTemplate]: templates[activeTemplate] || { subject: '', body: '' } }))}
-                  style={ghostBtn()}
-                >
-                  Discard
-                </button>
-              )}
-              <button
-                onClick={() => saveTemplate(activeTemplate)}
-                disabled={savingTemplate || !isDirty}
-                style={solidBtn(STAGE_COLORS[activeTemplate], savingTemplate || !isDirty)}
-              >
-                {savingTemplate ? 'Saving...' : 'Save Template'}
-              </button>
-            </div>
-          </div>
-
-          {/* Right: preview */}
-          <div style={{ ...card, padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'var(--bg)' }}>
-            <p style={{ ...secLabel, marginBottom: 0 }}>Preview — sample applicant</p>
-
-            {/* Email chrome mockup */}
-            <div style={{ border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden', fontSize: '0.85rem' }}>
-              {/* Header */}
-              <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
-                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.3rem' }}>
-                  <span style={{ color: 'var(--muted)', fontSize: '0.78rem', minWidth: 50 }}>To</span>
-                  <span style={{ fontSize: '0.78rem' }}>Jane Doe &lt;jane@example.com&gt;</span>
-                </div>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <span style={{ color: 'var(--muted)', fontSize: '0.78rem', minWidth: 50 }}>Subject</span>
-                  <span style={{ fontSize: '0.78rem', fontWeight: 600 }}>{previewSubject || <em style={{ opacity: 0.5 }}>No subject</em>}</span>
-                </div>
-              </div>
-              {/* Body */}
-              <div style={{ padding: '1rem', background: 'var(--surface)', whiteSpace: 'pre-wrap', lineHeight: 1.7, fontSize: '0.85rem', color: 'var(--text)', minHeight: 200 }}>
-                {previewBody || <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>No body yet</span>}
-              </div>
-            </div>
-
-            <p style={{ fontSize: '0.75rem', color: 'var(--muted)', lineHeight: 1.5 }}>
-              This email is sent automatically when an applicant is moved to <strong>{STAGE_LABELS[activeTemplate]}</strong>.
-            </p>
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   // ─────────────────────────── RECENTLY ADDED ───────────────────────────────
 
@@ -1932,7 +1953,30 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       {/* Recently Added tab */}
       {activeTab === 'recent' && <RecentlyAdded />}
 
-      {activeTab === 'templates' && <EmailTemplatesTab />}
+      {activeTab === 'templates' && (
+        <EmailTemplatesTab
+          supabase={supabase}
+          profile={profile}
+          templatesLoading={templatesLoading}
+          templates={templates}
+          setTemplates={setTemplates}
+          templateDrafts={templateDrafts}
+          setTemplateDrafts={setTemplateDrafts}
+          activeTemplate={activeTemplate}
+          setActiveTemplate={setActiveTemplate}
+          savingTemplate={savingTemplate}
+          saveTemplate={saveTemplate}
+          updateDraft={updateDraft}
+          card={card}
+          inputStyle={inputStyle}
+          labelStyle={labelStyle}
+          secLabel={secLabel}
+          solidBtn={solidBtn}
+          ghostBtn={ghostBtn}
+          outlineBtn={outlineBtn}
+          msg={msg}
+        />
+      )}
 
       {toast && <Toast toast={toast} />}
 
