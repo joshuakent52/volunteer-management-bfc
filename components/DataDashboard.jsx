@@ -304,12 +304,28 @@ function NoShowRow({ v, isHigh, onNameClick }) {
           {v.name}
         </button>
       </div>
-      <span style={{
-        fontFamily: 'DM Mono, monospace', fontSize: '0.85rem', fontWeight: 700,
-        color: isHigh ? '#ef4444' : 'var(--muted)',
-      }}>
-        {v.count} absence{v.count !== 1 ? 's' : ''}
-      </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+        {/* Proportion bar */}
+        <div style={{ width: '60px', height: '5px', borderRadius: '3px', background: 'var(--border)', overflow: 'hidden' }}>
+          <div style={{
+            height: '100%',
+            width: `${v.rate}%`,
+            background: isHigh ? '#ef4444' : 'rgba(2,65,107,0.5)',
+            borderRadius: '3px',
+            transition: 'width 0.4s ease',
+          }} />
+        </div>
+        <span style={{
+          fontFamily: 'DM Mono, monospace', fontSize: '0.85rem', fontWeight: 700,
+          color: isHigh ? '#ef4444' : 'var(--muted)',
+          minWidth: '34px', textAlign: 'right',
+        }}>
+          {v.rate}%
+        </span>
+        <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>
+          {v.count}/{v.total} shifts
+        </span>
+      </div>
     </div>
   )
 }
@@ -633,7 +649,12 @@ export default function DataDashboard({ supabase }) {
   const [topOpen,     setTopOpen]     = useState(false)
 
   const [noShowOpen,  setNoShowOpen]  = useState(false)
+  const [noShowMonth, setNoShowMonth] = useState(new Date().getMonth() + 1)
+  const [noShowYear,  setNoShowYear]  = useState(CURRENT_YEAR)
+
   const [lateOpen,    setLateOpen]    = useState(false)
+  const [lateMonth,   setLateMonth]   = useState(new Date().getMonth() + 1)
+  const [lateYear,    setLateYear]    = useState(CURRENT_YEAR)
 
   // ── Weekly hours chart state ──────────────────────────────
   const [weeklyChartOpen,   setWeeklyChartOpen]   = useState(false)
@@ -778,29 +799,38 @@ export default function DataDashboard({ supabase }) {
       (excuseRows || []).map(r => `${r.volunteer_id}|${r.shift_date}|${r.shift_time ?? ''}`)
     )
 
-    const now = new Date()
-    const day = now.getDay()
-
-    const thisMonday = new Date(now)
-    thisMonday.setDate(now.getDate() - (day === 0 ? 6 : day - 1))
-    thisMonday.setHours(0, 0, 0, 0)
-
-    const monday = new Date(thisMonday)
-    monday.setDate(thisMonday.getDate() - 7)
-
-    const friday = new Date(monday)
-    friday.setDate(monday.getDate() + 4)
-    friday.setHours(23, 59, 59, 999)
-
     const inactiveIds = new Set(
       profiles.filter(p => p.status === 'inactive').map(p => p.id)
     )
 
-    // No-shows — from ATTENDANCE_CUTOFF onward, paginated
+    // ── Helper: compute date range from month/year selectors ──
+    function getDateRange(month, year) {
+      if (year === 0) return { fromDate: ATTENDANCE_CUTOFF, toDate: `${CURRENT_YEAR}-12-31` }
+      if (month === 0) return { fromDate: `${year}-01-01`, toDate: `${year}-12-31` }
+      const mm = String(month).padStart(2, '0')
+      const lastDay = new Date(year, month, 0).getDate()
+      return { fromDate: `${year}-${mm}-01`, toDate: `${year}-${mm}-${lastDay}` }
+    }
+
+    // ── No-shows ──────────────────────────────────────────────
+    const { fromDate: nsFrom, toDate: nsTo } = getDateRange(noShowMonth, noShowYear)
+
+    // Fetch total scheduled shifts per volunteer in the no-show period (for proportion)
+    const totalShiftsForNS = await fetchAllRows(supabase, 'attendance_records', (q) =>
+      q.select('volunteer_id')
+        .gte('shift_date', nsFrom > ATTENDANCE_CUTOFF ? nsFrom : ATTENDANCE_CUTOFF)
+        .lte('shift_date', nsTo)
+    )
+    const totalShiftsByVolNS = {}
+    ;(totalShiftsForNS || []).forEach(r => {
+      totalShiftsByVolNS[r.volunteer_id] = (totalShiftsByVolNS[r.volunteer_id] || 0) + 1
+    })
+
     const absentData = await fetchAllRows(supabase, 'attendance_records', (q) =>
       q.select('volunteer_id, shift_date, shift_time, role, profiles(full_name)')
         .eq('status', 'absent')
-        .gte('shift_date', ATTENDANCE_CUTOFF)
+        .gte('shift_date', nsFrom > ATTENDANCE_CUTOFF ? nsFrom : ATTENDANCE_CUTOFF)
+        .lte('shift_date', nsTo)
         .order('shift_date', { ascending: false })
     )
 
@@ -808,7 +838,6 @@ export default function DataDashboard({ supabase }) {
     ;(absentData || []).forEach(r => {
       if (excusedIds.has(r.volunteer_id)) return
       if (inactiveIds.has(r.volunteer_id)) return
-      // Skip individually excused records
       const key = `${r.volunteer_id}|${r.shift_date}|${r.shift_time ?? ''}`
       if (excuseKeySet.has(key)) return
       if (!absentMap[r.volunteer_id]) absentMap[r.volunteer_id] = { records: [], name: null }
@@ -822,32 +851,35 @@ export default function DataDashboard({ supabase }) {
     })
 
     const allTime = []
-    const pastWeek = []
-
     Object.entries(absentMap).forEach(([id, { name, records }]) => {
-      const weekRecords = records.filter(r => {
-        const date = new Date(r.shift_date + 'T00:00:00')
-        return date >= monday && date <= friday
-      })
-
-      allTime.push({ id, name, count: records.length, records })
-
-      if (weekRecords.length > 0) {
-        pastWeek.push({ id, name, count: weekRecords.length, records: weekRecords })
-      }
+      const total = totalShiftsByVolNS[id] || records.length
+      const rate  = Math.round((records.length / total) * 100)
+      allTime.push({ id, name, count: records.length, total, rate, records })
     })
-
-    allTime.sort((a, b) => b.count - a.count)
-    pastWeek.sort((a, b) => b.count - a.count)
+    allTime.sort((a, b) => b.rate - a.rate || b.count - a.count)
 
     setNoShowsAll(allTime)
-    setNoShowsWeek(pastWeek)
+    setNoShowsWeek([]) // kept for compatibility; not currently shown
 
-    // Late arrivals — from ATTENDANCE_CUTOFF onward, paginated
+    // ── Late arrivals ─────────────────────────────────────────
+    const { fromDate: ltFrom, toDate: ltTo } = getDateRange(lateMonth, lateYear)
+
+    // Fetch total scheduled shifts per volunteer in the late period (for proportion)
+    const totalShiftsForLate = await fetchAllRows(supabase, 'attendance_records', (q) =>
+      q.select('volunteer_id')
+        .gte('shift_date', ltFrom > ATTENDANCE_CUTOFF ? ltFrom : ATTENDANCE_CUTOFF)
+        .lte('shift_date', ltTo)
+    )
+    const totalShiftsByVolLate = {}
+    ;(totalShiftsForLate || []).forEach(r => {
+      totalShiftsByVolLate[r.volunteer_id] = (totalShiftsByVolLate[r.volunteer_id] || 0) + 1
+    })
+
     const lateData = await fetchAllRows(supabase, 'attendance_records', (q) =>
       q.select('volunteer_id, shift_date, shift_time, late_minutes, profiles(full_name)')
         .eq('status', 'late')
-        .gte('shift_date', ATTENDANCE_CUTOFF)
+        .gte('shift_date', ltFrom > ATTENDANCE_CUTOFF ? ltFrom : ATTENDANCE_CUTOFF)
+        .lte('shift_date', ltTo)
         .order('shift_date', { ascending: false })
     )
 
@@ -870,17 +902,23 @@ export default function DataDashboard({ supabase }) {
     setLatePeople(
       Object.entries(lateMap)
         .filter(([, { records }]) => records.length >= 2)
-        .map(([id, { name, records }]) => ({
-          id, name,
-          count: records.length,
-          avgLate: Math.round(
-            records.reduce((s, r) => s + (r.late_minutes || 0), 0) / records.length
-          ),
-          records,
-        }))
-        .sort((a, b) => b.count - a.count)
+        .map(([id, { name, records }]) => {
+          const total = totalShiftsByVolLate[id] || records.length
+          const rate  = Math.round((records.length / total) * 100)
+          return {
+            id, name,
+            count: records.length,
+            total,
+            rate,
+            avgLate: Math.round(
+              records.reduce((s, r) => s + (r.late_minutes || 0), 0) / records.length
+            ),
+            records,
+          }
+        })
+        .sort((a, b) => b.rate - a.rate || b.count - a.count)
     )
-  }, [supabase, profiles])
+  }, [supabase, profiles, noShowMonth, noShowYear, lateMonth, lateYear])
 
   // ── Missing info — missionaries:sma, students:school, all:birthday ──
   // (section removed)
@@ -989,8 +1027,9 @@ export default function DataDashboard({ supabase }) {
       .finally(() => setLoading(false))
   }, [profiles]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { if (profiles.length) loadHours()    }, [hoursMonth, hoursYear, hoursAff, loadHours])
-  useEffect(() => { if (profiles.length) loadTopHours() }, [topMonth, topYear, topAff, topCount, loadTopHours])
+  useEffect(() => { if (profiles.length) loadHours()      }, [hoursMonth, hoursYear, hoursAff, loadHours])
+  useEffect(() => { if (profiles.length) loadTopHours()   }, [topMonth, topYear, topAff, topCount, loadTopHours])
+  useEffect(() => { if (profiles.length) loadAttendance() }, [noShowMonth, noShowYear, lateMonth, lateYear, loadAttendance]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Chart loaders — independent of profiles
   useEffect(() => { loadWeeklyChart() }, [loadWeeklyChart])
@@ -1114,26 +1153,35 @@ export default function DataDashboard({ supabase }) {
         <div style={card}>
           <div style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            flexWrap: 'wrap', gap: '0.75rem',
             marginBottom: noShowOpen ? '1rem' : 0,
           }}>
-            <button onClick={() => setNoShowOpen(s => !s)} style={collapseBtn}>
-              <Chevron open={noShowOpen} />
-              <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>No-Shows</span>
-              {(noShowsAll.length > 0 || noShowsWeek.length > 0) && (
-                <span style={{ ...pillStyle('#02416b') }}>
-                  {noShowsAll.length}
-                </span>
-              )}
-            </button>
-            <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>
-              Click a name to view shifts missed. Since March 29.
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button onClick={() => setNoShowOpen(s => !s)} style={collapseBtn}>
+                <Chevron open={noShowOpen} />
+                <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>No-Shows</span>
+                {noShowsAll.length > 0 && (
+                  <span style={{ ...pillStyle('#02416b') }}>
+                    {noShowsAll.length}
+                  </span>
+                )}
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>Click a name to view shifts missed.</span>
+              <select value={noShowMonth} onChange={e => setNoShowMonth(Number(e.target.value))} disabled={noShowYear === 0} style={{ ...sel, opacity: noShowYear === 0 ? 0.4 : 1 }}>
+                {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+              <select value={noShowYear} onChange={e => setNoShowYear(Number(e.target.value))} style={sel}>
+                {YEARS.map(y => <option key={y.value} value={y.value}>{y.label}</option>)}
+              </select>
+            </div>
           </div>
 
           {noShowOpen && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
-              {/* ── All Time banner ── */}
+              {/* ── Filtered period list ── */}
               <div style={{
                 borderRadius: '10px', border: '1px solid var(--border)',
                 background: 'var(--bg)', padding: '1rem',
@@ -1142,17 +1190,17 @@ export default function DataDashboard({ supabase }) {
                   display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem',
                 }}>
                   <span style={{ fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)' }}>
-                    All Time
+                    {noShowMonth === 0 ? (noShowYear === 0 ? 'All Time' : String(noShowYear)) : `${MONTHS.find(m => m.value === noShowMonth)?.label} ${noShowYear}`}
                   </span>
                   <span style={{ fontSize: '0.72rem', color: 'var(--muted)', fontStyle: 'italic' }}>
-                    since {fmtDate(ATTENDANCE_CUTOFF)}
+                    · sorted by % of shifts missed
                   </span>
                   {noShowsAll.length > 0 && (
                     <span style={{ ...pillStyle('#9ca3af') }}>{noShowsAll.length}</span>
                   )}
                 </div>
                 {noShowsAll.length === 0 ? (
-                  <p style={{ color: 'var(--muted)', fontSize: '0.88rem' }}>No absences recorded.</p>
+                  <p style={{ color: 'var(--muted)', fontSize: '0.88rem' }}>No absences recorded for this period.</p>
                 ) : (
                   noShowsAll.map(v => (
                     <NoShowRow
@@ -1173,20 +1221,31 @@ export default function DataDashboard({ supabase }) {
         <div style={card}>
           <div style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            flexWrap: 'wrap', gap: '0.75rem',
             marginBottom: lateOpen && latePeople.length > 0 ? '1rem' : 0,
           }}>
-            <button onClick={() => setLateOpen(s => !s)} style={collapseBtn}>
-              <Chevron open={lateOpen} />
-              <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>Repeat Late Arrivals</span>
-              {latePeople.length > 0 && (
-                <span style={{ ...pillStyle('#92a6b9') }}>{latePeople.length}</span>
-              )}
-            </button>
-            <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>≥2 times · since Mar 29</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <button onClick={() => setLateOpen(s => !s)} style={collapseBtn}>
+                <Chevron open={lateOpen} />
+                <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>Repeat Late Arrivals</span>
+                {latePeople.length > 0 && (
+                  <span style={{ ...pillStyle('#92a6b9') }}>{latePeople.length}</span>
+                )}
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>≥2 times</span>
+              <select value={lateMonth} onChange={e => setLateMonth(Number(e.target.value))} disabled={lateYear === 0} style={{ ...sel, opacity: lateYear === 0 ? 0.4 : 1 }}>
+                {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+              <select value={lateYear} onChange={e => setLateYear(Number(e.target.value))} style={sel}>
+                {YEARS.map(y => <option key={y.value} value={y.value}>{y.label}</option>)}
+              </select>
+            </div>
           </div>
           {lateOpen && (
             latePeople.length === 0 ? (
-              <p style={{ color: 'var(--muted)', fontSize: '0.9rem', marginTop: '0.75rem' }}>No repeat late arrivals since Mar 29.</p>
+              <p style={{ color: 'var(--muted)', fontSize: '0.9rem', marginTop: '0.75rem' }}>No repeat late arrivals for this period.</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {latePeople.map(v => {
@@ -1207,10 +1266,23 @@ export default function DataDashboard({ supabase }) {
                         <span style={{ fontWeight: isHigh ? 700 : 500, fontSize: '0.9rem', color: isHigh ? '#f59e0b' : 'var(--text)' }}>{v.name}</span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.85rem', fontWeight: 700, color: isHigh ? '#f59e0b' : 'var(--muted)' }}>
-                          {v.count}× late
+                        {/* Proportion bar */}
+                        <div style={{ width: '60px', height: '5px', borderRadius: '3px', background: 'var(--border)', overflow: 'hidden' }}>
+                          <div style={{
+                            height: '100%',
+                            width: `${v.rate}%`,
+                            background: isHigh ? '#f59e0b' : 'rgba(245,158,11,0.5)',
+                            borderRadius: '3px',
+                            transition: 'width 0.4s ease',
+                          }} />
+                        </div>
+                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.85rem', fontWeight: 700, color: isHigh ? '#f59e0b' : 'var(--muted)', minWidth: '34px', textAlign: 'right' }}>
+                          {v.rate}%
                         </span>
-                        <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>avg {v.avgLate}m</span>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>
+                          {v.count}/{v.total} shifts
+                        </span>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>avg {v.avgLate}m late</span>
                       </div>
                     </div>
                   )
