@@ -369,18 +369,34 @@ export default function VolunteerPage() {
         .order('callout_date', { ascending: true }),
       supabase
         .from('shift_cover_requests')
-        .select('id, callout_id, status, callout:callouts!shift_cover_requests_callout_id_fkey(callout_date, day_of_week, shift_time, role, volunteer:profiles!callouts_volunteer_id_fkey(full_name))')
+        .select('id, callout_id, status, callout:callouts!shift_cover_requests_callout_id_fkey(callout_date, day_of_week, shift_time, role, volunteer_id)')
         .eq('volunteer_id', userId)
-        .eq('status', 'approved')
-        .gte('callouts.callout_date', today),
+        .eq('status', 'approved'),
     ])
-
+    
     setSchedule(sched || [])
     setApprovedCallouts(myCallouts || [])
-    // Filter out any cover rows where the joined callout date is in the past
-    // (the .gte filter above applies to the join, but guard here too)
+    
+    const volunteerIds = [...new Set((myCoverReqs || []).map(r => r.callout?.volunteer_id).filter(Boolean))]
+    let volunteerNames = {}
+    if (volunteerIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', volunteerIds)
+      ;(profiles || []).forEach(p => { volunteerNames[p.id] = p.full_name })
+    }
+    
+    const coversWithNames = (myCoverReqs || []).map(r => ({
+      ...r,
+      callout: r.callout ? {
+        ...r.callout,
+        volunteer: { full_name: volunteerNames[r.callout.volunteer_id] || null }
+      } : null
+    }))
+    
     setApprovedCovers(
-      (myCoverReqs || []).filter(r => r.callout?.callout_date >= today)
+      coversWithNames.filter(r => r.callout?.callout_date >= today)
     )
   }, [user?.id])
 
