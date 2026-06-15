@@ -430,6 +430,17 @@ export function MessageTab({
     return () => document.removeEventListener('mousedown', handleMouseDown)
   }, [user])
 
+  // ── Unlock pinch-to-zoom when lightbox is open on mobile ───────────────────
+  useEffect(() => {
+    const viewport = document.querySelector('meta[name="viewport"]')
+    if (!viewport) return
+    if (lightboxUrl) {
+      viewport.setAttribute('content', 'width=device-width, initial-scale=1')
+    } else {
+      viewport.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no')
+    }
+  }, [lightboxUrl])
+
   // ── Data fetching ──────────────────────────────────────────────────────────
   const fetchMessages = useCallback(async () => {
     if (!user) return
