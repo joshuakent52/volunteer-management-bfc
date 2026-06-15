@@ -1066,21 +1066,50 @@ export function MessageTab({
         </div>
       )}
 
-      {/* Lightbox */}
       {lightboxUrl && (
         <div
-          onClick={() => setLightboxUrl(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1.5rem', cursor: 'zoom-out' }}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
+            zIndex: 1000,
+            overflow: 'auto',           // allows scroll when zoomed
+            touchAction: 'pinch-zoom',  // enables native pinch-to-zoom
+            WebkitOverflowScrolling: 'touch',
+          }}
         >
-          <img
-            src={lightboxUrl}
-            alt="Full size"
-            style={{ maxWidth: '100%', maxHeight: '90vh', borderRadius: '10px', objectFit: 'contain', boxShadow: '0 8px 40px rgba(0,0,0,0.5)' }}
-            onClick={e => e.stopPropagation()}
-          />
+          {/* Tappable backdrop to close */}
+          <div
+            onClick={() => setLightboxUrl(null)}
+            style={{
+              position: 'fixed', inset: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <img
+              src={lightboxUrl}
+              alt="Full size"
+              style={{
+                maxWidth: '100%',
+                maxHeight: '90vh',
+                borderRadius: '10px',
+                objectFit: 'contain',
+                boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+                touchAction: 'pinch-zoom', // critical — don't block touch on the image
+              }}
+              onClick={e => e.stopPropagation()} // tap image doesn't close
+            />
+          </div>
+
+          {/* Close button */}
           <button
             onClick={() => setLightboxUrl(null)}
-            style={{ position: 'fixed', top: '1rem', right: '1rem', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '50%', color: '#fff', width: '36px', height: '36px', cursor: 'pointer', fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            style={{
+              position: 'fixed', top: '1rem', right: '1rem',
+              background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
+              borderRadius: '50%', color: '#fff', width: '36px', height: '36px',
+              cursor: 'pointer', fontSize: '1rem',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              zIndex: 1001,
+            }}
           >
             ✕
           </button>
