@@ -1194,7 +1194,7 @@ export default function AdminPage() {
             {showClinicOpenings && <div style={{ marginBottom: '1.25rem' }}><ClinicOpenings onClose={() => setShowClinicOpenings(false)} /></div>}
             {!showClinicOpenings && !showWaitlist && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {ROLES.map(role => {
+                {ROLES.filter(role => role !== 'Provider' && role !== 'Director').map(role => {
                   const entries = getEntries(scheduleDay, scheduleShift, role)
                   const isOpen = addingRole === role
                   return (
