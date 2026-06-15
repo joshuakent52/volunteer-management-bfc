@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase'
 import { SHIFTS, ROLES } from '../../lib/constants'
 import { recurringAppliesToDate, getEffectiveProviderIds } from '../../lib/scheduleUtils'
 import { SubmitHoursPanel } from '../../components/SubmitHoursPanel'
+import { subscribeToPush, unsubscribeFromPush } from '../../lib/pushNotifications.js'
 
 const MessageTab = nextDynamic(() => import('../../components/MessageTab').then(m => m.MessageTab), { ssr: false })
 
@@ -82,8 +83,15 @@ function TabButton({ id, label, active, onClick }) {
     <button
       onClick={() => onClick(id)}
       style={{
-        padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500,
-        cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+        padding: '0.5rem 0',
+        width: '90px',
+        minWidth: '90px',
+        textAlign: 'center',
+        borderRadius: '8px',
+        fontSize: '0.875rem',
+        fontWeight: 500,
+        cursor: 'pointer',
+        fontFamily: 'DM Sans, sans-serif',
         background: active ? 'var(--accent)' : 'var(--surface)',
         color: active ? '#fff' : 'var(--muted)',
         border: active ? 'none' : '1px solid var(--border)',
@@ -137,6 +145,9 @@ export default function ProviderPage() {
   const [pastShiftsOpen, setPastShiftsOpen] = useState(false)
   const [loadingPastShifts, setLoadingPastShifts] = useState(false)
   const [totalHours, setTotalHours]       = useState(null)
+
+  const [pushEnabled, setPushEnabled]   = useState(false)
+  const [pushLoading, setPushLoading]   = useState(false)
 
   const fetchedTabs = useRef(new Set())
   const hasVisitedMessages = useRef(false)
@@ -456,7 +467,7 @@ export default function ProviderPage() {
         </div>
 
         {/* Tabs */}
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
           {[['home', 'My Shifts'], ['schedule', 'Schedule'], ['messages', 'Messages'], ['account', 'Account']].map(([key, label]) => (
             <TabButton key={key} id={key} label={label} active={tab === key} onClick={t => setTab(t)} />
           ))}
@@ -811,6 +822,24 @@ export default function ProviderPage() {
               showToast={showToast}
               defaultRole={profile?.default_role}
             />
+
+            {/* Push notifications */}
+            <div style={S.card}>
+              <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Notifications</h2>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Get notified about new messages and shift updates.</p>
+              <button
+                onClick={async () => {
+                  setPushLoading(true)
+                  if (pushEnabled) { await unsubscribeFromPush(supabase, user.id); setPushEnabled(false) }
+                  else { const sub = await subscribeToPush(supabase, user.id); setPushEnabled(!!sub); if (!sub) showToast('Notification permission denied', 'error') }
+                  setPushLoading(false)
+                }}
+                disabled={pushLoading}
+                style={{ padding: '0.85rem', width: '100%', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: pushLoading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', background: pushEnabled ? 'var(--danger)' : 'var(--accent)', color: '#fff' }}
+              >
+                {pushLoading ? 'Working...' : pushEnabled ? 'Turn off notifications' : 'Turn on notifications'}
+              </button>
+            </div>
 
             {/* Change password */}
             <div style={S.card}>
