@@ -519,16 +519,7 @@ export function MessageTab({
       .map(m => m.id)
     if (broadcastIds.length === 0) return
     const { data, error } = await supabase.rpc('get_broadcast_read_counts', { message_ids: broadcastIds })
-    if (error) {
-      const { data: fallback } = await supabase
-        .from('message_read_counts')
-        .select('message_id, read_count')
-        .in('message_id', broadcastIds)
-      const map = {}
-      ;(fallback || []).forEach(r => { map[r.message_id] = Number(r.read_count) })
-      setBroadcastReadCounts(prev => ({ ...prev, ...map }))
-      return
-    }
+    if (error) return
     const map = {}
     ;(data || []).forEach(r => { map[r.message_id] = Number(r.read_count) })
     setBroadcastReadCounts(prev => ({ ...prev, ...map }))
