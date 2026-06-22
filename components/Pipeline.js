@@ -422,6 +422,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   const [movingStage,     setMovingStage]     = useState(false)
   const [affiliationModal, setAffiliationModal] = useState(null)   // { applicant } | null
   const [affiliationPick,  setAffiliationPick]  = useState('')      // value chosen in modal
+  const [rejectModal,      setRejectModal]      = useState(null)   // { applicant } | null — choose notify-email vs silent reject
   const [interviewDate,   setInterviewDate]   = useState('')
   const [interviewTime,   setInterviewTime]   = useState('')
   const [savingInterview, setSavingInterview] = useState(false)
@@ -809,20 +810,37 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   // ─── Pipeline actions ─────────────────────────────────────────────────────
 
   // ── MODIFIED: moveToStage now fires sendStageEmail after a successful move ─
-  async function moveToStage(applicant, stage) {
+  // opts.silent — when true (used for rejections), skips sendStageEmail entirely
+  async function moveToStage(applicant, stage, opts = {}) {
     setMovingStage(true)
     const { error } = await supabase.from('volunteer_applications')
       .update({ stage, stage_updated_at: new Date().toISOString() }).eq('id', applicant.id)
     if (error) {
       msg(error.message, 'error')
     } else {
-      await audit(`pipeline_${stage}`, 'applicant', applicant.id, applicant.full_name, stage)
+      await audit(`pipeline_${stage}`, 'applicant', applicant.id, applicant.full_name, opts.silent ? `${stage} (silent — no email sent)` : stage)
       await loadApplicants()
       setSelected(prev => prev?.id === applicant.id ? { ...prev, stage } : prev)
 
-      await sendStageEmail(applicant, stage)
+      if (opts.silent) {
+        msg(`Moved to ${STAGE_LABELS[stage] ?? stage} — no email sent`)
+      } else {
+        await sendStageEmail(applicant, stage)
+      }
     }
     setMovingStage(false)
+  }
+
+  // ── NEW: opens the reject modal so the admin can choose notify-email vs silent ─
+  function openRejectModal(applicant) {
+    setRejectModal({ applicant })
+  }
+
+  async function confirmReject(silent) {
+    if (!rejectModal) return
+    const { applicant } = rejectModal
+    setRejectModal(null)
+    await moveToStage(applicant, 'rejected', { silent })
   }
 
   // ── NEW: opens the affiliation modal before moving to onboarding ──────────
@@ -1523,6 +1541,87 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
     )
   }
 
+  // ── NEW: lets the admin choose between a normal rejection (sends the
+  // Rejection Notice email) and a silent rejection (no email at all — for
+  // accidental applications, requests to be withdrawn, wrong-system submissions, etc.) ──
+  function RejectModal() {
+    if (!rejectModal) return null
+    const { applicant } = rejectModal
+
+    return (
+      <div
+        style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(2,30,55,0.55)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}
+        onClick={e => { if (e.target === e.currentTarget && !movingStage) setRejectModal(null) }}
+      >
+        <div style={{ background: 'var(--surface)', borderRadius: '14px', border: '1px solid var(--border)', boxShadow: '0 8px 48px rgba(2,65,107,0.22)', width: '100%', maxWidth: 440, padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+          {/* Header */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.75rem' }}>
+            <div>
+              <p style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '0.25rem' }}>
+                Reject Application
+              </p>
+              <p style={{ fontSize: '0.82rem', color: 'var(--muted)', lineHeight: 1.5 }}>
+                Choose how to reject <strong>{applicant.full_name}</strong>. This determines whether they receive a rejection email.
+              </p>
+            </div>
+            {!movingStage && (
+              <button
+                onClick={() => setRejectModal(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1, padding: '0.1rem 0.3rem', flexShrink: 0 }}
+                title="Cancel"
+              >×</button>
+            )}
+          </div>
+
+          {/* Options */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            <button
+              onClick={() => confirmReject(false)}
+              disabled={movingStage}
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.2rem',
+                padding: '0.75rem 0.9rem', borderRadius: '10px', textAlign: 'left',
+                border: `1px solid ${C.danger}55`, background: C.danger + '0a',
+                cursor: movingStage ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif',
+              }}
+            >
+              <span style={{ fontWeight: 700, fontSize: '0.88rem', color: C.danger }}>Notify &amp; Email</span>
+              <span style={{ fontSize: '0.76rem', color: 'var(--muted)', lineHeight: 1.4 }}>
+                Sends the <strong>Rejection Notice</strong> template to {applicant.email}.
+              </span>
+            </button>
+
+            <button
+              onClick={() => confirmReject(true)}
+              disabled={movingStage}
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.2rem',
+                padding: '0.75rem 0.9rem', borderRadius: '10px', textAlign: 'left',
+                border: '1px solid var(--border)', background: 'var(--bg)',
+                cursor: movingStage ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif',
+              }}
+            >
+              <span style={{ fontWeight: 700, fontSize: '0.88rem' }}>Silent Reject</span>
+              <span style={{ fontSize: '0.76rem', color: 'var(--muted)', lineHeight: 1.4 }}>
+                No email is sent. Use for accidental, duplicate, or out-of-system applications (e.g. they emailed asking to be withdrawn).
+              </span>
+            </button>
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            {!movingStage && (
+              <button onClick={() => setRejectModal(null)} style={ghostBtn()}>
+                Cancel
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // ─── Parking pass modal helpers ───────────────────────────────────────────
 
   function openParkingPassModal(applicantId, applicantName, isRecent = false) {
@@ -1931,7 +2030,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
             <p style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '1rem', lineHeight: 1.5 }}>Review this application and decide whether to schedule an interview or reject it.</p>
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
               <button onClick={() => moveToStage(applicant, 'interview')} disabled={movingStage} style={outlineBtn(C.warn)}>Move to Interview</button>
-              <button onClick={() => moveToStage(applicant, 'rejected')} disabled={movingStage} style={outlineBtn(C.danger)}>Reject Application</button>
+              <button onClick={() => openRejectModal(applicant)} disabled={movingStage} style={outlineBtn(C.danger)}>Reject Application</button>
             </div>
           </div>
         )}
@@ -1966,7 +2065,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
               <button onClick={() => openAffiliationModal(applicant)} disabled={movingStage || !applicant.interview_scheduled_at} style={outlineBtn(applicant.interview_scheduled_at ? C.blue : C.muted)}>
                 Accept — Move to Onboarding
               </button>
-              <button onClick={() => moveToStage(applicant, 'rejected')} disabled={movingStage} style={outlineBtn(C.danger)}>Reject Application</button>
+              <button onClick={() => openRejectModal(applicant)} disabled={movingStage} style={outlineBtn(C.danger)}>Reject Application</button>
             </div>
           </div>
         )}
@@ -2141,7 +2240,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
             {/* Reject — always visible in onboarding, separated from step content */}
             <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: `1px solid ${C.danger}22`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
               <p style={{ fontSize: '0.78rem', color: 'var(--muted)', fontStyle: 'italic' }}>Need to remove this applicant from onboarding?</p>
-              <button onClick={() => moveToStage(applicant, 'rejected')} disabled={movingStage} style={outlineBtn(C.danger)}>
+              <button onClick={() => openRejectModal(applicant)} disabled={movingStage} style={outlineBtn(C.danger)}>
                 Reject Application
               </button>
             </div>
@@ -2166,6 +2265,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
         <ApplicantDetail applicant={selected} />
         {toast && <Toast toast={toast} />}
         <AffiliationModal />
+        <RejectModal />
         <ParkingPassModal />
         <ConfidentialityModal />
       </div>
@@ -2294,6 +2394,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
       {toast && <Toast toast={toast} />}
 
       <AffiliationModal />
+      <RejectModal />
       <ParkingPassModal />
       <ConfidentialityModal />
 
