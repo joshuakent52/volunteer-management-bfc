@@ -273,6 +273,28 @@ function ProviderScheduleView({ supabase, providers }) {
     const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
     const dayOfWeek = dayNames[d.getDay()]
 
+    // ✅ Live server-side check — never trust stale slotData/monthData for capacity.
+    // Without this, a callout logged elsewhere (or just a panel that's been open
+    // a while) makes this insert blind to who's actually still covering the shift.
+    const [{ data: liveOneTime }, { data: liveRecurring }, { data: liveCallouts }] = await Promise.all([
+      supabase.from('provider_shifts')
+        .select('provider_id')
+        .eq('shift_date', date).eq('shift_time', shift),
+      supabase.from('provider_recurring_schedule')
+        .select('provider_id, day_of_week, shift_time, week_pattern, start_date, end_date'),
+      supabase.from('provider_callouts')
+        .select('provider_id, shift_date, shift_time')
+        .eq('shift_date', date).eq('shift_time', shift),
+    ])
+    const liveCount = getEffectiveProviderIds(date, shift, liveOneTime || [], liveRecurring || [], liveCallouts || []).size
+    if (liveCount >= 3) {
+      alert('This shift just filled up (3/3 providers). Refreshing the panel.')
+      if (viewMode === 'week') await fetchWeekData()
+      else await fetchMonthData()
+      setAssigning(false)
+      return
+    }
+
     const { error } = await supabase.from('provider_shifts').insert({
       provider_id: assigningId,
       shift_date:  date,
