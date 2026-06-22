@@ -213,9 +213,14 @@ export default function CSPage() {
                             {isIn && (
                               <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.45rem', borderRadius: '100px', background: 'rgba(74,222,128,0.12)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.3)', fontWeight: 600 }}>in</span>
                             )}
-                            {vol.phone && (
-                              <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', color: 'var(--muted)' }}>{vol.phone}</span>
-                            )}
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.2rem' }}>
+                              {vol.phone && (
+                                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', color: 'var(--muted)' }}>{vol.phone}</span>
+                              )}
+                              {vol.email && (
+                                <a href={`mailto:${vol.email}`} style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.75rem', color: 'var(--muted)', textDecoration: 'none' }}>{vol.email}</a>
+                              )}
+                            </div>
                           </div>
                         </div>
                       )
@@ -389,6 +394,14 @@ export default function CSPage() {
                                 <div>
                                   <p style={labelStyle}>Phone</p>
                                   <p style={{ fontSize: '0.85rem', fontFamily: 'DM Mono, monospace', color: vol.phone ? 'var(--text)' : 'var(--muted)', fontStyle: vol.phone ? 'normal' : 'italic', margin: 0 }}>{vol.phone || 'Not set'}</p>
+                                </div>
+                                <div>
+                                  <p style={labelStyle}>Email</p>
+                                  <p style={{ fontSize: '0.85rem', fontFamily: 'DM Mono, monospace', color: vol.email ? 'var(--text)' : 'var(--muted)', fontStyle: vol.email ? 'normal' : 'italic', margin: 0 }}>
+                                    {vol.email
+                                      ? <a href={`mailto:${vol.email}`} style={{ color: 'var(--text)', textDecoration: 'none' }}>{vol.email}</a>
+                                      : 'Not set'}
+                                  </p>
                                 </div>
                                 {vol.languages && (
                                   <div>
