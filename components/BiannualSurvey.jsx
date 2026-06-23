@@ -1,3 +1,4 @@
+// TODO Change the survey months to the actual months when the survey is active. The current month represnt the intalization dates that will be phased out for the more more practial months.
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -7,6 +8,7 @@ import { supabase } from '../lib/supabase'
 // Adjust these to change when the survey is active.
 // The survey runs during the first full Mon–Sun week of each listed month (0-indexed).
 export const SURVEY_MONTHS = [0, 6] // January (0) and July (6)
+// export const SURVEY_MONTHS = [3,10] // April (3) and November (10)
 
 // ── Date logic ────────────────────────────────────────────────────────────────
 export function getSurveyWindow(year, month) {
