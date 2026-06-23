@@ -23,11 +23,12 @@ export function getSurveyWindow(year, month) {
 }
 
 export function isSurveyWeek() {
-  const now = new Date()
-  const month = now.getMonth()
-  if (!SURVEY_MONTHS.includes(month)) return false
-  const { start, end } = getSurveyWindow(now.getFullYear(), month)
-  return now >= start && now <= end
+  // const now = new Date()
+  // const month = now.getMonth()
+  // if (!SURVEY_MONTHS.includes(month)) return false
+  // const { start, end } = getSurveyWindow(now.getFullYear(), month)
+  // return now >= start && now <= end
+  return true
 }
 
 export function currentSurveyPeriod() {
@@ -274,13 +275,13 @@ export default function BiannualSurvey({ userId, onSubmitted }) {
       <div style={S.card}>
         <label htmlFor="frustrations" style={{ ...S.label, marginBottom: '0.25rem' }}>Question 11</label>
         <p style={{ fontSize: '0.92rem', lineHeight: 1.5, marginBottom: '0.75rem', color: 'var(--text)' }}>
-          What aspects of your volunteer experience could have been improved?
+          What aspects of your volunteer experience could have been improved? What feedback would you like to share? 
         </p>
         <textarea
           id="frustrations"
           value={frustrations}
           onChange={e => setFrustrations(e.target.value)}
-          placeholder="Share anything that has been difficult or frustrating."
+          placeholder="Please share any relevant thoughts."
           rows={4}
           style={{
             width: '100%',
