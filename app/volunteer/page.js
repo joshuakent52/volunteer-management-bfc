@@ -852,7 +852,7 @@ export default function VolunteerPage() {
                 Volunteer Feedback Survey
               </p>
               <p style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
-                Open through Sunday — takes about 2 minutes.
+                Open through Sunday — takes 2-5 minutes.
               </p>
             </div>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>

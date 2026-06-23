@@ -21,12 +21,11 @@ export function getSurveyWindow(year, month) {
 }
 
 export function isSurveyWeek() {
-  // const now = new Date()
-  // const month = now.getMonth()
-  // if (!SURVEY_MONTHS.includes(month)) return false
-  // const { start, end } = getSurveyWindow(now.getFullYear(), month)
-  // return now >= start && now <= end
-  return true
+  const now = new Date()
+  const month = now.getMonth()
+  if (!SURVEY_MONTHS.includes(month)) return false
+  const { start, end } = getSurveyWindow(now.getFullYear(), month)
+  return now >= start && now <= end
 }
 
 export function currentSurveyPeriod() {
@@ -273,7 +272,7 @@ export default function BiannualSurvey({ userId, onSubmitted }) {
       <div style={S.card}>
         <label htmlFor="frustrations" style={{ ...S.label, marginBottom: '0.25rem' }}>Question 11</label>
         <p style={{ fontSize: '0.92rem', lineHeight: 1.5, marginBottom: '0.75rem', color: 'var(--text)' }}>
-          What aspects of your volunteer experience have been most frustrating for you?
+          What aspects of your volunteer experience could have been improved?
         </p>
         <textarea
           id="frustrations"
