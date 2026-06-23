@@ -21,11 +21,12 @@ export function getSurveyWindow(year, month) {
 }
 
 export function isSurveyWeek() {
-  const now = new Date()
-  const month = now.getMonth()
-  if (!SURVEY_MONTHS.includes(month)) return false
-  const { start, end } = getSurveyWindow(now.getFullYear(), month)
-  return now >= start && now <= end
+  // const now = new Date()
+  // const month = now.getMonth()
+  // if (!SURVEY_MONTHS.includes(month)) return false
+  // const { start, end } = getSurveyWindow(now.getFullYear(), month)
+  // return now >= start && now <= end
+  return true
 }
 
 export function currentSurveyPeriod() {
