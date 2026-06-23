@@ -258,6 +258,24 @@ export default function VolunteerPage() {
   const [surveyOpen]      = useState(() => isSurveyWeek())
   const [surveySubmitted, setSurveySubmitted] = useState(false)
 
+  // Check Supabase (not just local state) for an existing submission this
+  // period, so the banner/badge stay hidden correctly after a page refresh.
+  useEffect(() => {
+    if (!surveyOpen || !user) return
+    let cancelled = false
+    async function checkSurveySubmitted() {
+      const { data } = await supabase
+        .from('volunteer_feedback')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('survey_period', currentSurveyPeriod())
+        .maybeSingle()
+      if (!cancelled && data) setSurveySubmitted(true)
+    }
+    checkSurveySubmitted()
+    return () => { cancelled = true }
+  }, [surveyOpen, user])
+
   // ── Tab fetch dedup guard ─────────────────────────────────────────────────
   // Tracks which tabs have already had their data fetched so we never
   // re-fetch on every re-render or tab revisit.
