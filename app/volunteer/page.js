@@ -11,6 +11,8 @@ import { SubmitHoursPanel } from '../../components/SubmitHoursPanel'
 import { MessageTab } from '../../components/MessageTab'
 import VolunteerTasks from '../../components/VolunteerTasks'
 import BiannualSurvey, { isSurveyWeek, currentSurveyPeriod } from '../../components/BiannualSurvey'
+import WeeklyTrainingBanner from '../../components/WeeklyTrainingBanner'
+import { currentTrainingWeekStart } from '../../lib/trainingUtils'
 
 
 export const dynamic = 'force-dynamic'
@@ -257,6 +259,38 @@ export default function VolunteerPage() {
   // ── Survey state ──────────────────────────────────────────────────────────
   const [surveyOpen]      = useState(() => isSurveyWeek())
   const [surveySubmitted, setSurveySubmitted] = useState(false)
+
+  // ── Weekly training state ─────────────────────────────────────────────────
+  const [trainingWeekStart]      = useState(() => currentTrainingWeekStart())
+  const [trainingAvailable, setTrainingAvailable]     = useState(false)
+  const [trainingAcknowledged, setTrainingAcknowledged] = useState(false)
+
+  // Check Supabase for this week's training and whether this volunteer has
+  // already acknowledged it, so the banner/badge stay correct on refresh.
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    async function checkTraining() {
+      const { data: trainingRow } = await supabase
+        .from('weekly_trainings')
+        .select('id')
+        .eq('week_start', trainingWeekStart)
+        .maybeSingle()
+      if (cancelled) return
+      if (!trainingRow) { setTrainingAvailable(false); return }
+      setTrainingAvailable(true)
+      const { data: ack } = await supabase
+        .from('weekly_training_acknowledgments')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('week_start', trainingWeekStart)
+        .maybeSingle()
+      if (!cancelled && ack) setTrainingAcknowledged(true)
+    }
+    checkTraining()
+    return () => { cancelled = true }
+  }, [user, trainingWeekStart])
+
 
   // Check Supabase (not just local state) for an existing submission this
   // period, so the banner/badge stay hidden correctly after a page refresh.
@@ -715,6 +749,10 @@ export default function VolunteerPage() {
     ...(profile?.default_role === 'Lab' ? ['Lab'] : []),
   ])]
 
+  // All roles relevant to this volunteer for training purposes — their
+  // default role plus every role they're actually scheduled for.
+  const trainingRoles = [...new Set([profile?.default_role, ...myRoles].filter(Boolean))]
+
   const calloutSubmitDisabled = calloutMode === 'single'
     ? (!calloutDate || !calloutShift || !calloutRole || !calloutReason.trim())
     : (!calloutStartDate || !calloutEndDate || !calloutReason.trim())
@@ -727,6 +765,7 @@ export default function VolunteerPage() {
     ...(isIntern ? [['internreport', 'Report Hours']] : []),
     ...(profile?.team ? [['tasks', 'Tasks']] : []),
     ['account', 'Account'],
+    ...(trainingAvailable && !trainingAcknowledged ? [['training', 'Training']] : []),
     ...(surveyOpen ? [['feedback', 'Feedback']] : []),
   ]
 
@@ -830,6 +869,37 @@ export default function VolunteerPage() {
           </div>
         </div>
 
+        {/* Weekly training banner — shown every week until acknowledged */}
+        {trainingAvailable && !trainingAcknowledged && (
+          <div
+            onClick={() => setTab('training')}
+            style={{
+              marginBottom: '1rem',
+              padding: '0.8rem 1.1rem',
+              borderRadius: '10px',
+              background: 'rgba(2,65,107,0.06)',
+              border: '1px solid rgba(2,65,107,0.25)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '0.75rem',
+            }}
+          >
+            <div>
+              <p style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--accent)', marginBottom: '0.15rem' }}>
+                Weekly Training
+              </p>
+              <p style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+                Required reading — takes a few minutes.
+              </p>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </div>
+        )}
+
         {/* Survey banner — only shown during survey week if not yet submitted */}
         {surveyOpen && !surveySubmitted && (
           <div
@@ -872,6 +942,7 @@ export default function VolunteerPage() {
               onClick={handleTabChange}
               badge={
                 key === 'messages' ? unreadCount :
+                key === 'training' && trainingAvailable && !trainingAcknowledged ? 1 :
                 key === 'feedback' && surveyOpen && !surveySubmitted ? 1 : 0
               }
             />
@@ -1261,6 +1332,19 @@ export default function VolunteerPage() {
 
         {tab === 'tasks' && (
           <VolunteerTasks userId={user.id} team={profile?.team} />
+        )}
+
+        {/* ── TRAINING TAB ─────────────────────────────────────────────────── */}
+        {tab === 'training' && trainingAvailable && (
+          <WeeklyTrainingBanner
+            userId={user.id}
+            roles={trainingRoles}
+            weekStart={trainingWeekStart}
+            onAcknowledged={() => {
+              setTrainingAcknowledged(true)
+              setTab('clock')
+            }}
+          />
         )}
 
         {/* ── FEEDBACK TAB ────────────────────────────────────────────────── */}
