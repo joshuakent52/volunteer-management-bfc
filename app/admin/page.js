@@ -12,6 +12,7 @@ import LunchScheduler from '../../components/LunchScheduler'
 import Providers from '../../components/Providers'
 import Live, { computeExpectedNotClockedIn } from '../../components/Live'
 import AdminTasks from '../../components/AdminTasks'
+import WeeklyTraining from '../../components/WeeklyTraining'
 
 export const dynamic = 'force-dynamic'
 
@@ -1150,7 +1151,7 @@ export default function AdminPage() {
           {[
             ['dashboard', 'Live'], ['schedule', 'Scheduling'], ['lunch', 'Lunch'], ['volunteers', 'Volunteers'], ['providers', 'Providers'],
             ['pipeline', 'Pipeline'], ['shifts', 'Shifts'], ['callouts', 'Call-Outs'],
-            ['hours', 'Hours'], ['audit', 'Recent Activity'], ['create', 'Add Volunteer'], ['data', 'Data'], ...(isTaskAdmin ? [['tasks', 'Tasks']] : []),
+            ['hours', 'Hours'], ['audit', 'Recent Activity'], ['create', 'Add Volunteer'], ['data', 'Data'], ['training', 'Weekly Training'], ...(isTaskAdmin ? [['tasks', 'Tasks']] : []),
           ].map(([key, label]) => (
             <button key={key} onClick={() => switchTab(key)} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: tab === key ? 'var(--accent)' : 'var(--surface)', color: tab === key ? '#fff' : 'var(--muted)', border: tab === key ? 'none' : '1px solid var(--border)' }}>
               {label}
@@ -1840,6 +1841,7 @@ export default function AdminPage() {
 
         {tab === 'providers' && <Providers supabase={supabase} />}
         {tab === 'data'      && <DataDashboard supabase={supabase} />}
+        {tab === 'training'  && <WeeklyTraining supabase={supabase} profile={profile} />}
         {tab === 'lunch'     && <LunchScheduler supabase={supabase} profile={profile} />}
         {tab === 'tasks' && (
           <AdminTasks
