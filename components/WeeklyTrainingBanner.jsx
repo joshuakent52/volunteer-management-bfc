@@ -142,11 +142,14 @@ export default function WeeklyTrainingBanner({ userId, role, weekStart, onAcknow
       {announcements.length > 0 && (
         <div style={S.card}>
           <p style={{ ...S.label, marginBottom: '0.75rem' }}>Announcements</p>
-          <ul style={{ margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             {announcements.map((a, idx) => (
-              <li key={idx} style={{ fontSize: '0.92rem', color: 'var(--text)', lineHeight: 1.5 }}>{a}</li>
+              <div key={idx} style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-start' }}>
+                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', color: 'var(--accent)', lineHeight: 1.5, flexShrink: 0 }}>–</span>
+                <p style={{ fontSize: '0.92rem', color: 'var(--text)', lineHeight: 1.5, margin: 0 }}>{a}</p>
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
       )}
 
