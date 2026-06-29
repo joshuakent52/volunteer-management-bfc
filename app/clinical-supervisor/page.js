@@ -303,7 +303,6 @@ export default function CSPage() {
             ['live', 'Live'],
             ['schedule', 'Schedule'],
             ['languages', 'Language Coverage'],
-            ['lunch', 'Lunch'],
             ['providers', 'Providers']
           ].map(([key, label]) => (
             <button

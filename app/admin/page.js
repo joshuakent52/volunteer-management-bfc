@@ -1149,7 +1149,7 @@ export default function AdminPage() {
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
           {[
-            ['dashboard', 'Live'], ['schedule', 'Scheduling'], ['lunch', 'Lunch'], ['volunteers', 'Volunteers'], ['providers', 'Providers'],
+            ['dashboard', 'Live'], ['schedule', 'Scheduling'], ['volunteers', 'Volunteers'], ['providers', 'Providers'],
             ['pipeline', 'Pipeline'], ['shifts', 'Shifts'], ['callouts', 'Call-Outs'],
             ['hours', 'Hours'], ['audit', 'Recent Activity'], ['create', 'Add Volunteer'], ['data', 'Data'], ['training', 'Weekly Training'], ...(isTaskAdmin ? [['tasks', 'Tasks']] : []),
           ].map(([key, label]) => (
