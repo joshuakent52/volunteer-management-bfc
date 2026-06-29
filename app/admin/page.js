@@ -1842,7 +1842,9 @@ export default function AdminPage() {
         {tab === 'providers' && <Providers supabase={supabase} />}
         {tab === 'data'      && <DataDashboard supabase={supabase} />}
         {tab === 'training'  && <WeeklyTraining supabase={supabase} profile={profile} />}
+        {/* 
         {tab === 'lunch'     && <LunchScheduler supabase={supabase} profile={profile} />}
+        */}
         {tab === 'tasks' && (
           <AdminTasks
             currentUserId={profile.id}

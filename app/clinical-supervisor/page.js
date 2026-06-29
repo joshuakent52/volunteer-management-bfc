@@ -534,11 +534,11 @@ export default function CSPage() {
 
           </div>
         )}
-
+        {/* 
         {tab === 'lunch' && (
           <LunchScheduler supabase={supabase} profile={myProfile} />
         )}
-
+        */}
       </div>
     </div>
   )
