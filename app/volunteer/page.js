@@ -256,6 +256,10 @@ export default function VolunteerPage() {
   const [toast, setToast]         = useState(null)
   const [lightboxUrl, setLightboxUrl] = useState(null)
 
+  // ── Mobile nav state ──────────────────────────────────────────────────────
+  const [menuOpen, setMenuOpen]   = useState(false)
+  const [prevTab, setPrevTab]     = useState('clock')
+
   // ── Survey state ──────────────────────────────────────────────────────────
   const [surveyOpen]      = useState(() => isSurveyWeek())
   const [surveySubmitted, setSurveySubmitted] = useState(false)
@@ -808,7 +812,426 @@ export default function VolunteerPage() {
     </div>
   )
 
-  return (
+  // ── Hamburger menu tab list (all tabs not in bottom nav, plus account/signout) ──
+  const MENU_TABS = [
+    ...((profile?.role === 'admin' ||
+      profile?.default_role === 'Clinical Supervisor' ||
+      profile?.default_role === 'Office Manager') ? [['switchview', 'Switch View']] : []),
+    ['callout', 'Call-out'],
+    ...(profile?.team ? [['tasks', 'Tasks']] : []),
+    ...(isIntern ? [['internreport', 'Report Hours']] : []),
+    ...(trainingAvailable && !trainingAcknowledged ? [['training', 'Training']] : []),
+    ...(surveyOpen && !surveySubmitted ? [['feedback', 'Feedback']] : []),
+    ['account', 'Account'],
+    ['signout', 'Sign Out'],
+  ]
+
+  function handleMobileTabChange(newTab) {
+    setMenuOpen(false)
+    if (newTab === 'signout') { handleSignOut(); return }
+    if (newTab === 'switchview') {
+      if (profile?.default_role === 'Clinical Supervisor' || profile?.default_role === 'Office Manager') {
+        window.location.href = '/clinical-supervisor'; return
+      }
+      window.location.href = window.location.pathname.includes('admin') ? '/volunteer' : '/admin'
+      return
+    }
+    setPrevTab(tab)
+    handleTabChange(newTab)
+  }
+
+  function handleBottomNav(newTab) {
+    setPrevTab(tab)
+    handleTabChange(newTab)
+  }
+
+  // ── Shared page content renderer ─────────────────────────────────────────
+  function renderPageContent() {
+    return (
+      <>
+        {/* Status banner — shown on home/clock only */}
+        {tab === 'clock' && (
+          <div style={{ ...S.card, marginBottom: '1rem', borderColor: activeShift ? 'var(--accent)' : 'var(--border)', background: activeShift ? 'rgba(74,222,128,0.05)' : 'var(--surface)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: activeShift ? 'var(--accent)' : 'var(--muted)', boxShadow: activeShift ? '0 0 8px var(--accent)' : 'none' }} />
+              <span style={{ fontWeight: 500 }}>{activeShift ? `Clocked in since ${formatTime(activeShift.clock_in)}` : 'Not clocked in'}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Notification banners */}
+        {trainingAvailable && !trainingAcknowledged && tab === 'clock' && (
+          <div onClick={() => handleMobileTabChange('training')} style={{ marginBottom: '0.75rem', padding: '0.8rem 1.1rem', borderRadius: '10px', background: 'rgba(2,65,107,0.06)', border: '1px solid rgba(2,65,107,0.25)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+            <div>
+              <p style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--accent)', marginBottom: '0.15rem' }}>Weekly Training</p>
+              <p style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Required reading — takes a few minutes.</p>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="9 18 15 12 9 6" /></svg>
+          </div>
+        )}
+
+        {surveyOpen && !surveySubmitted && tab === 'clock' && (
+          <div onClick={() => handleMobileTabChange('feedback')} style={{ marginBottom: '0.75rem', padding: '0.8rem 1.1rem', borderRadius: '10px', background: 'rgba(2,65,107,0.06)', border: '1px solid rgba(2,65,107,0.25)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+            <div>
+              <p style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--accent)', marginBottom: '0.15rem' }}>Volunteer Feedback Survey</p>
+              <p style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Open through Sunday — takes 2-5 minutes.</p>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="9 18 15 12 9 6" /></svg>
+          </div>
+        )}
+
+        {/* CLOCK TAB */}
+        {tab === 'clock' && (
+          <div style={S.card}>
+            <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Clock In / Out</h2>
+            {activeShift ? (
+              <button onClick={handleClockOut} disabled={clockLoading} style={{ width: '100%', padding: '1rem', background: 'var(--danger)', color: '#fff', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                {clockLoading ? 'Processing...' : 'Clock Out'}
+              </button>
+            ) : (
+              <button onClick={handleClockIn} disabled={clockLoading} style={{ width: '100%', padding: '1rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                {clockLoading ? 'Processing...' : 'Clock In'}
+              </button>
+            )}
+            {lunchAssignment && (
+              <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: 'rgba(96,165,250,0.12)', border: '1px solid rgba(19, 90, 115, 0.35)', borderRadius: '8px' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>Your Lunch Slot</p>
+                <p style={{ fontWeight: 600, color: '#02416b', fontSize: '0.95rem' }}>
+                  {lunchAssignment.lunch_shift === 1 ? 'Shift 1 · 12:30–1:00 PM' : 'Shift 2 · 1:00–1:30 PM'}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'schedule' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={S.card}>
+              <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>My Schedule</h2>
+              {schedule.length === 0 ? (
+                <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>You have no scheduled shifts yet.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {DAYS.map(day => {
+                    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' })
+                    const wom = (() => {
+                      const d = new Date(today + 'T12:00:00'); let count = 0; const target = d.getDay()
+                      const check = new Date(d.getFullYear(), d.getMonth(), 1)
+                      while (check <= d) { if (check.getDay() === target) count++; check.setDate(check.getDate() + 1) }
+                      return count
+                    })()
+                    const dayEntries = schedule.filter(s => {
+                      if (s.day_of_week !== day.toLowerCase()) return false
+                      if (s.start_date && s.start_date > today) return false
+                      if (s.end_date   && s.end_date   < today) return false
+                      if (s.week_pattern === 'odd'  && wom % 2 !== 1) return false
+                      if (s.week_pattern === 'even' && wom % 2 !== 0) return false
+                      return true
+                    })
+                    if (dayEntries.length === 0) return null
+                    return (
+                      <div key={day} style={{ padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <p style={{ fontWeight: 600, textTransform: 'capitalize', marginBottom: '0.6rem' }}>{day}</p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                          {SHIFTS.map(shift => {
+                            const shiftEntries = dayEntries.filter(s => s.shift_time === shift)
+                            if (shiftEntries.length === 0) return null
+                            return shiftEntries.map(entry => (
+                              <div key={entry.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                                <div>
+                                  <span style={{ fontSize: '0.9rem' }}>{entry.role}</span>
+                                  {entry.week_pattern && entry.week_pattern !== 'every' && (
+                                    <span style={{ marginLeft: '0.4rem', fontSize: '0.72rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>
+                                      {entry.week_pattern === 'odd' ? '1st & 3rd week' : '2nd & 4th week'}
+                                    </span>
+                                  )}
+                                  {entry.notes && (
+                                    <span style={{ marginLeft: '0.4rem', fontSize: '0.72rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>
+                                      {entry.notes}
+                                    </span>
+                                  )}
+                                </div>
+                                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: 'var(--muted)', background: 'var(--surface)', padding: '0.2rem 0.6rem', borderRadius: '6px', whiteSpace: 'nowrap' }}>
+                                  {shift}
+                                </span>
+                              </div>
+                            ))
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {approvedCallouts.length > 0 && (
+              <div style={S.card}>
+                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Approved Call-Outs</h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {approvedCallouts.map(c => (
+                    <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.25)', gap: '0.75rem', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)' }}>
+                          {new Date(c.callout_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                        </span>
+                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', background: 'rgba(239,68,68,0.12)', color: '#ef4444', padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(239,68,68,0.25)', whiteSpace: 'nowrap' }}>{c.shift_time}</span>
+                        {c.role && <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{c.role}</span>}
+                        {c.reason && <span style={{ fontSize: '0.72rem', background: 'rgba(96,165,250,0.12)', color: '#60a5fa', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>{c.reason}</span>}
+                      </div>
+                      <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.8rem', color: '#ef4444', background: 'rgba(239,68,68,0.06)', padding: '0.2rem 0.6rem', borderRadius: '6px', whiteSpace: 'nowrap' }}>Call-out</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {approvedCovers.length > 0 && (
+              <div style={S.card}>
+                <h2 style={{ fontWeight: 600, marginBottom: '1.25rem' }}>Approved Covers</h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {approvedCovers.map(r => r.callout && (
+                    <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid rgba(74,222,128,0.3)', gap: '0.75rem', flexWrap: 'wrap' }}>
+                      <div>
+                        <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{r.callout.callout_date} <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.82rem', color: 'var(--muted)' }}>{r.callout.shift_time}</span></p>
+                        <p style={{ color: 'var(--muted)', fontSize: '0.82rem', textTransform: 'capitalize' }}>{r.callout.day_of_week}{r.callout.role ? ` · ${r.callout.role}` : ''}{r.callout.volunteer?.full_name ? ` · covering for ${r.callout.volunteer.full_name}` : ''}</p>
+                      </div>
+                      <span style={{ fontSize: '0.8rem', padding: '0.25rem 0.7rem', borderRadius: '100px', background: 'rgba(74,222,128,0.12)', color: 'var(--accent)', border: '1px solid rgba(74,222,128,0.3)', fontWeight: 600 }}>✓ Covering</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'callout' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={S.card}>
+              <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Submit a Call-Out</h2>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Can't make your shift? Let the team know.</p>
+              <form onSubmit={handleCallout} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div>
+                  <label style={S.label}>Type</label>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    {[['single', 'Single day'], ['range', 'Date range']].map(([val, label]) => (
+                      <button key={val} type="button" onClick={() => setCalloutMode(val)} style={{ flex: 1, padding: '0.6rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: calloutMode === val ? 'var(--accent)' : 'var(--surface)', color: calloutMode === val ? '#fff' : 'var(--muted)', border: calloutMode === val ? 'none' : '1px solid var(--border)' }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {calloutMode === 'single' && <>
+                  <div><label style={S.label}>Date you can't make it</label><input type="date" value={calloutDate} onChange={e => setCalloutDate(e.target.value)} required style={S.input} /></div>
+                  <div>
+                    <label style={S.label}>Shift</label>
+                    <select value={calloutShift} onChange={e => {
+                      const shift = e.target.value; setCalloutShift(shift)
+                      if (calloutDate && shift) {
+                        const dn = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
+                        const d = dn[new Date(calloutDate + 'T12:00:00').getDay()]
+                        const m = schedule.find(s => s.day_of_week === d && s.shift_time === shift)
+                        if (m?.role) setCalloutRole(m.role)
+                      }
+                    }} style={S.input}>
+                      <option value="">— Select —</option>
+                      {SHIFTS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={S.label}>Role</label>
+                    <select value={calloutRole} onChange={e => setCalloutRole(e.target.value)} required style={S.input}>
+                      <option value="">— Select role —</option>
+                      {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </div>
+                </>}
+                {calloutMode === 'range' && <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div><label style={S.label}>From</label><input type="date" value={calloutStartDate} onChange={e => setCalloutStartDate(e.target.value)} required style={S.input} /></div>
+                    <div><label style={S.label}>To</label><input type="date" value={calloutEndDate} onChange={e => setCalloutEndDate(e.target.value)} required style={S.input} /></div>
+                  </div>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--muted)', lineHeight: 1.5 }}>A call-out will be submitted for each of your scheduled shifts within this range. Weekends are skipped automatically.</p>
+                </>}
+                <div><label style={S.label}>Reason <span style={{ color: 'var(--accent)' }}>*</span></label><textarea value={calloutReason} onChange={e => setCalloutReason(e.target.value)} rows={3} placeholder="Let the team know why..." required style={{ ...S.input, resize: 'vertical' }} /></div>
+                <button type="submit" disabled={calloutSubmitDisabled} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: calloutSubmitDisabled ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', opacity: calloutSubmitDisabled ? 0.5 : 1 }}>Submit Call-Out</button>
+              </form>
+            </div>
+
+            <div style={S.card}>
+              <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Open Shifts</h2>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Shifts that need coverage — tap to volunteer.</p>
+              {openShifts.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No open shifts right now.</p> : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {openShifts.map(c => {
+                    const myReq = myCoverRequests.find(r => r.callout_id === c.id)
+                    const isApproved = myReq?.status === 'approved'
+                    return (
+                      <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: `1px solid ${isApproved ? 'rgba(74,222,128,0.4)' : 'var(--border)'}`, flexWrap: 'wrap', gap: '0.75rem' }}>
+                        <div>
+                          <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{c.callout_date}<span style={{ marginLeft: '0.5rem', fontFamily: 'DM Mono, monospace', fontSize: '0.82rem', color: 'var(--muted)' }}>{c.shift_time}</span></p>
+                          <p style={{ color: 'var(--muted)', fontSize: '0.82rem', textTransform: 'capitalize' }}>{c.day_of_week}{c.role ? ` · ${c.role}` : ''}{c.profiles?.full_name ? ` · ${c.profiles.full_name} calling out` : ''}</p>
+                        </div>
+                        {isApproved
+                          ? <span style={{ fontSize: '0.8rem', padding: '0.25rem 0.7rem', borderRadius: '100px', background: 'rgba(74,222,128,0.12)', color: 'var(--accent)', border: '1px solid rgba(74,222,128,0.3)', fontWeight: 600 }}>✓ You're covering</span>
+                          : myReq
+                            ? <span style={{ fontSize: '0.8rem', padding: '0.25rem 0.7rem', borderRadius: '100px', background: 'rgba(96,165,250,0.1)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)', fontWeight: 500 }}>Requested</span>
+                            : <button onClick={() => handleRequestCover(c.id)} disabled={requestingCoverId === c.id} style={{ padding: '0.35rem 0.9rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{requestingCoverId === c.id ? '...' : 'I can cover'}</button>}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* MESSAGES TAB */}
+        {tab === 'messages' && (
+          <MessageTab
+            user={user}
+            profile={profile}
+            supabase={supabase}
+            showToast={showToast}
+            isMobile={isMobile}
+            getInboxMessages={getInboxMessages}
+            MAX_FILE_SIZE={MAX_FILE_SIZE}
+            SHIFTS={SHIFTS}
+            schedule={schedule}
+            onUnreadCountChange={setUnreadCount}
+          />
+        )}
+
+        {/* INTERN REPORT TAB */}
+        {tab === 'internreport' && isIntern && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ ...S.card, borderColor: 'var(--accent)', background: 'rgba(2,65,107,0.04)' }}>
+              <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Weekly Hours Report</h2>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Log your hours for the week and send a progress update to your internship coordinator.</p>
+              <form onSubmit={handleInternReport} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div>
+                  <label style={S.label}>Role</label>
+                  <select value={internRole} onChange={e => setInternRole(e.target.value)} required style={S.input}>
+                    <option value="">— Select role —</option>
+                    {[...ROLES, "Intern"].map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+                <div><label style={S.label}>Hours Worked This Week</label><input type="number" min="0.5" max="60" step="0.5" value={internHours} onChange={e => setInternHours(e.target.value)} required placeholder="e.g. 20" style={S.input} /></div>
+                <div>
+                  <label style={S.label}>Weekly Progress <span style={{ textTransform: 'none', color: '#ef4444' }}>*</span></label>
+                  <textarea value={internProgress} onChange={e => setInternProgress(e.target.value)} rows={5} required placeholder="Describe what you worked on this week, any challenges, and goals for next week..." style={{ ...S.input, resize: 'vertical' }} />
+                  <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.35rem' }}>This will be sent directly to your internship coordinator.</p>
+                </div>
+                <button type="submit" disabled={submittingInternReport || !internHours || !internRole || !internProgress.trim()} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: submittingInternReport ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', opacity: (!internHours || !internRole || !internProgress.trim()) ? 0.5 : 1 }}>
+                  {submittingInternReport ? 'Submitting…' : 'Submit Weekly Report'}
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {tab === 'tasks' && (
+          <VolunteerTasks userId={user.id} team={profile?.team} />
+        )}
+
+        {tab === 'training' && trainingAvailable && (
+          <WeeklyTrainingBanner
+            userId={user.id}
+            roles={trainingRoles}
+            weekStart={trainingWeekStart}
+            onAcknowledged={() => {
+              setTrainingAcknowledged(true)
+              handleTabChange('clock')
+            }}
+          />
+        )}
+
+        {tab === 'feedback' && surveyOpen && (
+          <BiannualSurvey
+            userId={user.id}
+            onSubmitted={() => setSurveySubmitted(true)}
+          />
+        )}
+
+        {tab === 'account' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ ...S.card, borderColor: 'var(--accent)', background: 'rgba(2,65,107,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <p style={{ fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>Total Hours</p>
+                <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: 'var(--accent)', lineHeight: 1 }}>{totalHours()}<span style={{ fontSize: '1rem', fontWeight: 500, marginLeft: '0.25rem', color: 'var(--muted)' }}>hrs</span></p>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <p style={{ fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>Completed Shifts</p>
+                <p style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'DM Mono, monospace', color: 'var(--text)', lineHeight: 1 }}>{allShifts.length}</p>
+              </div>
+            </div>
+            <div style={{ ...S.card, padding: 0, overflow: 'hidden' }}>
+              <button onClick={() => setShowShiftHistory(h => !h)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.25rem', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text)' }}>Shift History</span>
+                <span style={{ color: 'var(--muted)', fontSize: '1.1rem', transform: showShiftHistory ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>▾</span>
+              </button>
+              {showShiftHistory && (
+                <div style={{ padding: '0 1.25rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {shifts.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>No shifts recorded yet.</p> : shifts.map(s => (
+                    <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <div><p style={{ fontWeight: 500, fontSize: '0.9rem' }}>{formatDate(s.clock_in)}</p><p style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{formatTime(s.clock_in)} → {formatTime(s.clock_out)}</p></div>
+                      <span style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.9rem', color: s.clock_out ? 'var(--accent)' : 'var(--warn)' }}>{calcHours(s.clock_in, s.clock_out)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {isProvider && (
+              <div style={{ ...S.card, borderColor: 'rgba(125,211,252,0.4)', background: 'rgba(125,211,252,0.03)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <div>
+                    <h2 style={{ fontWeight: 600, fontSize: '1rem' }}>My Credentials</h2>
+                    <p style={{ color: 'var(--muted)', fontSize: '0.82rem', marginTop: '0.15rem' }}>License &amp; certification expiration dates</p>
+                  </div>
+                  <button onClick={() => { if (!editingCreds) setCredForm({ license_exp: profile?.license_exp || '', bls_exp: profile?.bls_exp || '', dea_exp: profile?.dea_exp || '', tb_exp: profile?.tb_exp || '' }); setEditingCreds(e => !e) }} style={{ padding: '0.4rem 0.9rem', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: editingCreds ? 'var(--surface)' : 'rgba(125,211,252,0.15)', color: editingCreds ? 'var(--muted)' : '#7dd3fc', border: editingCreds ? '1px solid var(--border)' : '1px solid rgba(125,211,252,0.4)' }}>
+                    {editingCreds ? 'Cancel' : 'Update'}
+                  </button>
+                </div>
+                {!editingCreds ? (
+                  <ProviderCredCard vol={profile} />
+                ) : (
+                  <form onSubmit={handleSaveCreds} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.75rem' }}>
+                      {PROVIDER_CRED_FIELDS.map(f => (
+                        <CredentialInput key={f.key} fieldKey={f.key} label={f.label} value={credForm[f.key] || ''} onChange={val => setCredForm(prev => ({ ...prev, [f.key]: val }))} allowNA={f.key === 'dea_exp'} />
+                      ))}
+                    </div>
+                    <button type="submit" disabled={savingCreds} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: savingCreds ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                      {savingCreds ? 'Saving…' : 'Save Credentials'}
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+            <div style={S.card}>
+              <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Notifications</h2>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Get notified about new messages and shift updates.</p>
+              <button onClick={async () => { setPushLoading(true); if (pushEnabled) { await unsubscribeFromPush(supabase, user.id); setPushEnabled(false) } else { const sub = await subscribeToPush(supabase, user.id); setPushEnabled(!!sub); if (!sub) showToast('Notification permission denied', 'error') }; setPushLoading(false) }} disabled={pushLoading} style={{ padding: '0.85rem', width: '100%', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: pushLoading ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif', background: pushEnabled ? 'var(--danger)' : 'var(--accent)', color: '#fff' }}>
+                {pushLoading ? 'Working...' : pushEnabled ? 'Turn off notifications' : 'Turn on notifications'}
+              </button>
+            </div>
+            <div style={S.card}>
+              <h2 style={{ fontWeight: 600, marginBottom: '0.4rem' }}>Change Password</h2>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Must be at least 6 characters.</p>
+              <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div><label style={S.label}>New Password</label><input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required placeholder="New password" style={S.input} /></div>
+                <div><label style={S.label}>Confirm New Password</label><input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required placeholder="Repeat new password" style={S.input} /></div>
+                <button type="submit" disabled={changingPassword || !newPassword || !confirmPassword} style={{ padding: '0.85rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: changingPassword ? 'not-allowed' : 'pointer', fontFamily: 'DM Sans, sans-serif' }}>{changingPassword ? 'Updating...' : 'Update Password'}</button>
+              </form>
+            </div>
+          </div>
+        )}
+      </>
+    )
+  }
+
+  // ── DESKTOP RENDER ──────────────────────────────────────────────────────────
+  if (!isMobile) return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
 
