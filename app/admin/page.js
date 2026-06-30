@@ -18,6 +18,24 @@ export const dynamic = 'force-dynamic'
 
 const DAYS = ['monday','tuesday','wednesday','thursday','friday']
 
+// ── Admin nav tabs: [key, label] — used for both desktop tab bar and mobile sidebar ──
+const ADMIN_TABS = [
+  ['dashboard',  'Live'],
+  ['schedule',   'Schedule'],
+  ['volunteers', 'Volunteers'],
+  ['pipeline',   'Pipeline'],
+  ['shifts',     'Shifts'],
+  ['callouts',   'Call-Outs'],
+  ['hours',      'Hours'],
+  ['audit',      'Audit'],
+  ['create',     'Create'],
+  ['providers',  'Providers'],
+  ['data',       'Data'],
+  ['training',   'Training'],
+  ['lunch',      'Lunch'],
+  ['tasks',      'Tasks'],
+]
+
 // ── Pagination page sizes ────────────────────────────────────────────────────
 const SHIFTS_PAGE    = 25
 const HOURS_PAGE     = 20
