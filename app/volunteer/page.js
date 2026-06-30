@@ -339,6 +339,93 @@ function MobileSidebar({ open, onClose, navItems, activeTab, onSelectTab, showSw
   )
 }
 
+function BottomNav({ activeTab, onSelectTab, unreadCount }) {
+  const items = [
+    {
+      key: 'clock',
+      label: 'Home',
+      icon: (active) => (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--accent)' : 'var(--muted)'} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 11.5 12 4l9 7.5" />
+          <path d="M5.5 10v9a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-9" />
+        </svg>
+      ),
+    },
+    {
+      key: 'messages',
+      label: 'Messages',
+      icon: (active) => (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--accent)' : 'var(--muted)'} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 5.5h16v11H8l-4 3.5v-3.5h0V5.5z" />
+        </svg>
+      ),
+    },
+    {
+      key: 'schedule',
+      label: 'Schedule',
+      icon: (active) => (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--accent)' : 'var(--muted)'} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="4" y="5.5" width="16" height="14" rx="1.5" />
+          <path d="M4 9.5h16" />
+          <path d="M8 3.5v3M16 3.5v3" />
+        </svg>
+      ),
+    },
+  ]
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        background: 'var(--surface)',
+        borderTop: '1px solid var(--border)',
+        display: 'flex',
+        justifyContent: 'space-around',
+        alignItems: 'center',
+        padding: '0.5rem 0 calc(0.5rem + env(safe-area-inset-bottom, 0px))',
+        zIndex: 900,
+      }}
+    >
+      {items.map(({ key, label, icon }) => {
+        const active = activeTab === key
+        return (
+          <button
+            key={key}
+            onClick={() => onSelectTab(key)}
+            aria-label={label}
+            style={{
+              position: 'relative',
+              background: 'none',
+              border: 'none',
+              padding: '0.4rem 1.5rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {icon(active)}
+            {key === 'messages' && unreadCount > 0 && (
+              <span style={{
+                position: 'absolute', top: '0.1rem', right: '1rem',
+                background: '#ef4444', color: '#fff', borderRadius: '50%',
+                width: '15px', height: '15px', fontSize: '0.62rem', fontWeight: 700,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                lineHeight: 1, border: '2px solid var(--surface)',
+              }}>
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Debug error boundary ──────────────────────────────────────────────────
 // Wraps the page so that any render error shows up as visible red text +
 // a console.error with the full stack, instead of silently leaving a
@@ -1051,7 +1138,7 @@ function VolunteerPageInner() {
   )
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem', paddingBottom: isMobile ? '5.5rem' : '1.5rem' }}>
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
 
         {/* Header */}
@@ -1731,9 +1818,14 @@ function VolunteerPageInner() {
           onSignOut={handleSignOut}
         />
 
+        {/* Bottom nav — always visible on mobile */}
+        {isMobile && (
+          <BottomNav activeTab={tab} onSelectTab={handleTabChange} unreadCount={unreadCount} />
+        )}
+
         {/* Toast */}
         {toast && (
-          <div style={{ position: 'fixed', bottom: '1.5rem', left: '50%', transform: 'translateX(-50%)', background: toast.type === 'success' ? 'var(--accent)' : 'var(--danger)', color: '#fff', padding: '0.75rem 1.5rem', borderRadius: '100px', fontWeight: 500, fontSize: '0.9rem', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
+          <div style={{ position: 'fixed', bottom: isMobile ? '4.75rem' : '1.5rem', left: '50%', transform: 'translateX(-50%)', background: toast.type === 'success' ? 'var(--accent)' : 'var(--danger)', color: '#fff', padding: '0.75rem 1.5rem', borderRadius: '100px', fontWeight: 500, fontSize: '0.9rem', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
             {toast.text}
           </div>
         )}
