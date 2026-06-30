@@ -18,24 +18,6 @@ export const dynamic = 'force-dynamic'
 
 const DAYS = ['monday','tuesday','wednesday','thursday','friday']
 
-// ── Admin nav tabs: [key, label] — used for both desktop tab bar and mobile sidebar ──
-const ADMIN_TABS = [
-  ['dashboard',  'Live'],
-  ['schedule',   'Schedule'],
-  ['volunteers', 'Volunteers'],
-  ['pipeline',   'Pipeline'],
-  ['shifts',     'Shifts'],
-  ['callouts',   'Call-Outs'],
-  ['hours',      'Hours'],
-  ['audit',      'Audit'],
-  ['create',     'Create'],
-  ['providers',  'Providers'],
-  ['data',       'Data'],
-  ['training',   'Training'],
-  ['lunch',      'Lunch'],
-  ['tasks',      'Tasks'],
-]
-
 // ── Pagination page sizes ────────────────────────────────────────────────────
 const SHIFTS_PAGE    = 25
 const HOURS_PAGE     = 20
@@ -246,130 +228,6 @@ function LoadMoreButton({ onClick, loading, hasMore, label = 'Load more' }) {
   )
 }
 
-function MobileSidebar({ open, onClose, navItems, activeTab, onSelectTab, showSwitchView, onSwitchView, onSignOut }) {
-  function handleItemClick(action) {
-    action()
-    onClose()
-  }
-  return (
-    <>
-      {/* Backdrop */}
-      <div
-        onClick={onClose}
-        style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(0,0,0,0.5)',
-          opacity: open ? 1 : 0,
-          pointerEvents: open ? 'auto' : 'none',
-          transition: 'opacity 0.25s ease',
-          zIndex: 1000,
-        }}
-      />
-      {/* Panel */}
-      <div
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          bottom: 0,
-          width: '78%',
-          maxWidth: '300px',
-          background: 'var(--surface)',
-          borderRight: '1px solid var(--border)',
-          transform: open ? 'translateX(0)' : 'translateX(-100%)',
-          transition: 'transform 0.25s ease',
-          zIndex: 1001,
-          display: 'flex',
-          flexDirection: 'column',
-          padding: '1.25rem 1rem',
-          overflowY: 'auto',
-        }}
-      >
-        <button
-          onClick={onClose}
-          style={{
-            alignSelf: 'flex-end',
-            background: 'none',
-            border: 'none',
-            color: 'var(--muted)',
-            fontSize: '1.3rem',
-            cursor: 'pointer',
-            padding: '0.25rem 0.5rem',
-            marginBottom: '0.5rem',
-          }}
-        >
-          ✕
-        </button>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          {showSwitchView && (
-            <button
-              onClick={() => handleItemClick(onSwitchView)}
-              style={{
-                width: '100%',
-                textAlign: 'left',
-                padding: '0.9rem 1rem',
-                borderRadius: '10px',
-                border: '1px solid var(--border)',
-                background: 'var(--bg)',
-                color: 'var(--text)',
-                fontSize: '0.95rem',
-                fontWeight: 500,
-                cursor: 'pointer',
-                fontFamily: 'DM Sans, sans-serif',
-              }}
-            >
-              Volunteer View
-            </button>
-          )}
-
-          {navItems.map(({ key, label }) => (
-            <button
-              key={key}
-              onClick={() => handleItemClick(() => onSelectTab(key))}
-              style={{
-                width: '100%',
-                textAlign: 'left',
-                padding: '0.9rem 1rem',
-                borderRadius: '10px',
-                border: activeTab === key ? 'none' : '1px solid var(--border)',
-                background: activeTab === key ? 'var(--accent)' : 'var(--bg)',
-                color: activeTab === key ? '#fff' : 'var(--text)',
-                fontSize: '0.95rem',
-                fontWeight: 500,
-                cursor: 'pointer',
-                fontFamily: 'DM Sans, sans-serif',
-              }}
-            >
-              {label}
-            </button>
-          ))}
-
-          <button
-            onClick={() => handleItemClick(onSignOut)}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '0.9rem 1rem',
-              borderRadius: '10px',
-              border: '1px solid var(--border)',
-              background: 'var(--bg)',
-              color: 'var(--muted)',
-              fontSize: '0.95rem',
-              fontWeight: 500,
-              cursor: 'pointer',
-              fontFamily: 'DM Sans, sans-serif',
-              marginTop: '0.5rem',
-            }}
-          >
-            Sign out
-          </button>
-        </div>
-      </div>
-    </>
-  )
-}
-
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function AdminPage() {
   const [profile, setProfile] = useState(null)
@@ -379,14 +237,6 @@ export default function AdminPage() {
   const [callouts, setCallouts]         = useState([])
   const [schedule, setSchedule]         = useState([])
   const [tab, setTab]                   = useState('dashboard')
-  const [isMobile, setIsMobile] = useState(true)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 768)
-    check()
-    window.addEventListener('resize', check)
-    return () => window.removeEventListener('resize', check)
-  }, [])
   const [loading, setLoading]           = useState(true)
   const [toast, setToast]               = useState(null)
   const [currentTime, setCurrentTime]   = useState(getMountainNow())
@@ -489,6 +339,9 @@ export default function AdminPage() {
 
   const isTaskAdmin = ['Director', 'Administrative Assistant', 'Executive Assistant']
     .includes(profile?.default_role)
+
+  const isCredentialing = profile?.default_role === 'Credentialing'
+  const isHR = profile?.default_role === 'Human Resources'
     
   // ── Profile photo state ──────────────────────────────────────────────────────
   const [profilePhotoUrl, setProfilePhotoUrl]         = useState(null)
@@ -849,6 +702,7 @@ export default function AdminPage() {
         .eq('id', user.id).single()
       if (p?.role !== 'admin') { window.location.href = '/volunteer'; return }
       setProfile(p)
+      if (p?.default_role === 'Credentialing') setTab('volunteers')
       await Promise.all([loadVolunteers(), loadActiveShifts(), loadCallouts(), loadSchedule(), loadCoverRequests()])
       setLoading(false)
     }
@@ -1272,53 +1126,15 @@ export default function AdminPage() {
 
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          {isMobile ? (
-            <button
-              onClick={() => setSidebarOpen(true)}
-              aria-label="Open menu"
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                gap: '6px',
-                background: 'none',
-                border: 'none',
-                width: '56px',
-                height: '56px',
-                cursor: 'pointer',
-                padding: '0',
-                alignItems: 'center',
-              }}
-            >
-              <span style={{ width: '28px', height: '3px', background: 'var(--text)', borderRadius: '2px' }} />
-              <span style={{ width: '28px', height: '3px', background: 'var(--text)', borderRadius: '2px' }} />
-              <span style={{ width: '28px', height: '3px', background: 'var(--text)', borderRadius: '2px' }} />
-            </button>
-          ) : (
-            <div>
-              <h1 style={{ fontSize: '1.4rem', fontWeight: 600, letterSpacing: '-0.02em' }}>Admin Dashboard</h1>
-              <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Bingham Family Clinic &nbsp;·&nbsp;<span style={{ fontFamily: 'DM Mono, monospace' }}>{currentTime.toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit' })} {tzLabel}</span></p>
-            </div>
-          )}
-          {!isMobile && (
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <button onClick={() => window.location.href = '/volunteer'} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>Volunteer View</button>
-              <button onClick={async () => { await supabase.auth.signOut(); window.location.href = '/' }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>Sign out</button>
-            </div>
-          )}
+          <div>
+            <h1 style={{ fontSize: '1.4rem', fontWeight: 600, letterSpacing: '-0.02em' }}>Admin Dashboard</h1>
+            <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Bingham Family Clinic &nbsp;·&nbsp;<span style={{ fontFamily: 'DM Mono, monospace' }}>{currentTime.toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit' })} {tzLabel}</span></p>
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <button onClick={() => window.location.href = '/volunteer'} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>Volunteer View</button>
+            <button onClick={async () => { await supabase.auth.signOut(); window.location.href = '/' }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>Sign out</button>
+          </div>
         </div>
-
-        {/* Mobile sidebar — all tabs + Volunteer View + Sign out */}
-        <MobileSidebar
-          open={isMobile && sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
-          navItems={ADMIN_TABS.map(([key, label]) => ({ key, label }))}
-          activeTab={tab}
-          onSelectTab={switchTab}
-          showSwitchView={true}
-          onSwitchView={() => { window.location.href = '/volunteer' }}
-          onSignOut={async () => { await supabase.auth.signOut(); window.location.href = '/' }}
-        />
 
         {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
@@ -1335,15 +1151,28 @@ export default function AdminPage() {
         </div>
 
         {/* Tabs */}
-        {!isMobile && (
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-            {ADMIN_TABS.map(([key, label]) => (
-              <button key={key} onClick={() => switchTab(key)} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: tab === key ? 'var(--accent)' : 'var(--surface)', color: tab === key ? '#fff' : 'var(--muted)', border: tab === key ? 'none' : '1px solid var(--border)' }}>
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+          {(isCredentialing
+            ? [
+                ['providers', 'Providers'], ['volunteers', 'Volunteers'],
+                ['create', 'Add Volunteer'], ['shifts', 'Shifts'],  ['hours', 'Hours'],
+              ]
+            : isHR
+            ? [
+                ['dashboard', 'Live'], ['schedule', 'Scheduling'], ['volunteers', 'Volunteers'],
+                ['pipeline', 'Pipeline'], ['shifts', 'Shifts'], ['data', 'Data'], ['callouts', 'Call-Outs'],
+              ]
+            : [
+                ['dashboard', 'Live'], ['schedule', 'Scheduling'], ['volunteers', 'Volunteers'], ['providers', 'Providers'],
+                ['pipeline', 'Pipeline'], ['shifts', 'Shifts'], ['callouts', 'Call-Outs'],
+                ['hours', 'Hours'], ['audit', 'Recent Activity'], ['create', 'Add Volunteer'], ['data', 'Data'], ['training', 'Weekly Training'], ...(isTaskAdmin ? [['tasks', 'Tasks']] : []),
+              ]
+          ).map(([key, label]) => (
+            <button key={key} onClick={() => switchTab(key)} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: tab === key ? 'var(--accent)' : 'var(--surface)', color: tab === key ? '#fff' : 'var(--muted)', border: tab === key ? 'none' : '1px solid var(--border)' }}>
+              {label}
+            </button>
+          ))}
+        </div>
 
         {/* ── LIVE TAB ──────────────────────────────────────────────────────── */}
         {tab === 'dashboard' && (
@@ -2028,7 +1857,9 @@ export default function AdminPage() {
         {tab === 'providers' && <Providers supabase={supabase} />}
         {tab === 'data'      && <DataDashboard supabase={supabase} />}
         {tab === 'training'  && <WeeklyTraining supabase={supabase} profile={profile} />}
+        {/* 
         {tab === 'lunch'     && <LunchScheduler supabase={supabase} profile={profile} />}
+        */}
         {tab === 'tasks' && (
           <AdminTasks
             currentUserId={profile.id}
