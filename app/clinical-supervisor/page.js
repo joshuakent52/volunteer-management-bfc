@@ -420,6 +420,12 @@ export default function CSPage() {
               </p>
             </div>
           )}
+
+          <img
+            src="/logo2.png"
+            alt="Logo"
+            style={{ width: '48px', height: '48px', objectFit: 'contain', borderRadius: '10px' }}
+          />
         </div>
 
         {/* Mobile sidebar — all tabs + Volunteer View + Sign out */}
