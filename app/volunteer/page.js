@@ -345,7 +345,7 @@ function BottomNav({ activeTab, onSelectTab, unreadCount }) {
       key: 'clock',
       label: 'Home',
       icon: (active) => (
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--accent)' : 'var(--muted)'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--accent)' : 'var(--muted)'} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
           <path d="M3 11.5 12 4l9 7.5" />
           <path d="M5.5 10v9a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-9" />
         </svg>
@@ -355,7 +355,7 @@ function BottomNav({ activeTab, onSelectTab, unreadCount }) {
       key: 'messages',
       label: 'Messages',
       icon: (active) => (
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--accent)' : 'var(--muted)'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--accent)' : 'var(--muted)'} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
           <path d="M4 5.5h16v11H8l-4 3.5v-3.5h0V5.5z" />
         </svg>
       ),
@@ -364,7 +364,7 @@ function BottomNav({ activeTab, onSelectTab, unreadCount }) {
       key: 'schedule',
       label: 'Schedule',
       icon: (active) => (
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--accent)' : 'var(--muted)'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--accent)' : 'var(--muted)'} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
           <rect x="4" y="5.5" width="16" height="14" rx="1.5" />
           <path d="M4 9.5h16" />
           <path d="M8 3.5v3M16 3.5v3" />
@@ -385,7 +385,7 @@ function BottomNav({ activeTab, onSelectTab, unreadCount }) {
         display: 'flex',
         justifyContent: 'space-around',
         alignItems: 'center',
-        padding: '1.5rem 0 calc(1.5rem + env(safe-area-inset-bottom, 0px))',
+        padding: '1rem 0 calc(1rem + env(safe-area-inset-bottom, 0px))',
         zIndex: 900,
       }}
     >
