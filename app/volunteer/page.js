@@ -201,8 +201,11 @@ function ViewCountBadge({ message, broadcastReadCounts }) {
   )
 }
 
-function MobileSidebar({ open, onClose }) {
-  const rows = ['Row numero 1', 'Row numero 2', 'Row numero 3', 'Row numero 4']
+function MobileSidebar({ open, onClose, navItems, activeTab, onSelectTab, showSwitchView, onSwitchView, onSignOut }) {
+  function handleItemClick(action) {
+    action()
+    onClose()
+  }
   return (
     <>
       {/* Backdrop */}
@@ -235,6 +238,7 @@ function MobileSidebar({ open, onClose }) {
           display: 'flex',
           flexDirection: 'column',
           padding: '1.25rem 1rem',
+          overflowY: 'auto',
         }}
       >
         <button
@@ -253,10 +257,9 @@ function MobileSidebar({ open, onClose }) {
           ✕
         </button>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          {rows.map(row => (
+          {showSwitchView && (
             <button
-              key={row}
-              onClick={onClose}
+              onClick={() => handleItemClick(onSwitchView)}
               style={{
                 width: '100%',
                 textAlign: 'left',
@@ -271,9 +274,65 @@ function MobileSidebar({ open, onClose }) {
                 fontFamily: 'DM Sans, sans-serif',
               }}
             >
-              {row}
+              Switch View
+            </button>
+          )}
+
+          {navItems.map(({ key, label, badge }) => (
+            <button
+              key={key}
+              onClick={() => handleItemClick(() => onSelectTab(key))}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                padding: '0.9rem 1rem',
+                borderRadius: '10px',
+                border: activeTab === key ? 'none' : '1px solid var(--border)',
+                background: activeTab === key ? 'var(--accent)' : 'var(--bg)',
+                color: activeTab === key ? '#fff' : 'var(--text)',
+                fontSize: '0.95rem',
+                fontWeight: 500,
+                cursor: 'pointer',
+                fontFamily: 'DM Sans, sans-serif',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '0.5rem',
+              }}
+            >
+              {label}
+              {badge > 0 && (
+                <span style={{
+                  background: '#ef4444', color: '#fff', borderRadius: '50%',
+                  width: '20px', height: '20px', fontSize: '0.7rem', fontWeight: 700,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0, lineHeight: 1,
+                }}>
+                  {badge > 9 ? '9+' : badge}
+                </span>
+              )}
             </button>
           ))}
+
+          <button
+            onClick={() => handleItemClick(onSignOut)}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              padding: '0.9rem 1rem',
+              borderRadius: '10px',
+              border: '1px solid var(--border)',
+              background: 'var(--bg)',
+              color: 'var(--muted)',
+              fontSize: '0.95rem',
+              fontWeight: 500,
+              cursor: 'pointer',
+              fontFamily: 'DM Sans, sans-serif',
+              marginTop: '0.5rem',
+            }}
+          >
+            Sign out
+          </button>
         </div>
       </div>
     </>
@@ -909,6 +968,49 @@ function VolunteerPageInner() {
     ...(surveyOpen ? [['feedback', 'Feedback']] : []),
   ]
 
+  function tabBadge(key) {
+    return key === 'messages' ? unreadCount :
+      key === 'training' && trainingAvailable && !trainingAcknowledged ? 1 :
+      key === 'feedback' && surveyOpen && !surveySubmitted ? 1 : 0
+  }
+
+  // Sidebar nav order: Call-Out, Tasks, then everything else, then Account last.
+  // (Switch View and Sign out are rendered separately, pinned to top/bottom.)
+  const sidebarNavItems = (() => {
+    const byKey = key => TABS.find(([k]) => k === key)
+    const calloutEntry = byKey('callout')
+    const tasksEntry   = byKey('tasks')
+    const accountEntry = byKey('account')
+    const rest = TABS.filter(([k]) => !['callout', 'tasks', 'account'].includes(k))
+    const ordered = [
+      ...(calloutEntry ? [calloutEntry] : []),
+      ...(tasksEntry ? [tasksEntry] : []),
+      ...rest,
+      ...(accountEntry ? [accountEntry] : []),
+    ]
+    return ordered.map(([key, label]) => ({ key, label, badge: tabBadge(key) }))
+  })()
+
+  const canSwitchView =
+    profile?.role === 'admin' ||
+    profile?.default_role === 'Clinical Supervisor' ||
+    profile?.default_role === 'Office Manager'
+
+  function handleSwitchView() {
+    if (
+      profile?.default_role === 'Clinical Supervisor' ||
+      profile?.default_role === 'Office Manager'
+    ) {
+      window.location.href = '/clinical-supervisor'
+      return
+    }
+    if (window.location.pathname.includes('admin')) {
+      window.location.href = '/volunteer'
+    } else {
+      window.location.href = '/admin'
+    }
+  }
+
   if (loading) return (
     <div style={{
       minHeight: '100vh',
@@ -988,25 +1090,9 @@ function VolunteerPageInner() {
             </div>
           )}
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            {(profile?.role === 'admin' ||
-              profile?.default_role === 'Clinical Supervisor' ||
-              profile?.default_role === 'Office Manager') && (
+            {canSwitchView && (
               <button
-                onClick={() => {
-                  if (
-                    profile?.default_role === 'Clinical Supervisor' ||
-                    profile?.default_role === 'Office Manager'
-                  ) {
-                    window.location.href = '/clinical-supervisor'
-                    return
-                  }
-
-                  if (window.location.pathname.includes('admin')) {
-                    window.location.href = '/volunteer'
-                  } else {
-                    window.location.href = '/admin'
-                  }
-                }}
+                onClick={handleSwitchView}
                 style={{
                   background: 'none',
                   border: '1px solid var(--border)',
@@ -1105,11 +1191,7 @@ function VolunteerPageInner() {
               label={label}
               active={tab === key}
               onClick={handleTabChange}
-              badge={
-                key === 'messages' ? unreadCount :
-                key === 'training' && trainingAvailable && !trainingAcknowledged ? 1 :
-                key === 'feedback' && surveyOpen && !surveySubmitted ? 1 : 0
-              }
+              badge={tabBadge(key)}
             />
           ))}
         </div>
@@ -1634,7 +1716,16 @@ function VolunteerPageInner() {
         )}
 
         {/* Mobile sidebar */}
-        <MobileSidebar open={isMobile && sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <MobileSidebar
+          open={isMobile && sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          navItems={sidebarNavItems}
+          activeTab={tab}
+          onSelectTab={handleTabChange}
+          showSwitchView={canSwitchView}
+          onSwitchView={handleSwitchView}
+          onSignOut={handleSignOut}
+        />
 
         {/* Toast */}
         {toast && (
