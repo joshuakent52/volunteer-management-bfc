@@ -339,6 +339,8 @@ export default function AdminPage() {
 
   const isTaskAdmin = ['Director', 'Administrative Assistant', 'Executive Assistant']
     .includes(profile?.default_role)
+
+  const isCredentialing = profile?.default_role === 'Credentialing'
     
   // ── Profile photo state ──────────────────────────────────────────────────────
   const [profilePhotoUrl, setProfilePhotoUrl]         = useState(null)
@@ -699,6 +701,7 @@ export default function AdminPage() {
         .eq('id', user.id).single()
       if (p?.role !== 'admin') { window.location.href = '/volunteer'; return }
       setProfile(p)
+      if (p?.default_role === 'Credentialing') setTab('volunteers')
       await Promise.all([loadVolunteers(), loadActiveShifts(), loadCallouts(), loadSchedule(), loadCoverRequests()])
       setLoading(false)
     }
@@ -1148,11 +1151,17 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-          {[
-            ['dashboard', 'Live'], ['schedule', 'Scheduling'], ['volunteers', 'Volunteers'], ['providers', 'Providers'],
-            ['pipeline', 'Pipeline'], ['shifts', 'Shifts'], ['callouts', 'Call-Outs'],
-            ['hours', 'Hours'], ['audit', 'Recent Activity'], ['create', 'Add Volunteer'], ['data', 'Data'], ['training', 'Weekly Training'], ...(isTaskAdmin ? [['tasks', 'Tasks']] : []),
-          ].map(([key, label]) => (
+          {(isCredentialing
+            ? [
+                ['providers', 'Providers'], ['volunteers', 'Volunteers'],
+                ['create', 'Add Volunteer'], ['shifts', 'Shifts'],
+              ]
+            : [
+                ['dashboard', 'Live'], ['schedule', 'Scheduling'], ['volunteers', 'Volunteers'], ['providers', 'Providers'],
+                ['pipeline', 'Pipeline'], ['shifts', 'Shifts'], ['callouts', 'Call-Outs'],
+                ['hours', 'Hours'], ['audit', 'Recent Activity'], ['create', 'Add Volunteer'], ['data', 'Data'], ['training', 'Weekly Training'], ...(isTaskAdmin ? [['tasks', 'Tasks']] : []),
+              ]
+          ).map(([key, label]) => (
             <button key={key} onClick={() => switchTab(key)} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', background: tab === key ? 'var(--accent)' : 'var(--surface)', color: tab === key ? '#fff' : 'var(--muted)', border: tab === key ? 'none' : '1px solid var(--border)' }}>
               {label}
             </button>
