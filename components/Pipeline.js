@@ -1442,7 +1442,8 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
   }
   const step2Valid    = !!onboardForm.birthday
   const step3Valid    = !!onboardForm.default_role
-  const allStepsValid = step1Valid() && step2Valid && step3Valid && docsComplete
+  const step4Valid    = onboardForm.preferred_slots.length > 0 && onboardForm.preferred_roles.length > 0
+  const allStepsValid = step1Valid() && step2Valid && step3Valid && step4Valid && docsComplete
 
   function profileSummary() {
     const base = [
@@ -2119,7 +2120,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                 { n: 1, label: 'Affiliation',  valid: s1 },
                 { n: 2, label: 'Birthday',     valid: step2Valid },
                 { n: 3, label: 'Position',     valid: step3Valid },
-                { n: 4, label: 'Availability', valid: onboardForm.preferred_slots.length > 0 },
+                { n: 4, label: 'Availability', valid: step4Valid },
                 { n: 5, label: 'Checklist',    valid: checklistCount > 0 },
               ].map(({ n, label, valid }) => (
                 <button key={n} onClick={() => setOnboardStep(n)} style={{ padding: '0.35rem 0.85rem', borderRadius: '8px', fontSize: '0.78rem', fontWeight: onboardStep === n ? 700 : 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', border: `1px solid ${onboardStep === n ? C.blue : valid ? C.blue + '44' : 'var(--border)'}`, background: onboardStep === n ? C.blue + '18' : 'var(--bg)', color: onboardStep === n ? C.blue : valid ? C.blue : 'var(--muted)' }}>
@@ -2180,12 +2181,15 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                   <SlotPicker selected={onboardForm.preferred_slots} onChange={val => setOnboardForm(f => ({ ...f, preferred_slots: val }))} />
                 </div>
                 <div style={{ padding: '1rem 1.25rem', borderRadius: '10px', background: 'var(--bg)', border: `1px solid ${C.blue}2a` }}>
-                  <p style={{ ...secLabel, color: C.blue, marginBottom: '0.75rem' }}>Willing to Fill Roles <span style={{ color: 'var(--muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></p>
+                  <p style={{ ...secLabel, color: C.blue, marginBottom: '0.75rem' }}>Willing to Fill Roles</p>
                   <RolePicker selected={onboardForm.preferred_roles} onChange={val => setOnboardForm(f => ({ ...f, preferred_roles: val }))} />
+                  {onboardForm.preferred_roles.length === 0 && (
+                    <p style={{ fontSize: '0.8rem', color: C.danger, fontStyle: 'italic', marginTop: '0.6rem' }}>Select at least one role to continue.</p>
+                  )}
                 </div>
                 <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
                   {onboardForm.preferred_slots.length === 0
-                    ? <span style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic' }}>No slots selected — will be added as fully flexible.</span>
+                    ? <span style={{ fontSize: '0.8rem', color: C.danger, fontStyle: 'italic' }}>Select at least one shift to continue.</span>
                     : onboardForm.preferred_slots.map(k => {
                         const s = ALL_SLOTS.find(x => x.key === k)
                         return <span key={k} style={{ padding: '0.2rem 0.55rem', borderRadius: '100px', fontSize: '0.72rem', background: C.blue + '14', color: C.blue, border: `1px solid ${C.blue}33`, fontFamily: 'DM Mono, monospace' }}>{s?.label || k}</span>
@@ -2194,7 +2198,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                 </div>
                 <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
                   <button onClick={() => setOnboardStep(3)} style={ghostBtn()}>Back</button>
-                  <button onClick={async () => { await saveOnboardProgress(applicant.id, { onboard_preferred_slots: onboardForm.preferred_slots, onboard_preferred_roles: onboardForm.preferred_roles }); setOnboardStep(5) }} style={solidBtn(C.blue, false)}>Save &amp; Next</button>
+                  <button onClick={async () => { await saveOnboardProgress(applicant.id, { onboard_preferred_slots: onboardForm.preferred_slots, onboard_preferred_roles: onboardForm.preferred_roles }); setOnboardStep(5) }} disabled={!step4Valid} style={solidBtn(C.blue, !step4Valid)}>Save &amp; Next</button>
                 </div>
               </div>
             )}
@@ -2264,6 +2268,7 @@ export default function Pipeline({ supabase, profile, onVolunteerCreated }) {
                     {!step1Valid() && 'Affiliation details required. '}
                     {!step2Valid && 'Birthday required. '}
                     {!step3Valid && 'Default position required. '}
+                    {!step4Valid && 'At least one available shift and one role required. '}
                   </p>
                 )}
               </div>
