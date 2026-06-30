@@ -1155,12 +1155,12 @@ export default function AdminPage() {
           {(isCredentialing
             ? [
                 ['providers', 'Providers'], ['volunteers', 'Volunteers'],
-                ['create', 'Add Volunteer'], ['shifts', 'Shifts'],
+                ['create', 'Add Volunteer'], ['shifts', 'Shifts'],  ['hours', 'Hours'],
               ]
             : isHR
             ? [
                 ['dashboard', 'Live'], ['schedule', 'Scheduling'], ['volunteers', 'Volunteers'],
-                ['pipeline', 'Pipeline'], ['hours', 'Hours'], ['shifts', 'Shifts'], ['data', 'Data'], ['callouts', 'Call-Outs'],
+                ['pipeline', 'Pipeline'], ['shifts', 'Shifts'], ['data', 'Data'], ['callouts', 'Call-Outs'],
               ]
             : [
                 ['dashboard', 'Live'], ['schedule', 'Scheduling'], ['volunteers', 'Volunteers'], ['providers', 'Providers'],
