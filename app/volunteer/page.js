@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
+import { useState, useEffect, useRef, useCallback, lazy, Suspense, Component } from 'react'
 import { supabase } from '../../lib/supabase'
 import { DAYS, SHIFTS, ROLES, MAX_FILE_SIZE } from '../../lib/constants'
 import { formatDate, formatTime, asUTC } from '../../lib/timeUtils'
@@ -201,8 +201,269 @@ function ViewCountBadge({ message, broadcastReadCounts }) {
   )
 }
 
+function MobileSidebar({ open, onClose, navItems, activeTab, onSelectTab, showSwitchView, onSwitchView, onSignOut }) {
+  function handleItemClick(action) {
+    action()
+    onClose()
+  }
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.5)',
+          opacity: open ? 1 : 0,
+          pointerEvents: open ? 'auto' : 'none',
+          transition: 'opacity 0.25s ease',
+          zIndex: 1000,
+        }}
+      />
+      {/* Panel */}
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          bottom: 0,
+          width: '78%',
+          maxWidth: '300px',
+          background: 'var(--surface)',
+          borderRight: '1px solid var(--border)',
+          transform: open ? 'translateX(0)' : 'translateX(-100%)',
+          transition: 'transform 0.25s ease',
+          zIndex: 1001,
+          display: 'flex',
+          flexDirection: 'column',
+          padding: '1.25rem 1rem',
+          overflowY: 'auto',
+        }}
+      >
+        <button
+          onClick={onClose}
+          style={{
+            alignSelf: 'flex-end',
+            background: 'none',
+            border: 'none',
+            color: 'var(--muted)',
+            fontSize: '1.3rem',
+            cursor: 'pointer',
+            padding: '0.25rem 0.5rem',
+            marginBottom: '0.5rem',
+          }}
+        >
+          ✕
+        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {showSwitchView && (
+            <button
+              onClick={() => handleItemClick(onSwitchView)}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                padding: '0.9rem 1rem',
+                borderRadius: '10px',
+                border: '1px solid var(--border)',
+                background: 'var(--bg)',
+                color: 'var(--text)',
+                fontSize: '0.95rem',
+                fontWeight: 500,
+                cursor: 'pointer',
+                fontFamily: 'DM Sans, sans-serif',
+              }}
+            >
+              Switch View
+            </button>
+          )}
+
+          {navItems.map(({ key, label, badge }) => (
+            <button
+              key={key}
+              onClick={() => handleItemClick(() => onSelectTab(key))}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                padding: '0.9rem 1rem',
+                borderRadius: '10px',
+                border: activeTab === key ? 'none' : '1px solid var(--border)',
+                background: activeTab === key ? 'var(--accent)' : 'var(--bg)',
+                color: activeTab === key ? '#fff' : 'var(--text)',
+                fontSize: '0.95rem',
+                fontWeight: 500,
+                cursor: 'pointer',
+                fontFamily: 'DM Sans, sans-serif',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '0.5rem',
+              }}
+            >
+              {label}
+              {badge > 0 && (
+                <span style={{
+                  background: '#ef4444', color: '#fff', borderRadius: '50%',
+                  width: '20px', height: '20px', fontSize: '0.7rem', fontWeight: 700,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0, lineHeight: 1,
+                }}>
+                  {badge > 9 ? '9+' : badge}
+                </span>
+              )}
+            </button>
+          ))}
+
+          <button
+            onClick={() => handleItemClick(onSignOut)}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              padding: '0.9rem 1rem',
+              borderRadius: '10px',
+              border: '1px solid var(--border)',
+              background: 'var(--bg)',
+              color: 'var(--muted)',
+              fontSize: '0.95rem',
+              fontWeight: 500,
+              cursor: 'pointer',
+              fontFamily: 'DM Sans, sans-serif',
+              marginTop: '0.5rem',
+            }}
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+function BottomNav({ activeTab, onSelectTab, unreadCount }) {
+  const items = [
+    {
+      key: 'clock',
+      label: 'Home',
+      icon: (active) => (
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--accent)' : 'var(--muted)'} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 11.5 12 4l9 7.5" />
+          <path d="M5.5 10v9a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-9" />
+        </svg>
+      ),
+    },
+    {
+      key: 'messages',
+      label: 'Messages',
+      icon: (active) => (
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--accent)' : 'var(--muted)'} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 5.5h16v11H8l-4 3.5v-3.5h0V5.5z" />
+        </svg>
+      ),
+    },
+    {
+      key: 'schedule',
+      label: 'Schedule',
+      icon: (active) => (
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--accent)' : 'var(--muted)'} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="4" y="5.5" width="16" height="14" rx="1.5" />
+          <path d="M4 9.5h16" />
+          <path d="M8 3.5v3M16 3.5v3" />
+        </svg>
+      ),
+    },
+  ]
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        background: 'var(--surface)',
+        borderTop: '1px solid var(--border)',
+        display: 'flex',
+        justifyContent: 'space-around',
+        alignItems: 'center',
+        padding: '1rem 0 calc(1rem + env(safe-area-inset-bottom, 0px))',
+        zIndex: 900,
+      }}
+    >
+      {items.map(({ key, label, icon }) => {
+        const active = activeTab === key
+        return (
+          <button
+            key={key}
+            onClick={() => onSelectTab(key)}
+            aria-label={label}
+            style={{
+              position: 'relative',
+              background: 'none',
+              border: 'none',
+              padding: '0.4rem 1.5rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {icon(active)}
+            {key === 'messages' && unreadCount > 0 && (
+              <span style={{
+                position: 'absolute', top: '0.1rem', right: '1rem',
+                background: '#ef4444', color: '#fff', borderRadius: '50%',
+                width: '15px', height: '15px', fontSize: '0.62rem', fontWeight: 700,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                lineHeight: 1, border: '2px solid var(--surface)',
+              }}>
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Debug error boundary ──────────────────────────────────────────────────
+// Wraps the page so that any render error shows up as visible red text +
+// a console.error with the full stack, instead of silently leaving a
+// blank/gray screen with nothing in the console.
+class DebugErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { error: null, info: null }
+  }
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+  componentDidCatch(error, info) {
+    console.error('[VolunteerPage] Render error caught by boundary:', error, info)
+    this.setState({ info })
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ minHeight: '100vh', background: '#1a0000', color: '#ff8080', padding: '2rem', fontFamily: 'monospace', fontSize: '0.85rem', whiteSpace: 'pre-wrap', overflow: 'auto' }}>
+          <h2 style={{ color: '#ff4d4d', marginBottom: '1rem' }}>Render error caught</h2>
+          <p style={{ marginBottom: '1rem' }}>{String(this.state.error?.message || this.state.error)}</p>
+          <p style={{ color: '#ffb3b3', fontSize: '0.75rem' }}>{this.state.error?.stack}</p>
+          {this.state.info?.componentStack && (
+            <>
+              <h3 style={{ marginTop: '1.5rem', color: '#ff4d4d' }}>Component stack</h3>
+              <p style={{ fontSize: '0.75rem', color: '#ffb3b3' }}>{this.state.info.componentStack}</p>
+            </>
+          )}
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
-export default function VolunteerPage() {
+function VolunteerPageInner() {
   // ── Core auth/profile state (loaded immediately) ─────────────────────────
   const [user, setUser]       = useState(null)
   const [profile, setProfile] = useState(null)
@@ -255,6 +516,7 @@ export default function VolunteerPage() {
   // ── UI state ──────────────────────────────────────────────────────────────
   const [toast, setToast]         = useState(null)
   const [lightboxUrl, setLightboxUrl] = useState(null)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   // ── Survey state ──────────────────────────────────────────────────────────
   const [surveyOpen]      = useState(() => isSurveyWeek())
@@ -317,10 +579,34 @@ export default function VolunteerPage() {
 
   const [isMobile, setIsMobile] = useState(true)
   useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 768)
+    const check = () => {
+      const next = window.innerWidth < 768
+      setIsMobile(prev => {
+        if (prev !== next) console.log('[VolunteerPage] isMobile changed:', prev, '->', next, 'width:', window.innerWidth)
+        return next
+      })
+    }
     check()
     window.addEventListener('resize', check)
     return () => window.removeEventListener('resize', check)
+  }, [])
+
+  // Catch anything that wouldn't otherwise show up in the console: async
+  // errors, errors in event handlers, etc. Logged loudly so a blank/gray
+  // page always leaves a trace.
+  useEffect(() => {
+    const onError = (event) => {
+      console.error('[VolunteerPage] window error:', event.error || event.message, event)
+    }
+    const onRejection = (event) => {
+      console.error('[VolunteerPage] unhandled promise rejection:', event.reason, event)
+    }
+    window.addEventListener('error', onError)
+    window.addEventListener('unhandledrejection', onRejection)
+    return () => {
+      window.removeEventListener('error', onError)
+      window.removeEventListener('unhandledrejection', onRejection)
+    }
   }, [])
 
   const isIntern   = profile?.affiliation === 'intern'
@@ -769,6 +1055,49 @@ export default function VolunteerPage() {
     ...(surveyOpen ? [['feedback', 'Feedback']] : []),
   ]
 
+  function tabBadge(key) {
+    return key === 'messages' ? unreadCount :
+      key === 'training' && trainingAvailable && !trainingAcknowledged ? 1 :
+      key === 'feedback' && surveyOpen && !surveySubmitted ? 1 : 0
+  }
+
+  // Sidebar nav order: Call-Out, Tasks, then everything else, then Account last.
+  // (Switch View and Sign out are rendered separately, pinned to top/bottom.)
+  const sidebarNavItems = (() => {
+    const byKey = key => TABS.find(([k]) => k === key)
+    const calloutEntry = byKey('callout')
+    const tasksEntry   = byKey('tasks')
+    const accountEntry = byKey('account')
+    const rest = TABS.filter(([k]) => !['callout', 'tasks', 'account', 'clock', 'messages', 'schedule'].includes(k))
+    const ordered = [
+      ...(calloutEntry ? [calloutEntry] : []),
+      ...(tasksEntry ? [tasksEntry] : []),
+      ...rest,
+      ...(accountEntry ? [accountEntry] : []),
+    ]
+    return ordered.map(([key, label]) => ({ key, label, badge: tabBadge(key) }))
+  })()
+
+  const canSwitchView =
+    profile?.role === 'admin' ||
+    profile?.default_role === 'Clinical Supervisor' ||
+    profile?.default_role === 'Office Manager'
+
+  function handleSwitchView() {
+    if (
+      profile?.default_role === 'Clinical Supervisor' ||
+      profile?.default_role === 'Office Manager'
+    ) {
+      window.location.href = '/clinical-supervisor'
+      return
+    }
+    if (window.location.pathname.includes('admin')) {
+      window.location.href = '/volunteer'
+    } else {
+      window.location.href = '/admin'
+    }
+  }
+
   if (loading) return (
     <div style={{
       minHeight: '100vh',
@@ -809,65 +1138,100 @@ export default function VolunteerPage() {
   )
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '1.5rem', paddingBottom: isMobile ? '5.5rem' : '1.5rem' }}>
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
 
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <div>
-            <h1 style={{ fontSize: '1.4rem', fontWeight: 600, letterSpacing: '-0.02em' }}>
-              Hey, {profile?.full_name?.split(' ')[0]}
-            </h1>
-            <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
-              {new Date().toLocaleDateString('en-US', { timeZone: 'America/Denver', weekday: 'long', month: 'long', day: 'numeric' })}
-            </p>
-          </div>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            {(profile?.role === 'admin' ||
-              profile?.default_role === 'Clinical Supervisor' ||
-              profile?.default_role === 'Office Manager') && (
-              <button
-                onClick={() => {
-                  if (
-                    profile?.default_role === 'Clinical Supervisor' ||
-                    profile?.default_role === 'Office Manager'
-                  ) {
-                    window.location.href = '/clinical-supervisor'
-                    return
-                  }
-
-                  if (window.location.pathname.includes('admin')) {
-                    window.location.href = '/volunteer'
-                  } else {
-                    window.location.href = '/admin'
-                  }
-                }}
-                style={{
-                  background: 'none',
-                  border: '1px solid var(--border)',
-                  borderRadius: '8px',
-                  color: 'var(--muted)',
-                  padding: '0.4rem 0.9rem',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem'
-                }}
-              >
-                Switch View
-              </button>
-            )}
-            <button onClick={handleSignOut} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>
-              Sign out
+          {isMobile ? (
+            <button
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open menu"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                gap: '6px',
+                background: 'none',
+                border: 'none',
+                width: '56px',
+                height: '56px',
+                cursor: 'pointer',
+                padding: '0',
+                alignItems: 'center',
+              }}
+            >
+              <span style={{ width: '28px', height: '3px', background: 'var(--text)', borderRadius: '2px' }} />
+              <span style={{ width: '28px', height: '3px', background: 'var(--text)', borderRadius: '2px' }} />
+              <span style={{ width: '28px', height: '3px', background: 'var(--text)', borderRadius: '2px' }} />
             </button>
-          </div>
+          ) : (
+            <div>
+              <h1 style={{ fontSize: '1.4rem', fontWeight: 600, letterSpacing: '-0.02em' }}>
+                Hey, {profile?.full_name?.split(' ')[0]}
+              </h1>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
+                {new Date().toLocaleDateString('en-US', { timeZone: 'America/Denver', weekday: 'long', month: 'long', day: 'numeric' })}
+              </p>
+            </div>
+          )}
+          {!isMobile && (
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              {canSwitchView && (
+                <button
+                  onClick={handleSwitchView}
+                  style={{
+                    background: 'none',
+                    border: '1px solid var(--border)',
+                    borderRadius: '8px',
+                    color: 'var(--muted)',
+                    padding: '0.4rem 0.9rem',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem'
+                  }}
+                >
+                  Switch View
+                </button>
+              )}
+              <button onClick={handleSignOut} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--muted)', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem' }}>
+                Sign out
+              </button>
+            </div>
+          )}
+          {isMobile && (
+            <button
+              onClick={() => handleTabChange('account')}
+              aria-label="Account"
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: 0,
+                cursor: 'pointer',
+                width: '48px',
+                height: '48px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <img
+                src="/logo2.png"
+                alt="Account"
+                style={{ width: '48px', height: '48px', objectFit: 'contain', borderRadius: '10px' }}
+              />
+            </button>
+          )}
         </div>
 
         {/* Status banner */}
-        <div style={{ ...S.card, marginBottom: '1.5rem', borderColor: activeShift ? 'var(--accent)' : 'var(--border)', background: activeShift ? 'rgba(74,222,128,0.05)' : 'var(--surface)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: activeShift ? 'var(--accent)' : 'var(--muted)', boxShadow: activeShift ? '0 0 8px var(--accent)' : 'none' }} />
-            <span style={{ fontWeight: 500 }}>{activeShift ? `Clocked in since ${formatTime(activeShift.clock_in)}` : 'Not clocked in'}</span>
+        {!isMobile && (
+          <div style={{ ...S.card, marginBottom: '1.5rem', borderColor: activeShift ? 'var(--accent)' : 'var(--border)', background: activeShift ? 'rgba(74,222,128,0.05)' : 'var(--surface)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: activeShift ? 'var(--accent)' : 'var(--muted)', boxShadow: activeShift ? '0 0 8px var(--accent)' : 'none' }} />
+              <span style={{ fontWeight: 500 }}>{activeShift ? `Clocked in since ${formatTime(activeShift.clock_in)}` : 'Not clocked in'}</span>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Weekly training banner — shown every week until acknowledged */}
         {trainingAvailable && !trainingAcknowledged && (
@@ -932,22 +1296,20 @@ export default function VolunteerPage() {
         )}
 
         {/* Tabs */}
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-          {TABS.map(([key, label]) => (
-            <TabButton
-              key={key}
-              id={key}
-              label={label}
-              active={tab === key}
-              onClick={handleTabChange}
-              badge={
-                key === 'messages' ? unreadCount :
-                key === 'training' && trainingAvailable && !trainingAcknowledged ? 1 :
-                key === 'feedback' && surveyOpen && !surveySubmitted ? 1 : 0
-              }
-            />
-          ))}
-        </div>
+        {!isMobile && (
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+            {TABS.map(([key, label]) => (
+                <TabButton
+                  key={key}
+                  id={key}
+                  label={label}
+                  active={tab === key}
+                  onClick={handleTabChange}
+                  badge={tabBadge(key)}
+                />
+              ))}
+          </div>
+        )}
 
         {/* ── CLOCK TAB ───────────────────────────────────────────────────── */}
         {tab === 'clock' && (
@@ -1468,9 +1830,26 @@ export default function VolunteerPage() {
           </div>
         )}
 
+        {/* Mobile sidebar */}
+        <MobileSidebar
+          open={isMobile && sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          navItems={sidebarNavItems}
+          activeTab={tab}
+          onSelectTab={handleTabChange}
+          showSwitchView={canSwitchView}
+          onSwitchView={handleSwitchView}
+          onSignOut={handleSignOut}
+        />
+
+        {/* Bottom nav — always visible on mobile */}
+        {isMobile && (
+          <BottomNav activeTab={tab} onSelectTab={handleTabChange} unreadCount={unreadCount} />
+        )}
+
         {/* Toast */}
         {toast && (
-          <div style={{ position: 'fixed', bottom: '1.5rem', left: '50%', transform: 'translateX(-50%)', background: toast.type === 'success' ? 'var(--accent)' : 'var(--danger)', color: '#fff', padding: '0.75rem 1.5rem', borderRadius: '100px', fontWeight: 500, fontSize: '0.9rem', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
+          <div style={{ position: 'fixed', bottom: isMobile ? '4.75rem' : '1.5rem', left: '50%', transform: 'translateX(-50%)', background: toast.type === 'success' ? 'var(--accent)' : 'var(--danger)', color: '#fff', padding: '0.75rem 1.5rem', borderRadius: '100px', fontWeight: 500, fontSize: '0.9rem', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
             {toast.text}
           </div>
         )}
@@ -1484,5 +1863,15 @@ export default function VolunteerPage() {
         )}
       </div>
     </div>
+  )
+}
+// ── Default export ──────────────────────────────────────────────────────────
+// Wrapped in DebugErrorBoundary so any render-time error becomes visible
+// on screen + in the console, instead of silently leaving a blank page.
+export default function VolunteerPage() {
+  return (
+    <DebugErrorBoundary>
+      <VolunteerPageInner />
+    </DebugErrorBoundary>
   )
 }

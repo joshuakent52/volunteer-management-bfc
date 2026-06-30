@@ -4,9 +4,133 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 import { getMountainNow, getMountainLabel } from '../../lib/timeUtils'
-import LunchScheduler from '../../components/LunchScheduler'
+// import LunchScheduler from '../../components/LunchScheduler'
 import ProviderScheduleView from '../../components/ProviderScheduleView'
 import Live from '../../components/Live'
+
+function MobileSidebar({ open, onClose, navItems, activeTab, onSelectTab, showSwitchView, onSwitchView, onSignOut }) {
+  function handleItemClick(action) {
+    action()
+    onClose()
+  }
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.5)',
+          opacity: open ? 1 : 0,
+          pointerEvents: open ? 'auto' : 'none',
+          transition: 'opacity 0.25s ease',
+          zIndex: 1000,
+        }}
+      />
+      {/* Panel */}
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          bottom: 0,
+          width: '78%',
+          maxWidth: '300px',
+          background: 'var(--surface)',
+          borderRight: '1px solid var(--border)',
+          transform: open ? 'translateX(0)' : 'translateX(-100%)',
+          transition: 'transform 0.25s ease',
+          zIndex: 1001,
+          display: 'flex',
+          flexDirection: 'column',
+          padding: '1.25rem 1rem',
+          overflowY: 'auto',
+        }}
+      >
+        <button
+          onClick={onClose}
+          style={{
+            alignSelf: 'flex-end',
+            background: 'none',
+            border: 'none',
+            color: 'var(--muted)',
+            fontSize: '1.3rem',
+            cursor: 'pointer',
+            padding: '0.25rem 0.5rem',
+            marginBottom: '0.5rem',
+          }}
+        >
+          ✕
+        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {showSwitchView && (
+            <button
+              onClick={() => handleItemClick(onSwitchView)}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                padding: '0.9rem 1rem',
+                borderRadius: '10px',
+                border: '1px solid var(--border)',
+                background: 'var(--bg)',
+                color: 'var(--text)',
+                fontSize: '0.95rem',
+                fontWeight: 500,
+                cursor: 'pointer',
+                fontFamily: 'DM Sans, sans-serif',
+              }}
+            >
+              Volunteer View
+            </button>
+          )}
+
+          {navItems.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => handleItemClick(() => onSelectTab(key))}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                padding: '0.9rem 1rem',
+                borderRadius: '10px',
+                border: activeTab === key ? 'none' : '1px solid var(--border)',
+                background: activeTab === key ? 'var(--accent)' : 'var(--bg)',
+                color: activeTab === key ? '#fff' : 'var(--text)',
+                fontSize: '0.95rem',
+                fontWeight: 500,
+                cursor: 'pointer',
+                fontFamily: 'DM Sans, sans-serif',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+
+          <button
+            onClick={() => handleItemClick(onSignOut)}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              padding: '0.9rem 1rem',
+              borderRadius: '10px',
+              border: '1px solid var(--border)',
+              background: 'var(--bg)',
+              color: 'var(--muted)',
+              fontSize: '0.95rem',
+              fontWeight: 500,
+              cursor: 'pointer',
+              fontFamily: 'DM Sans, sans-serif',
+              marginTop: '0.5rem',
+            }}
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
 
 export default function CSPage() {
   const router = useRouter()
@@ -25,6 +149,15 @@ export default function CSPage() {
   const [tab, setTab]                   = useState('live')
   const [selectedContact, setSelectedContact] = useState(null)
   const [langModal, setLangModal]       = useState(null) // { lang, day, shift } or null
+
+  const [isMobile, setIsMobile] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   useEffect(() => {
     checkAccess()
@@ -146,6 +279,13 @@ export default function CSPage() {
   const card       = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem' }
   const labelStyle = { display: 'block', fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '0.35rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
   const tzLabel    = getMountainLabel()
+  const CS_TABS = [
+    ['live', 'Live'],
+    ['schedule', 'Schedule'],
+    ['languages', 'Language Coverage'],
+    // ['lunch', 'Lunch'],
+    ['providers', 'Providers'],
+  ]
 
   // Clickable language bubble
   function LangBubble({ lang, highlighted, day, shift }) {
@@ -234,69 +374,55 @@ export default function CSPage() {
 
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
-          <div>
-            <h1 style={{ fontSize: '1.3rem', fontWeight: 600, letterSpacing: '-0.02em', marginBottom: '0.25rem' }}>
-              Clinical Supervisor and Office Manager Dashboard
-            </h1>
+          {isMobile ? (
+            <button
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open menu"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                gap: '6px',
+                background: 'none',
+                border: 'none',
+                width: '56px',
+                height: '56px',
+                cursor: 'pointer',
+                padding: '0',
+                alignItems: 'center',
+              }}
+            >
+              <span style={{ width: '28px', height: '3px', background: 'var(--text)', borderRadius: '2px' }} />
+              <span style={{ width: '28px', height: '3px', background: 'var(--text)', borderRadius: '2px' }} />
+              <span style={{ width: '28px', height: '3px', background: 'var(--text)', borderRadius: '2px' }} />
+            </button>
+          ) : (
+            <div>
+              <h1 style={{ fontSize: '1.3rem', fontWeight: 600, letterSpacing: '-0.02em', marginBottom: '0.25rem' }}>
+                Clinical Supervisor and Office Manager Dashboard
+              </h1>
 
-            <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
-              {currentTime.toLocaleDateString('en-US', {
-                timeZone: 'America/Denver',
-                weekday: 'long',
-                month: 'long',
-                day: 'numeric'
-              })}
-              &nbsp;·&nbsp;
-              <span style={{ fontFamily: 'DM Mono, monospace' }}>
-                {currentTime.toLocaleTimeString('en-US', {
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
+                {currentTime.toLocaleDateString('en-US', {
                   timeZone: 'America/Denver',
-                  hour: '2-digit',
-                  minute: '2-digit'
-                })} {tzLabel}
-              </span>
-            </p>
-          </div>
+                  weekday: 'long',
+                  month: 'long',
+                  day: 'numeric'
+                })}
+                &nbsp;·&nbsp;
+                <span style={{ fontFamily: 'DM Mono, monospace' }}>
+                  {currentTime.toLocaleTimeString('en-US', {
+                    timeZone: 'America/Denver',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })} {tzLabel}
+                </span>
+              </p>
+            </div>
+          )}
         
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-        
-            {/* Switch to Volunteer View */}
-            <button
-              onClick={() => {
-                window.location.href = '/volunteer'
-              }}
-              style={{
-                background: 'none',
-                border: '1px solid var(--border)',
-                borderRadius: '8px',
-                color: 'var(--muted)',
-                padding: '0.4rem 0.9rem',
-                cursor: 'pointer',
-                fontSize: '0.85rem'
-              }}
-            >
-              Volunteer View
-            </button>
-        
-            {/* Sign out */}
-            <button
-              onClick={async () => {
-                await supabase.auth.signOut()
-                window.location.href = '/'
-              }}
-              style={{
-                background: 'none',
-                border: '1px solid var(--border)',
-                borderRadius: '8px',
-                color: 'var(--muted)',
-                padding: '0.4rem 0.9rem',
-                cursor: 'pointer',
-                fontSize: '0.85rem'
-              }}
-            >
-              Sign out
-            </button>
-          </div>
-        </div>
+          {!isMobile && (
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
         
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
          {[
@@ -324,6 +450,42 @@ export default function CSPage() {
             </button>
           ))}
         </div>
+
+        {/* Mobile sidebar — all tabs + Volunteer View + Sign out */}
+        <MobileSidebar
+          open={isMobile && sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          navItems={CS_TABS.map(([key, label]) => ({ key, label }))}
+          activeTab={tab}
+          onSelectTab={setTab}
+          showSwitchView={true}
+          onSwitchView={() => { window.location.href = '/volunteer' }}
+          onSignOut={async () => { await supabase.auth.signOut(); window.location.href = '/' }}
+        />
+
+        {!isMobile && (
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+           {CS_TABS.map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                style={{
+                  padding: '0.5rem 1rem',
+                  borderRadius: '8px',
+                  fontSize: '0.875rem',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  fontFamily: 'DM Sans, sans-serif',
+                  background: tab === key ? 'var(--accent)' : 'var(--surface)',
+                  color: tab === key ? '#fff' : 'var(--muted)',
+                  border: tab === key ? 'none' : '1px solid var(--border)'
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* ── LIVE TAB ───────────────────────────────────────── */}
         {tab === 'live' && (
