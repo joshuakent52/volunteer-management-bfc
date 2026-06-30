@@ -76,7 +76,7 @@ export default function PrivacyPolicy() {
             Access is temporary and may be revoked at any time by the Clinic.
         </li>
         <li>- 
-            Any resulting publications, models, or outputs must be reviewed and approved by the Clinic
+            Any resulting publications, models, or outputs must be reviewed and approved by the Executive Director or CEO of the Clinic
             prior to external release if they contain or are derived from Clinic data.
         </li>
         </ul>
