@@ -341,6 +341,7 @@ export default function AdminPage() {
     .includes(profile?.default_role)
 
   const isCredentialing = profile?.default_role === 'Credentialing'
+  const isHR = profile?.default_role === 'Human Resources'
     
   // ── Profile photo state ──────────────────────────────────────────────────────
   const [profilePhotoUrl, setProfilePhotoUrl]         = useState(null)
@@ -1155,6 +1156,11 @@ export default function AdminPage() {
             ? [
                 ['providers', 'Providers'], ['volunteers', 'Volunteers'],
                 ['create', 'Add Volunteer'], ['shifts', 'Shifts'],
+              ]
+            : isHR
+            ? [
+                ['dashboard', 'Live'], ['schedule', 'Scheduling'], ['volunteers', 'Volunteers'],
+                ['pipeline', 'Pipeline'], ['hours', 'Hours'], ['shifts', 'Shifts'], ['callouts', 'Call-Outs'],
               ]
             : [
                 ['dashboard', 'Live'], ['schedule', 'Scheduling'], ['volunteers', 'Volunteers'], ['providers', 'Providers'],
