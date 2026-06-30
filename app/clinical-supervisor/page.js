@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 import { getMountainNow, getMountainLabel } from '../../lib/timeUtils'
-import LunchScheduler from '../../components/LunchScheduler'
+// import LunchScheduler from '../../components/LunchScheduler'
 import ProviderScheduleView from '../../components/ProviderScheduleView'
 import Live from '../../components/Live'
 
@@ -283,7 +283,7 @@ export default function CSPage() {
     ['live', 'Live'],
     ['schedule', 'Schedule'],
     ['languages', 'Language Coverage'],
-    ['lunch', 'Lunch'],
+    // ['lunch', 'Lunch'],
     ['providers', 'Providers'],
   ]
 
@@ -709,9 +709,9 @@ export default function CSPage() {
           </div>
         )}
 
-        {tab === 'lunch' && (
+        {/* {tab === 'lunch' && (
           <LunchScheduler supabase={supabase} profile={myProfile} />
-        )}
+        )} */}
 
       </div>
     </div>
