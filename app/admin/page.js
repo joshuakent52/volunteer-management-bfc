@@ -1160,7 +1160,7 @@ export default function AdminPage() {
             : isHR
             ? [
                 ['dashboard', 'Live'], ['schedule', 'Scheduling'], ['volunteers', 'Volunteers'],
-                ['pipeline', 'Pipeline'], ['hours', 'Hours'], ['shifts', 'Shifts'], ['callouts', 'Call-Outs'],
+                ['pipeline', 'Pipeline'], ['hours', 'Hours'], ['shifts', 'Shifts'], ['data', 'Data'], ['callouts', 'Call-Outs'],
               ]
             : [
                 ['dashboard', 'Live'], ['schedule', 'Scheduling'], ['volunteers', 'Volunteers'], ['providers', 'Providers'],
