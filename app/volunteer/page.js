@@ -432,6 +432,114 @@ function BottomNav({ activeTab, onSelectTab, unreadCount }) {
   )
 }
 
+function DesktopHeader({ activeTab, onSelectTab, unreadCount, otherItems, otherBadge, otherOpen, onToggleOther, onCloseOther, showSwitchView, onSwitchView, onSignOut }) {
+  function navTabStyle(active) {
+    return {
+      background: 'none',
+      border: 'none',
+      padding: '0.25rem 0',
+      fontSize: '0.95rem',
+      fontWeight: active ? 600 : 500,
+      color: active ? 'var(--text)' : 'var(--muted)',
+      cursor: 'pointer',
+      fontFamily: 'DM Sans, sans-serif',
+      position: 'relative',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '0.4rem',
+    }
+  }
+
+  function Badge({ count }) {
+    if (!count) return null
+    return (
+      <span style={{
+        background: '#ef4444', color: '#fff', borderRadius: '50%',
+        minWidth: '17px', height: '17px', padding: '0 4px', fontSize: '0.65rem', fontWeight: 700,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+      }}>
+        {count > 9 ? '9+' : count}
+      </span>
+    )
+  }
+
+  const otherActive = otherOpen || otherItems.some(i => i.key === activeTab)
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.75rem', paddingBottom: '1.1rem', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '2.25rem' }}>
+        <img src="/logo2.png" alt="Logo" style={{ width: '36px', height: '36px', objectFit: 'contain', borderRadius: '8px' }} />
+        <button style={navTabStyle(activeTab === 'clock')} onClick={() => onSelectTab('clock')}>
+          Home
+        </button>
+        <button style={navTabStyle(activeTab === 'schedule')} onClick={() => onSelectTab('schedule')}>
+          Schedule
+        </button>
+        <button style={navTabStyle(activeTab === 'messages')} onClick={() => onSelectTab('messages')}>
+          Messages
+          <Badge count={unreadCount} />
+        </button>
+        <div style={{ position: 'relative' }}>
+          <button style={navTabStyle(otherActive)} onClick={onToggleOther}>
+            Other
+            <Badge count={otherBadge} />
+          </button>
+          {otherOpen && (
+            <>
+              <div onClick={onCloseOther} style={{ position: 'fixed', inset: 0, zIndex: 998 }} />
+              <div style={{
+                position: 'absolute', top: 'calc(100% + 0.7rem)', left: 0, minWidth: '200px',
+                background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px',
+                boxShadow: '0 10px 30px rgba(0,0,0,0.25)', padding: '0.4rem', zIndex: 999,
+                display: 'flex', flexDirection: 'column', gap: '0.15rem',
+              }}>
+                {otherItems.map(({ key, label, badge }) => (
+                  <button
+                    key={key}
+                    onClick={() => { onSelectTab(key); onCloseOther() }}
+                    style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      textAlign: 'left', padding: '0.6rem 0.8rem', borderRadius: '7px', border: 'none',
+                      background: activeTab === key ? 'var(--accent)' : 'transparent',
+                      color: activeTab === key ? '#fff' : 'var(--text)',
+                      fontSize: '0.88rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                    }}
+                  >
+                    {label}
+                    <Badge count={badge} />
+                  </button>
+                ))}
+                {showSwitchView && (
+                  <button
+                    onClick={() => { onSwitchView(); onCloseOther() }}
+                    style={{
+                      textAlign: 'left', padding: '0.6rem 0.8rem', borderRadius: '7px', border: 'none',
+                      background: 'transparent', color: 'var(--text)', fontSize: '0.88rem', fontWeight: 500,
+                      cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', marginTop: '0.2rem',
+                    }}
+                  >
+                    Switch View
+                  </button>
+                )}
+                <button
+                  onClick={() => { onSignOut(); onCloseOther() }}
+                  style={{
+                    textAlign: 'left', padding: '0.6rem 0.8rem', borderRadius: '7px', border: 'none',
+                    background: 'transparent', color: 'var(--muted)', fontSize: '0.88rem', fontWeight: 500,
+                    cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                  }}
+                >
+                  Sign out
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Debug error boundary ──────────────────────────────────────────────────
 // Wraps the page so that any render error shows up as visible red text +
 // a console.error with the full stack, instead of silently leaving a
