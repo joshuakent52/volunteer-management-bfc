@@ -1097,17 +1097,22 @@ function VolunteerPageInner() {
     profile?.default_role === 'Office Manager'
 
   function handleSwitchView() {
+    // Admins take priority even if they also hold a Clinical Supervisor /
+    // Office Manager default_role — check admin first.
+    if (profile?.role === 'admin') {
+      if (window.location.pathname.includes('admin')) {
+        window.location.href = '/volunteer'
+      } else {
+        window.location.href = '/admin'
+      }
+      return
+    }
     if (
       profile?.default_role === 'Clinical Supervisor' ||
       profile?.default_role === 'Office Manager'
     ) {
       window.location.href = '/clinical-supervisor'
       return
-    }
-    if (window.location.pathname.includes('admin')) {
-      window.location.href = '/volunteer'
-    } else {
-      window.location.href = '/admin'
     }
   }
 
