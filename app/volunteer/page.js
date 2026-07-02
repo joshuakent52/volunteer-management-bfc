@@ -585,13 +585,23 @@ function VolunteerPageInner() {
 
   const [isMobile, setIsMobile] = useState(true)
   useEffect(() => {
-    // Device-based detection via the browser's user-agent string, rather than
-    // window width. This means the layout is tied to the actual device type
-    // and won't change if a desktop browser window is resized narrow.
+    // Primary signal: device-based detection via the user-agent string.
+    // Secondary signal: a narrow viewport (<428px) also counts as mobile,
+    // so a desktop browser window can't get stuck rendering the mobile
+    // layout at a wide width, but a squeezed-down window still gets it.
     const ua = navigator.userAgent || navigator.vendor || ''
-    const next = /android|iphone|ipad|ipod|iemobile|blackberry|opera mini|mobile/i.test(ua)
-    console.log('[VolunteerPage] isMobile (user-agent):', next, 'ua:', ua)
-    setIsMobile(next)
+    const isMobileUA = /android|iphone|ipad|ipod|iemobile|blackberry|opera mini|mobile/i.test(ua)
+    const check = () => {
+      const isNarrow = window.innerWidth < 428
+      const next = isMobileUA || isNarrow
+      setIsMobile(prev => {
+        if (prev !== next) console.log('[VolunteerPage] isMobile changed:', prev, '->', next, 'ua match:', isMobileUA, 'width:', window.innerWidth)
+        return next
+      })
+    }
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
   }, [])
 
   // Catch anything that wouldn't otherwise show up in the console: async
